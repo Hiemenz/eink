@@ -1,0 +1,15 @@
+width: 800
+height: 480
+background_color: "white"
+background_color_weather: "black"
+text_color: "black"
+image_format: "bmp"
+max_font_size: 51
+min_font_size: 10
+font_path: "/Library/Fonts/Arial\ Unicode.ttf"
+output_path: "eink_display.bmp"
+
+station: KOHX # KOHX # KTYX SOUTHROCKIES  KTBW
+output_mode: grayscale # Options: "color", "grayscale", "binary"
+
+radar_mode: fit # "crop"  # or "fit"
