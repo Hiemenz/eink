@@ -2,6 +2,8 @@ import requests
 import io
 from PIL import Image, ImageDraw, ImageFont
 from eink_generator import load_config  # assuming load_config loads your YAML config
+from display import display_single_image
+
 
 def generate_weather_image(config):
     """
@@ -85,6 +87,8 @@ def generate_weather_image(config):
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
+
+    display_single_image(output_path)
     return final_img
 
 def main():
