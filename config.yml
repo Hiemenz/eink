@@ -1,7 +1,7 @@
 width: 800
 height: 480
 background_color: "white"
-background_color_weather: "black"
+background_color_weather: "white"
 text_color: "black"
 image_format: "bmp"
 max_font_size: 51

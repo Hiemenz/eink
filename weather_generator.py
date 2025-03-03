@@ -93,8 +93,6 @@ def generate_weather_image(config):
     else:
         raise ValueError(f"Invalid output_mode '{output_mode}'. Use 'color', 'grayscale', or 'binary'.")
     
-
-
     if os.path.exists(output_path):
         # Convert the loaded image to the same mode as final_img
         if images_are_equal(existing_img, final_img):
