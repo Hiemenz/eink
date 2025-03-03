@@ -3,7 +3,14 @@ import io
 from PIL import Image, ImageDraw, ImageFont
 from eink_generator import load_config  # assuming load_config loads your YAML config
 from display import display_single_image
+import os
+import hashlib
 
+def images_are_equal(img1, img2):
+    """Compare two images by hashing their byte content."""
+    hash1 = hashlib.md5(img1.tobytes()).hexdigest()
+    hash2 = hashlib.md5(img2.tobytes()).hexdigest()
+    return hash1 == hash2
 
 def generate_weather_image(config):
     """
@@ -84,11 +91,21 @@ def generate_weather_image(config):
         pass
     else:
         raise ValueError(f"Invalid output_mode '{output_mode}'. Use 'color', 'grayscale', or 'binary'.")
+    
+
+
+
+    if os.path.exists(output_path):
+        existing_img = Image.open(output_path).convert("RGB")
+        if images_are_equal(existing_img, final_img):
+            print('images the same do nothing')
+            return
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
 
     display_single_image(output_path)
+    print('displaying image')
     return final_img
 
 def main():
