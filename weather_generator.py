@@ -6,11 +6,9 @@ from display import display_single_image
 import os
 import hashlib
 
+
 def images_are_equal(img1, img2):
-    """Compare two images by hashing their byte content."""
-    hash1 = hashlib.md5(img1.tobytes()).hexdigest()
-    hash2 = hashlib.md5(img2.tobytes()).hexdigest()
-    return hash1 == hash2
+    return list(img1.getdata()) == list(img2.getdata())
 
 def generate_weather_image(config):
     """
