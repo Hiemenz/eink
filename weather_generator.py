@@ -82,10 +82,13 @@ def generate_weather_image(config):
 
     if output_mode == "binary":
         final_img = final_img.convert("1")
+        existing_img = Image.open(output_path).convert("1")
     elif output_mode == "grayscale":
         final_img = final_img.convert("L")
+        existing_img = Image.open(output_path).convert("L")
     elif output_mode == "color":
         # No conversion needed; keep the image in full color.
+        existing_img = Image.open(output_path)        
         pass
     else:
         raise ValueError(f"Invalid output_mode '{output_mode}'. Use 'color', 'grayscale', or 'binary'.")
