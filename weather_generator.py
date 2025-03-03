@@ -1,15 +1,15 @@
 import requests
 import io
-from PIL import Image, ImageChops
+from PIL import Image
 from eink_generator import load_config  # assuming load_config loads your YAML config
 from display import display_single_image
 import os
 
 def images_are_equal(img1, img2):
-    # Compute the difference image
-    diff = ImageChops.difference(img1, img2)
-    # If there's no bounding box, the images are identical
-    return diff.getbbox() is None
+    if img1.mode != img2.mode or img1.size != img2.size:
+        return False
+    return list(img1.getdata()) == list(img2.getdata())
+
 def generate_weather_image(config):
     """
     Generate a weather image of size (width x height) with a radar image
