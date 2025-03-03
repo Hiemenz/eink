@@ -1,15 +1,15 @@
 import requests
 import io
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops
 from eink_generator import load_config  # assuming load_config loads your YAML config
 from display import display_single_image
 import os
-import hashlib
-
 
 def images_are_equal(img1, img2):
-    return list(img1.getdata()) == list(img2.getdata())
-
+    # Compute the difference image
+    diff = ImageChops.difference(img1, img2)
+    # If there's no bounding box, the images are identical
+    return diff.getbbox() is None
 def generate_weather_image(config):
     """
     Generate a weather image of size (width x height) with a radar image
@@ -102,8 +102,8 @@ def generate_weather_image(config):
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
 
-    display_single_image(output_path)
     print('displaying image')
+    display_single_image(output_path)
     return final_img
 
 def main():
