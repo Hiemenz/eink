@@ -92,12 +92,13 @@ def generate_weather_image(config):
     
 
 
-
     if os.path.exists(output_path):
-        existing_img = Image.open(output_path).convert("RGB")
+        # Convert the loaded image to the same mode as final_img
+        existing_img = Image.open(output_path).convert(output_mode)
         if images_are_equal(existing_img, final_img):
             print('images the same do nothing')
             return
+    
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
