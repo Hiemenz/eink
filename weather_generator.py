@@ -88,8 +88,8 @@ def generate_weather_image(config):
         existing_img = Image.open(output_path).convert("L")
     elif output_mode == "color":
         # No conversion needed; keep the image in full color.
-        existing_img = Image.open(output_path)        
-        pass
+        existing_img = Image.open(output_path)      
+
     else:
         raise ValueError(f"Invalid output_mode '{output_mode}'. Use 'color', 'grayscale', or 'binary'.")
     
@@ -104,12 +104,12 @@ def generate_weather_image(config):
     print(f"Saved final weather image to {output_path}")
 
     print('displaying image')
-    display_single_image(output_path)
-    return final_img
+    return output_path
 
 def main():
     config = load_config('config.yml')
-    generate_weather_image(config)
+    output_path = generate_weather_image(config)
+    display_single_image(output_path)
 
 if __name__ == '__main__':
     main()

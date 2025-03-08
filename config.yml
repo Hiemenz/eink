@@ -9,7 +9,7 @@ min_font_size: 10
 font_path: "/Library/Fonts/Arial\ Unicode.ttf"
 output_path: "eink_display.bmp"
 
-station: KOHX # KOHX # KTYX SOUTHROCKIES  KTBW
-output_mode: grayscale # Options: "color", "grayscale", "binary"
+station: CONUS-LARGE #KOHX # KOHX # KTYX SOUTHROCKIES  KTBW   KHTX KHPX
+output_mode: color # Options: "color", "grayscale", "binary"
 
 radar_mode: fit # "crop"  # or "fit"
