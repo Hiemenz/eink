@@ -162,7 +162,7 @@ def generate_weather_image(config):
         display_single_image(output_path)
 
     quantize_to_seven_colors(output_path, 'eink_quantized_display.bmp')
-    display_color_image(output_path)
+    display_color_image('eink_quantized_display.bmp')
 
     return output_path
 
