@@ -2,7 +2,7 @@ import requests
 import io
 from PIL import Image
 from eink_generator import load_config  # assuming load_config loads your YAML config
-from display import display_single_image
+from display import display_single_image, display_color_image
 import os
 
 def images_are_equal(img1, img2):
@@ -104,12 +104,17 @@ def generate_weather_image(config):
     print(f"Saved final weather image to {output_path}")
 
     print('displaying image')
+
+    if output_mode != "color":
+        display_single_image(output_path)
+    display_color_image(output_path)
+
     return output_path
 
 def main():
     config = load_config('config.yml')
-    output_path = generate_weather_image(config)
-    display_single_image(output_path)
+    generate_weather_image(config)
+
 
 if __name__ == '__main__':
     main()
