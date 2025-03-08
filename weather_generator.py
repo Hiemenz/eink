@@ -10,6 +10,59 @@ def images_are_equal(img1, img2):
         return False
     return list(img1.getdata()) == list(img2.getdata())
 
+
+
+def quantize_to_seven_colors(input_path, output_path):
+    # Step 1: define your 7 desired colors (RGB). 
+    # For illustration, I’ll guess some example colors. Replace with the exact colors you need.
+    seven_colors = [
+        (0, 0, 0),       # black
+        (255, 255, 255), # white
+        (255, 0, 0),     # red
+        (0, 255, 0),     # green
+        (0, 0, 255),     # blue
+        (255, 255, 0),   # yellow
+        (255, 128, 0)    # orange
+    ]
+
+    # Step 2: create a new “P” mode image with space for 256 colors in the palette
+    palette_img = Image.new("P", (1, 1))
+    
+    # Pillow’s palette is a list of 768 values (256 colors * 3 channels).
+    # We’ll build this list so that the first 7 slots are our chosen colors,
+    # and the rest can be copies of the last color (or just zero).
+    full_palette = []
+    for color in seven_colors:
+        full_palette.extend(color)  # add R, G, B
+
+    # Fill the rest of the palette up to 256 colors.
+    # Each color is 3 bytes, so we need 256*3 = 768 total entries.
+    # We already have 7 * 3 = 21 entries used.
+    # We need 768 - 21 = 747 more entries.
+    if len(full_palette) < 768:
+        # Repeat the last color to fill up
+        last_color = full_palette[-3:]
+        full_palette.extend(last_color * ((768 - len(full_palette)) // 3))
+
+    # Assign this palette to the image
+    palette_img.putpalette(full_palette)
+
+    # Step 3: Open your source image
+    original = Image.open(input_path).convert("RGB")
+
+    # Step 4: Convert the source image to “P” using our custom palette
+    # Use ‘NONE’ dithering if you don’t want mixing of the 7 colors in each pixel.
+    # For more natural results, you can try Image.FLOYDSTEINBERG dithering, but that will blend neighbors.
+    quantized = original.quantize(palette=palette_img, dither=Image.NONE)
+
+    # Step 5 (optional): Convert the “P” image back to “RGB”
+    # so you can save a normal RGB file that only has those 7 colors
+    final_rgb = quantized.convert("RGB")
+
+    # Step 6: Save the result
+    final_rgb.save(output_path, format="bmp")
+    return 
+
 def generate_weather_image(config):
     """
     Generate a weather image of size (width x height) with a radar image
@@ -107,6 +160,8 @@ def generate_weather_image(config):
 
     if output_mode != "color":
         display_single_image(output_path)
+
+    quantize_to_seven_colors(output_path, 'eink_quantized_display.bmp')
     display_color_image(output_path)
 
     return output_path
