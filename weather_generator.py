@@ -128,6 +128,8 @@ def generate_weather_image(config):
     quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
     
     print('Processing complete.')
+
+    display_color_image(quantized_output_path)
     return output_path
 
 def calculate_non_bw_percentage(image_path):
@@ -153,9 +155,6 @@ def main():
     generate_weather_image(config)
     percentage = calculate_non_bw_percentage(config.get("quantized_path","eink_quantized_display.bmp"))
     print(percentage)
-
-    display_color_image(config.get("quantized_path","eink_quantized_display.bmp"))
-
 
 if __name__ == '__main__':
     main()
