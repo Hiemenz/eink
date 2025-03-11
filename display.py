@@ -3,7 +3,7 @@ import json
 import time
 import sys
 sys.path.append('lib')  # Ensure the library path is correct
-from waveshare_epd import epd7in5_V2, epd7in3e  # Adjust the import based on your specific model
+from waveshare_epd import epd7in5_V2, epd7in3f  # Adjust the import based on your specific model
 from PIL import Image
 
 starting_image = 0
@@ -60,7 +60,7 @@ def display_single_image(image_file):
 
 def display_color_image(image_file):
     # Initialize and clear the display
-    epd = epd7in3e.EPD()
+    epd = epd7in3f.EPD()
     epd.init()
     epd.Clear()
 

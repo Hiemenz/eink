@@ -51,13 +51,12 @@ class EPD:
         self.height = EPD_HEIGHT
         self.BLACK  = 0x000000   #   0000  BGR
         self.WHITE  = 0xffffff   #   0001
-        self.YELLOW = 0x00ffff   #   0010
-        self.RED    = 0x0000ff   #   0011
-        # self.ORANGE = 0x0080ff   #   0100
-        self.BLUE   = 0xff0000   #   0101
-        self.GREEN  = 0x00ff00   #   0110
+        self.GREEN  = 0x00ff00   #   0010
+        self.BLUE   = 0xff0000   #   0011
+        self.RED    = 0x0000ff   #   0100
+        self.YELLOW = 0x00ffff   #   0101
+        self.ORANGE = 0x0080ff   #   0110
         
-
     # Hardware reset
     def reset(self):
         epdconfig.digital_write(self.reset_pin, 1)
@@ -112,7 +111,7 @@ class EPD:
         self.ReadBusyH()
         epdconfig.delay_ms(30)
 
-        self.send_command(0xAA)   
+        self.send_command(0xAA)    # CMDH
         self.send_data(0x49)
         self.send_data(0x55)
         self.send_data(0x20)
@@ -122,8 +121,13 @@ class EPD:
 
         self.send_command(0x01)
         self.send_data(0x3F)
+        self.send_data(0x00)
+        self.send_data(0x32)
+        self.send_data(0x2A)
+        self.send_data(0x0E)
+        self.send_data(0x2A)
 
-        self.send_command(0x00)  
+        self.send_command(0x00)
         self.send_data(0x5F)
         self.send_data(0x69)
 
@@ -142,8 +146,8 @@ class EPD:
         self.send_command(0x06)
         self.send_data(0x6F)
         self.send_data(0x1F)
-        self.send_data(0x17)
-        self.send_data(0x49)
+        self.send_data(0x1F)
+        self.send_data(0x22)
 
         self.send_command(0x08)
         self.send_data(0x6F)
@@ -151,8 +155,15 @@ class EPD:
         self.send_data(0x1F)
         self.send_data(0x22)
 
+        self.send_command(0x13)    # IPC
+        self.send_data(0x00)
+        self.send_data(0x04)
+
         self.send_command(0x30)
-        self.send_data(0x03)
+        self.send_data(0x3C)
+
+        self.send_command(0x41)     # TSE
+        self.send_data(0x00)
 
         self.send_command(0x50)
         self.send_data(0x3F)
@@ -167,21 +178,29 @@ class EPD:
         self.send_data(0x01) 
         self.send_data(0xE0)
 
+        self.send_command(0x82)
+        self.send_data(0x1E) 
+
         self.send_command(0x84)
-        self.send_data(0x01)
+        self.send_data(0x00)
+
+        self.send_command(0x86)    # AGID
+        self.send_data(0x00)
 
         self.send_command(0xE3)
         self.send_data(0x2F)
 
-        self.send_command(0x04)
-        self.ReadBusyH()
+        self.send_command(0xE0)   # CCSET
+        self.send_data(0x00) 
+
+        self.send_command(0xE6)   # TSSET
+        self.send_data(0x00)
         return 0
 
     def getbuffer(self, image):
         # Create a pallette with the 7 colors supported by the panel
         pal_image = Image.new("P", (1,1))
-        pal_image.putpalette( (0,0,0,  255,255,255,  255,255,0,  255,0,0,  0,0,0,  0,0,255,  0,255,0) + (0,0,0)*249)
-        # pal_image.putpalette( (0,0,0,  255,255,255,  0,255,0,   0,0,255,  255,0,0,  255,255,0, 255,128,0) + (0,0,0)*249)
+        pal_image.putpalette( (0,0,0,  255,255,255,  0,255,0,   0,0,255,  255,0,0,  255,255,0, 255,128,0) + (0,0,0)*249)
 
         # Check if we need to rotate the image
         imwidth, imheight = image.size
