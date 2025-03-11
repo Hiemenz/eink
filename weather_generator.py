@@ -7,9 +7,9 @@ from eink_generator import load_config  # assuming load_config loads your YAML c
 import os
 import math
 
-# from display import display_color_image
+from display import display_color_image
 
-images_same = True
+
 STATE_FILE = os.path.join("radar", "radar_state.json")
 
 def load_state(state_file):
@@ -25,10 +25,8 @@ def save_state(state_file, state):
 def images_are_equal(img1, img2):
     if img1.mode != img2.mode or img1.size != img2.size:
         return False
-    global images_same 
-    images_same = list(img1.getdata()) == list(img2.getdata())
-    return images_same
-
+    return list(img1.getdata()) == list(img2.getdata())
+    
 def distance(c1, c2):
     # Euclidean distance in RGB space
     return math.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2 + (c1[2] - c2[2])**2)
@@ -213,18 +211,21 @@ def main():
     else:
         print("Default station is dynamic enough; using default image.")
 
-    # Only update the display if an image has changed.
+
     if image_updated:
-        # display_color_image(final_display_image)
+        display_color_image(final_display_image)
         print(f"Displayed image: {final_display_image}")
 
-        # After the display update, check if it's time for a full refresh.
+        # Check if it's time for a full refresh.
         if now - state.get("last_full_scan", 0) >= full_scan_interval:
-            print("Running full refresh after display update...")
+            # Immediately mark the state as updated before starting the full scan.
+            state["last_full_scan"] = now
+            save_state(STATE_FILE, state)
+            print("Full refresh state updated in JSON. Running full refresh after display update...")
+            
             percentages = full_station_scan(config)
             top5_list = update_top5(percentages)
             top5_data = [{"station": s, "percentage": p} for s, p in top5_list]
-            state["last_full_scan"] = time.time()
             state["top5"] = top5_data
             save_state(STATE_FILE, state)
         else:
