@@ -130,7 +130,7 @@ def generate_weather_image(config):
     quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
     
     print('Processing complete.')
-    return output_path, True
+    return quantized_output_path, True
 
 def calculate_non_bw_percentage(image_path):
     """
@@ -205,9 +205,9 @@ def main():
         else:
             print("Default station image is dynamic enough; no need to switch stations.")
     
-    # Single display update (uncomment the display call in your real deployment).
-    display_color_image(final_display_image)
-    print(f"Final image to display: {final_display_image}")
+        # Single display update (uncomment the display call in your real deployment).
+        display_color_image(final_display_image)
+        print(f"Final image to display: {final_display_image}")
 
 if __name__ == '__main__':
     main()
