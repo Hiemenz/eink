@@ -119,7 +119,7 @@ def generate_weather_image(config):
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
     quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
-    return output_path, True
+    return quantized_output_path, True
 
 def calculate_non_bw_percentage(image_path):
     """
@@ -210,7 +210,6 @@ def main():
             final_display_image = best_image_path
     else:
         print("Default station is dynamic enough; using default image.")
-
 
     if image_updated:
         display_color_image(final_display_image)
