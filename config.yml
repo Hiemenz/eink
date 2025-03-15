@@ -9,10 +9,11 @@ min_font_size: 10
 font_path: /Library/Fonts/Arial\ Unicode.ttf
 output_path: eink_display.bmp
 interesting_threshold: 15
-full_scan_interval: 2400
+full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: fit # "crop"  # or "fit"
 url_qr_loop: False
+show_top_5: True
 
 station:
   name: KOHX

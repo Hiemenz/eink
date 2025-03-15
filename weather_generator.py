@@ -142,12 +142,10 @@ def generate_weather_image(config):
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
 
-    # If an image exists, compare to avoid unnecessary update.
-    if os.path.exists(output_path):
-        existing_img = Image.open(output_path).convert(final_img.mode)
-        if images_are_equal(existing_img, final_img):
-            print(f"Station {station}: Image unchanged.")
-            return output_path, False
+    # If a quantized image already exists, load it for later comparison.
+    old_quant = None
+    if os.path.exists(quantized_output_path):
+        old_quant = Image.open(quantized_output_path).convert("RGB")
     
     # Generate QR code for the radar image URL
     qr = qrcode.make(radar_url_qr)
@@ -168,10 +166,26 @@ def generate_weather_image(config):
     text_x = qr_x
     text_y = qr_y + qr.height + margin
     draw.text((text_x, text_y), location, fill="black", font=font)
+    
+    # Draw top 5 stations on the left side if available
+    top5 = config.get("top5", [])
+    if top5 and config.get('show_top_5', True):
+        left_margin = margin
+        top_margin = margin
+        for i, (station, percentage) in enumerate(top5):
+            text_str = f"{station}: {percentage:.1f}%"
+            bbox_station = draw.textbbox((0, 0), text_str, font=font)
+            line_height = bbox_station[3] - bbox_station[1]
+            draw.text((left_margin, top_margin + i * (line_height + margin)), text_str, fill="black", font=font)
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
+    # Generate new quantized image from the updated raw image.
     quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
+    new_quant = Image.open(quantized_output_path).convert("RGB")
+    if old_quant is not None and images_are_equal(old_quant, new_quant):
+        print(f"Station {station}: Quantized image unchanged.")
+        return None, False
     return quantized_output_path, True
 
 def calculate_non_bw_percentage(image_path):
@@ -223,6 +237,8 @@ def main():
     
     config = load_config('config.yml')
     
+    update_count = 0  # Initialize update_count
+
     # Load persistent state, which stores the time of the last full scan and the cached top5.
     state = load_state(STATE_FILE) or {}
     now = time.time()
@@ -242,9 +258,11 @@ def main():
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
     default_image_path, default_updated = generate_weather_image(config)
-    if default_image_path is None:
-        print(f"Skipping processing for the default station {default_station} due to image fetch failure.")
-        return
+    if default_image_path is None and not default_updated:
+        print(f"Default station {default_station}: No changes detected. Keeping current display.")
+        default_image_path = config["quantized_path"]  # Use the last valid image
+    if default_updated and default_image_path is not None:
+        update_count += 1  # Increment update_count if default_updated is True and image_path is not None
     default_percentage = calculate_non_bw_percentage(config["quantized_path"])
     print(f"Default station ({default_station}) has {default_percentage:.2f}% interesting pixels.")
     
@@ -264,20 +282,23 @@ def main():
             if image_path is None:
                 print(f"Skipping processing for station {station} due to image fetch failure.")
                 continue
-            if updated:
+            if updated and image_path is not None:
+                update_count += 1  # Increment update_count if updated is True and image_path is not None
                 image_updated = True
             perc = calculate_non_bw_percentage(config["quantized_path"])
             if perc > best_percentage:
-                best_percentage = perc
-                best_station = station
-                best_image_path = config["quantized_path"]
-        if best_station:
+                if image_path is not None:
+                    best_percentage = perc
+                    best_station = station
+                    best_image_path = config["quantized_path"]
+                    update_count += 1  # Increment update_count if a new best station is selected and image_path is not None
+        if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}% interesting pixels.")
             final_display_image = best_image_path
     else:
         print("Default station is dynamic enough; using default image.")
 
-    if image_updated:
+    if update_count > 0:  # Check if update_count is greater than 0
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)
             print(f"Displayed image: {final_display_image}")
@@ -299,7 +320,7 @@ def main():
         else:
             print("Not enough time has elapsed for full refresh.")
     else:
-        print("No changes detected; display update skipped.")
+        print("No image changes detected; display update skipped.")
 
 if __name__ == '__main__':
     main()
