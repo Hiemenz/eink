@@ -1,18 +1,538 @@
 width: 800
 height: 480
-background_color: "white"
-background_color_weather: "white"
-text_color: "black"
-image_format: "bmp"
+background_color: white
+background_color_weather: white
+text_color: black
+image_format: bmp
 max_font_size: 51
 min_font_size: 10
-font_path: "/Library/Fonts/Arial\ Unicode.ttf"
-output_path: "eink_display.bmp"
+font_path: /Library/Fonts/Arial\ Unicode.ttf
+output_path: eink_display.bmp
 interesting_threshold: 15
-station: KOHX # KJAX #KOHX #CONUS-LARGE #KOHX # KOHX # KTYX SOUTHROCKIES  KTBW   KHTX KHPX
+full_scan_interval: 2400
 output_mode: color # Options: "color", "grayscale", "binary"
-
 radar_mode: fit # "crop"  # or "fit"
+url_qr_loop: False
+
+station:
+  name: KOHX
+  location: Nashville, TN
+  zone_code: 
+
+stations: 
+    - name: KRLX
+      location: Charleston, WV
+      zone_code: "WVZ020"
+    - name: KVAX
+      location: Tallahassee, FL
+      zone_code: "FLZ007"
+    - name: KABR
+      location: Aberdeen, SD
+      zone_code: "SDZ003"
+    - name: KABX
+      location: Albuquerque, NM
+      zone_code: "NMZ005"
+    - name: KAKQ
+      location: Wakefield, VA
+      zone_code: "VAZ048"
+    - name: KAMA
+      location: Amarillo, TX
+      zone_code: "TXZ010"
+    - name: KAMX
+      location: Miami, FL
+      zone_code: "FLZ072"
+    - name: KAPX
+      location: Gaylord/Alpena, MI
+      zone_code: "MIZ018"
+    - name: KARX
+      location: La Crosse, WI
+      zone_code: "WIZ041"
+    - name: KATX
+      location: Seattle/Tacoma, WA
+      zone_code: "WAZ504"
+    - name: KBBX
+      location: Sacramento, CA
+      zone_code: "CAZ013"
+    - name: KBGM
+      location: Binghamton, NY
+      zone_code: "NYZ009"
+    - name: KBHX
+      location: Eureka, CA
+      zone_code: "CAZ101"
+    - name: KBIS
+      location: Bismarck, ND
+      zone_code: "NDZ001"
+    - name: KBLX
+      location: Billings, MT
+      zone_code: "MTZ028"
+    - name: KBMX
+      location: Birmingham, AL
+      zone_code: "ALZ024"
+    - name: KBOX
+      location: Boston/Norton, MA
+      zone_code: "MAZ007"
+    - name: KBRO
+      location: Brownsville, TX
+      zone_code: "TXZ050"
+    - name: KBUF
+      location: Buffalo, NY
+      zone_code: "NYZ001"
+    - name: KBYX
+      location: Key West, FL
+      zone_code: "FLZ078"
+    - name: KCAE
+      location: Columbia, SC
+      zone_code: "SCZ015"
+    - name: KCBW
+      location: Caribou, ME
+      zone_code: "MEZ001"
+    - name: KCBX
+      location: Boise, ID
+      zone_code: "IDZ001"
+    - name: KCCX
+      location: State College/Central, PA
+      zone_code: "PAZ004"
+    - name: KCLE
+      location: Cleveland, OH
+      zone_code: "OHZ003"
+    - name: KCLX
+      location: Charleston, SC
+      zone_code: "SCZ031"
+    - name: KCRP
+      location: Corpus Christi, TX
+      zone_code: "TXZ242"
+    - name: KCXX
+      location: Burlington, VT
+      zone_code: "VTZ002"
+    - name: KCYS
+      location: Cheyenne, WY
+      zone_code: "WYZ001"
+    - name: KDAX
+      location: Sacramento, CA
+      zone_code: "CAZ013"
+    - name: KDDC
+      location: Dodge City, KS
+      zone_code: "KSZ030"
+    - name: KDFX
+      location: Del Rio, TX
+      zone_code: "TXZ173"
+    - name: KDGX
+      location: Jackson, MS
+      zone_code: "MSZ001"
+    - name: KDIX
+      location: Mt. Holly/Philadelphia, NJ
+      zone_code: "PAZ060"
+    - name: KDLH
+      location: Duluth, MN
+      zone_code: "MNZ002"
+    - name: KDMX
+      location: Des Moines, IA
+      zone_code: "IAZ043"
+    - name: KDOX
+      location: Philadelphia, PA
+      zone_code: "PAZ060"
+    - name: KDTX
+      location: Detroit, MI
+      zone_code: "MIZ063"
+    - name: KDVN
+      location: Quad Cities, IA
+      zone_code: "IAZ067"
+    - name: KDYX
+      location: Abilene, TX
+      zone_code: "TXZ049"
+    - name: KEAX
+      location: Kansas City/Pleasant Hill, MO
+      zone_code: "MOZ059"
+    - name: KEMX
+      location: Tucson, AZ
+      zone_code: "AZZ020"
+    - name: KENX
+      location: Albany, NY
+      zone_code: "NYZ020"
+    - name: KEOX
+      location: Dothan, AL
+      zone_code: "ALZ020"
+    - name: KEPZ
+      location: El Paso, TX
+      zone_code: "TXZ055"
+    - name: KESX
+      location: Las Vegas, NV
+      zone_code: "NVZ016"
+    - name: KEVX
+      location: Pensacola, FL
+      zone_code: "FLZ021"
+    - name: KEWX
+      location: Austin/San Antonio, TX
+      zone_code: "TXZ193"
+    - name: KEYX
+      location: Los Angeles, CA
+      zone_code: "CAZ041"
+    - name: KFCX
+      location: Blacksburg/Roanoke, VA
+      zone_code: "VAZ012"
+    - name: KFDR
+      location: Frederick, OK
+      zone_code: "OKZ019"
+    - name: KFDX
+      location: Clovis, NM
+      zone_code: "NMZ017"
+    - name: KFFC
+      location: Atlanta, GA
+      zone_code: "GAZ002"
+    - name: KFSD
+      location: Sioux Falls, SD
+      zone_code: "SDZ039"
+    - name: KFSX
+      location: Flagstaff, AZ
+      zone_code: "AZZ014"
+    - name: KFTG
+      location: Denver/Boulder, CO
+      zone_code: "COZ030"
+    - name: KFWS
+      location: Dallas/Fort Worth, TX
+      zone_code: "TXZ090"
+    - name: KGGW
+      location: Glasgow, MT
+      zone_code: "MTZ027"
+    - name: KGJX
+      location: Grand Junction, CO
+      zone_code: "COZ018"
+    - name: KGLD
+      location: Goodland, KS
+      zone_code: "KSZ001"
+    - name: KGRB
+      location: Green Bay, WI
+      zone_code: "WIZ020"
+    - name: KGRK
+      location: Austin, TX
+      zone_code: "TXZ193"
+    - name: KGRR
+      location: Grand Rapids, MI
+      zone_code: "MIZ042"
+    - name: KGSP
+      location: Greenville/Spartanburg, SC
+      zone_code: "SCZ024"
+    - name: KGWX
+      location: Columbus, MS
+      zone_code: "MSZ010"
+    - name: KGYX
+      location: Gray/Portland, ME
+      zone_code: "MEZ002"
+    - name: KHDX
+      location: Alamogordo, NM
+      zone_code: "NMZ028"
+    - name: KHGX
+      location: Houston/Galveston, TX
+      zone_code: "TXZ029"
+    - name: KHNX
+      location: San Joaquin Valley, CA
+      zone_code: "CAZ042"
+    - name: KHPX
+      location: Ft. Campbell, KY
+      zone_code: "KYZ006"
+    - name: KHTX
+      location: Hytop/Huntsville, AL
+      zone_code: "ALZ008"
+    - name: KICT
+      location: Wichita, KS
+      zone_code: "KSZ061"
+    - name: KICX
+      location: Cedar City, UT
+      zone_code: "UTZ002"
+    - name: KILN
+      location: Wilmington, OH
+      zone_code: "OHZ022"
+    - name: KILX
+      location: Lincoln, IL
+      zone_code: "ILZ010"
+    - name: KIND
+      location: Indianapolis, IN
+      zone_code: "INZ021"
+    - name: KINX
+      location: Tulsa, OK
+      zone_code: "OKZ060"
+    - name: KIWA
+      location: Phoenix, AZ
+      zone_code: "AZZ020"
+    - name: KIWX
+      location: Northern Indiana, IN
+      zone_code: "INZ025"
+    - name: KJAX
+      location: Jacksonville, FL
+      zone_code: "FLZ030"
+    - name: KJGX
+      location: Robins AFB, GA
+      zone_code: "GAZ025"
+    - name: KJKL
+      location: Jackson, KY
+      zone_code: "KYZ016"
+    - name: KLBB
+      location: Lubbock, TX
+      zone_code: "TXZ020"
+    - name: KLCH
+      location: Lake Charles, LA
+      zone_code: "LAZ027"
+    - name: KLGX
+      location: Langley Hill, WA
+      zone_code: "WAZ500"
+    - name: KLNX
+      location: North Platte, NE
+      zone_code: "NEZ001"
+    - name: KLOT
+      location: Chicago/Romeoville, IL
+      zone_code: "ILZ014"
+    - name: KLRX
+      location: Elko, NV
+      zone_code: "NVZ020"
+    - name: KLSX
+      location: St. Louis, MO
+      zone_code: "MOZ017"
+    - name: KLTX
+      location: Wilmington, NC
+      zone_code: "NCZ019"
+    - name: KOHX
+      location: Nashville, TN
+      zone_code: "TNZ005"
+    - name: KPOE
+      location: Fort Polk, LA
+      zone_code: "LAZ001"
+    - name: KRAX
+      location: Raleigh, NC
+      zone_code: "NCZ018"
+    - name: KRTX
+      location: Portland, OR
+      zone_code: "ORZ005"
+    - name: KSGF
+      location: Springfield, MO
+      zone_code: "MOZ066"
+    - name: KSHV
+      location: Shreveport, LA
+      zone_code: "LAZ027"
+    - name: KSOX
+      location: Santa Ana Mountains, CA
+      zone_code: "CAZ060"
+    - name: KTBW
+      location: Tampa Bay, FL
+      zone_code: "FLZ039"
+    - name: KTLH
+      location: Tallahassee, FL
+      zone_code: "FLZ007"
+    - name: KTLX
+      location: Oklahoma City, OK
+      zone_code: "OKZ026"
+    - name: KTWX
+      location: Topeka, KS
+      zone_code: "KSZ042"
+    - name: KUDX
+      location: Rapid City, SD
+      zone_code: "SDZ003"
+    - name: KVTX
+      location: Los Angeles, CA
+      zone_code: "CAZ041"
+    - name: KVBX
+      location: Vandenberg AFB, CA
+      zone_code: "CAZ034"
+    - name: KVNX
+      location: Vance AFB, Enid, OK
+      zone_code: "OKZ022"
+    - name: KGYX
+      location: Gray/Portland, ME
+      zone_code: "MEZ002"
+    - name: KHDX
+      location: Holloman AFB / White Sands, NM
+      zone_code: "NMZ029"
+    - name: KICT
+      location: Wichita, KS
+      zone_code: "KSZ061"
+    - name: KHPX
+      location: Hopkinsville/Ft. Campbell, KY
+      zone_code: "KYZ006"
+    - name: KHTX
+      location: Hytop/Huntsville, AL
+      zone_code: "ALZ008"
+    - name: KILN
+      location: Wilmington, OH
+      zone_code: "OHZ022"
+    - name: KINX
+      location: Tulsa, OK
+      zone_code: "OKZ060"
+    - name: KIWX
+      location: North Webster, IN
+      zone_code: "INZ025"
+    - name: KJAX
+      location: Jacksonville, FL
+      zone_code: "FLZ030"
+    - name: KLBB
+      location: Lubbock, TX
+      zone_code: "TXZ020"
+    - name: KLCH
+      location: Lake Charles, LA
+      zone_code: "LAZ027"
+    - name: KLNX
+      location: Thedford, NE
+      zone_code: "NEZ002"
+    - name: KLOT
+      location: Chicago/Romeoville, IL
+      zone_code: "ILZ014"
+    - name: KLTX
+      location: Wilmington, NC
+      zone_code: "NCZ019"
+    - name: KLWX
+      location: Sterling, VA (Washington, DC area)
+      zone_code: "VAZ024"
+    - name: KMAF
+      location: Midland/Odessa, TX
+      zone_code: "TXZ052"
+    - name: KMBX
+      location: Minot, ND
+      zone_code: "NDZ002"
+    - name: KMHX
+      location: Morehead City, NC
+      zone_code: "NCZ027"
+    - name: KMKX
+      location: Milwaukee/Sullivan, WI
+      zone_code: "WIZ020"
+    - name: KMPX
+      location: Minneapolis/Chanhassen, MN
+      zone_code: "MNZ014"
+    - name: KSFX
+      location: Pocatello/Idaho Falls, ID
+      zone_code: "IDZ001"
+    - name: KSJT
+      location: San Angelo, TX
+      zone_code: "TXZ053"
+    - name: KSRX
+      location: Fort Smith, AR
+      zone_code: "ARZ001"
+    - name: KTYX
+      location: Montague/Fort Drum, NY
+      zone_code: "NYZ016"
+    - name: KUEX
+      location: Hastings, NE
+      zone_code: "NEZ003"
+    - name: KVWX
+      location: Evansville, IN
+      zone_code: "INZ013"
+    - name: KYUX
+      location: Yuma, AZ
+      zone_code: "AZZ013"
+    - name: PABC
+      location: Bethel, AK
+      zone_code: "AKZ001"
+    - name: PACG
+      location: Sitka/Biorka Island, AK
+      zone_code: "AKZ011"
+    - name: PAEC
+      location: Nome, AK
+      zone_code: "AKZ002"
+    - name: PAIH
+      location: Middleton Island, AK
+      zone_code: "AKZ005"
+    - name: PAKC
+      location: King Salmon, AK
+      zone_code: "AKZ004"
+    - name: PAPD
+      location: Fairbanks/Pedro Dome, AK
+      zone_code: "AKZ003"
+    - name: PGUA
+      location: Andersen AFB, Guam
+      zone_code: "GUZ001"
+    - name: PHKI
+      location: Kauai, HI
+      zone_code: "HIZ002"
+    - name: PHKM
+      location: Kohala, HI
+      zone_code: "HIZ001"
+    - name: PHMO
+      location: Molokai, HI
+      zone_code: "HIZ004"
+    - name: PHWA
+      location: South Shore, HI
+      zone_code: "HIZ003"
+    - name: TJUA
+      location: San Juan, PR
+      zone_code: "PRZ001"
+    - name: KVTX
+      location: Los Angeles, CA
+      zone_code: "CAZ041"
+    - name: KOTX
+      location: Spokane, WA
+      zone_code: "WAZ001"
+    - name: PAHG
+      location: Kenai, AK
+      zone_code: "AKZ006"
+    - name: KTFX
+      location: Great Falls, MT
+      zone_code: "MTZ002"
+    - name: KRIW
+      location: Riverton, WY
+      zone_code: "WYZ002"
+    - name: KRGX
+      location: Reno, NV
+      zone_code: "NVZ017"
+    - name: KPUX
+      location: Pueblo, CO
+      zone_code: "COZ004"
+    - name: KPDT
+      location: Pendleton, OR
+      zone_code: "ORZ002"
+    - name: KPBZ
+      location: Pittsburgh, PA
+      zone_code: "PAZ013"
+    - name: KPAH
+      location: Paducah, KY
+      zone_code: "KYZ012"
+    - name: KOKX
+      location: New York City, NY
+      zone_code: "NYZ021"
+    - name: KOAX
+      location: Omaha, NE
+      zone_code: "NEZ012"
+    - name: KNQA
+      location: Memphis, TN
+      zone_code: "TNZ002"
+    - name: KNKX
+      location: San Diego, CA
+      zone_code: "CAZ037"
+    - name: KMXX
+      location: Maxwell AFB, AL
+      zone_code: "ALZ024"
+    - name: KMVX
+      location: Grand Forks, ND
+      zone_code: "NDZ001"
+    - name: KMUX
+      location: San Francisco, CA
+      zone_code: "CAZ041"
+    - name: KMTX
+      location: Salt Lake City, UT
+      zone_code: "UTZ013"
+    - name: KMSX
+      location: Missoula, MT
+      zone_code: "MTZ014"
+    - name: KMRX
+      location: Knoxville/Tri Cities, TN
+      zone_code: "TNZ003"
+    - name: KMQT
+      location: Marquette, MI
+      zone_code: "MIZ001"
+    - name: KMOB
+      location: Mobile, AL
+      zone_code: "ALZ020"
+    - name: KMLB
+      location: Melbourne, FL
+      zone_code: "FLZ028"
+    - name: KMAX
+      location: Medford, OR
+      zone_code: "ORZ003"
+    - name: KLZK
+      location: Little Rock, AR
+      zone_code: "ARZ004"
+    - name: KLVX
+      location: Louisville, KY
+      zone_code: "KYZ016"
+    - name: KHDC
+      location: Slidell, LA
+      zone_code: "LAZ025"
 
 
 colors:
@@ -24,162 +544,3 @@ colors:
     white: (255, 255,255)
     black: (0, 0, 0)
     grey: (128, 128, 128)
-
-stations: 
-    - KABR
-    - KABX
-    - KAKQ
-    - KAMA
-    - KAMX
-    - KAPX
-    - KARX
-    - KATX
-    - KBBX
-    - KBGM
-    - KBHX
-    - KBIS
-    - KBLX
-    - KBMX
-    - KBOX
-    - KBRO
-    - KBUF
-    - KBYX
-    - KCAE
-    - KCBW
-    - KCBX
-    - KCCX
-    - KCLE
-    - KCLX
-    - KCRP
-    - KCXX
-    - KCYS
-    - KDAX
-    - KDDC
-    - KDFX
-    - KDGX
-    - KDIX
-    - KDLH
-    - KDMX
-    - KDOX
-    - KDTX
-    - KDVN
-    - KDYX
-    - KEAX
-    - KEMX
-    - KENX
-    - KEOX
-    - KEPZ
-    - KESX
-    - KEVX
-    - KEWX
-    - KEYX
-    - KFCX
-    - KFDR
-    - KFDX
-    - KFFC
-    - KFSD
-    - KFSX
-    - KFTG
-    - KFWS
-    - KGGW
-    - KGJX
-    - KGLD
-    - KGRB
-    - KGRK
-    - KGRR
-    - KGSP
-    - KGWX
-    - KGYX
-    - KHDC
-    - KHDX
-    - KHGX
-    - KHNX
-    - KHPX
-    - KHTX
-    - KICT
-    - KICX
-    - KILN
-    - KILX
-    - KIND
-    - KINX
-    - KIWA
-    - KIWX
-    - KJAX
-    - KJGX
-    - KJKL
-    - KLBB
-    - KLCH
-    - KLGX
-    - KLNX
-    - KLOT
-    - KLRX
-    - KLSX
-    - KLTX
-    - KLVX
-    - KLWX
-    - KLZK
-    - KMAF
-    - KMAX
-    - KMBX
-    - KMHX
-    - KMKX
-    - KMLB
-    - KMOB
-    - KMPX
-    - KMQT
-    - KMRX
-    - KMSX
-    - KMTX
-    - KMUX
-    - KMVX
-    - KMXX
-    - KNKX
-    - KNQA
-    - KOAX
-    - KOHX
-    - KOKX
-    - KOTX
-    - KPAH
-    - KPBZ
-    - KPDT
-    - KPOE
-    - KPUX
-    - KRAX
-    - KRGX
-    - KRIW
-    - KRLX
-    - KRTX
-    - KSFX
-    - KSGF
-    - KSHV
-    - KSJT
-    - KSOX
-    - KSRX
-    - KTBW
-    - KTFX
-    - KTLH
-    - KTLX
-    - KTWX
-    - KTYX
-    - KUDX
-    - KUEX
-    - KVAX
-    - KVBX
-    - KVNX
-    - KVTX
-    - KVWX
-    - KYUX
-    - PABC
-    - PACG
-    - PAEC
-    - PAHG
-    - PAIH
-    - PAKC
-    - PAPD
-    - PGUA
-    - PHKI
-    - PHKM
-    - PHMO
-    - PHWA
-    - TJUA
-

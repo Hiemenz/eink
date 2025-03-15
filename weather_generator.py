@@ -2,12 +2,16 @@ import time
 import json
 import requests
 import io
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+import qrcode
 from eink_generator import load_config  # assuming load_config loads your YAML config
-import os
 import math
+import platform
+import os
 
-from display import display_color_image
+if platform.system() == "Linux":  # Only import on Raspberry Pi
+    # from waveshare_epd import epd7in5_V2, epd7in3f  # Adjust the import based on your specific model
+    from display import display_color_image
 
 
 STATE_FILE = os.path.join("radar", "radar_state.json")
@@ -74,7 +78,8 @@ def generate_weather_image(config):
     width = config.get("width", 800)
     height = config.get("height", 480)
     background_color = config.get("background_color_weather", "white")
-    station = config.get("station", "KTYX")
+    station = config.get("station", {}).get("name", "KTYX")
+    location = config.get("station", {}).get("location", "Unknown Location")
     
     output_path = config.get("output_path") or os.path.join(radar_folder, f"eink_display_{station}.bmp")
     quantized_output_path = config.get("quantized_path") or os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
@@ -83,7 +88,35 @@ def generate_weather_image(config):
     final_img = Image.new("RGB", (width, height), color=background_color)
     
     radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
-    response = requests.get(radar_url)
+
+    if config.get("url_qr_loop", True):
+        radar_url_qr = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
+    else: 
+        radar_url_qr = f'https://radar.weather.gov/station/{station.lower()}/standard'
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
+    # Retry mechanism for fetching the radar image
+    for attempt in range(3):
+        response = requests.get(radar_url, headers=headers)
+        if response.status_code == 200:
+            break
+        elif response.status_code == 404 and attempt < 2:
+            print(f"Image not found (404). Retrying in 30 seconds... (Attempt {attempt + 1})")
+            time.sleep(2)
+        else:
+            print(f"Failed to fetch image. Status code: {response.status_code}")
+            return None  # Stop execution
+
+    content_type = response.headers.get("Content-Type", "")
+    if "image" not in content_type:
+        print(f"Unexpected content type: {content_type}")
+        print(f"Response content (first 500 bytes): {response.content[:500]}")
+        return None
+
+    # Try opening the image
     radar_img = Image.open(io.BytesIO(response.content)).convert("RGB")
     
     if radar_mode == "crop":
@@ -108,7 +141,7 @@ def generate_weather_image(config):
 
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
-    
+
     # If an image exists, compare to avoid unnecessary update.
     if os.path.exists(output_path):
         existing_img = Image.open(output_path).convert(final_img.mode)
@@ -116,6 +149,26 @@ def generate_weather_image(config):
             print(f"Station {station}: Image unchanged.")
             return output_path, False
     
+    # Generate QR code for the radar image URL
+    qr = qrcode.make(radar_url_qr)
+    qr = qr.resize((120, 120), Image.LANCZOS)  # Resize QR code
+
+    draw = ImageDraw.Draw(final_img)
+    font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), location, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    margin = 10
+    # Calculate positions so that QR code and text are overlaid in the bottom right corner
+    qr_x = width - qr.width - margin
+    qr_y = height - (qr.height + text_height + 2 * margin)
+    final_img.paste(qr, (qr_x, qr_y))
+
+    # Draw text below the QR code
+    text_x = qr_x
+    text_y = qr_y + qr.height + margin
+    draw.text((text_x, text_y), location, fill="black", font=font)
+
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
     quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
@@ -138,11 +191,17 @@ def full_station_scan(config):
     Returns a dictionary mapping station -> interesting pixel percentage.
     """
     percentages = {}
-    for station in config.get("stations", []):
-        config["station"] = station
+    for station_data in config.get("stations", []):
+        station = station_data.get("name")
+        if not station:
+            continue
+        config["station"] = station_data
         config["output_path"] = os.path.join("radar", f"eink_display_{station}.bmp")
         config["quantized_path"] = os.path.join("radar", f"eink_quantized_display_{station}.bmp")
-        generate_weather_image(config)
+        result = generate_weather_image(config)
+        if result is None:
+            print(f"Skipping processing for station {station} due to image fetch failure.")
+            continue
         perc = calculate_non_bw_percentage(config["quantized_path"])
         percentages[station] = perc
         print(f"Full scan: Station {station} -> {perc:.2f}% interesting pixels")
@@ -167,21 +226,25 @@ def main():
     # Load persistent state, which stores the time of the last full scan and the cached top5.
     state = load_state(STATE_FILE) or {}
     now = time.time()
-    full_scan_interval = 3600  # one hour in seconds
+    full_scan_interval = config.get('full_scan_interval', 3600)  # one hour in seconds
 
     # Use cached top5 data if available and not expired.
     if state.get("last_full_scan") and (now - state["last_full_scan"] < full_scan_interval):
         top5_data = state.get("top5", [])
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
         print("Using cached top 5 stations:", top5_list)
+        config["top5"] = top5_list  # Set top5 in config for use in generate_weather_image
     else:
         top5_list = []  # will be updated later if needed
 
     # Process the default station.
-    default_station = config.get("station", "KTYX")
+    default_station = config.get("station", {}).get("name", "KTYX")
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
     default_image_path, default_updated = generate_weather_image(config)
+    if default_image_path is None:
+        print(f"Skipping processing for the default station {default_station} due to image fetch failure.")
+        return
     default_percentage = calculate_non_bw_percentage(config["quantized_path"])
     print(f"Default station ({default_station}) has {default_percentage:.2f}% interesting pixels.")
     
@@ -189,15 +252,18 @@ def main():
     final_display_image = default_image_path
 
     # If the default is below threshold and we have top5 data (or want to check a smaller subset)
-    if default_percentage < 15 and top5_list:
+    if default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_station = None
         best_percentage = 0
         best_image_path = None
         for station, _ in top5_list:
-            config["station"] = station
+            config["station"] = {"name": station}
             config["output_path"] = os.path.join(radar_folder, f"eink_display_{station}.bmp")
             config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
             image_path, updated = generate_weather_image(config)
+            if image_path is None:
+                print(f"Skipping processing for station {station} due to image fetch failure.")
+                continue
             if updated:
                 image_updated = True
             perc = calculate_non_bw_percentage(config["quantized_path"])
@@ -212,8 +278,11 @@ def main():
         print("Default station is dynamic enough; using default image.")
 
     if image_updated:
-        display_color_image(final_display_image)
-        print(f"Displayed image: {final_display_image}")
+        if platform.system() == "Linux":  # Only display on Raspberry Pi
+            display_color_image(final_display_image)
+            print(f"Displayed image: {final_display_image}")
+        else:
+            print(f"Skipping display update on non-Raspberry Pi system: {platform.system()}")
 
         # Check if it's time for a full refresh.
         if now - state.get("last_full_scan", 0) >= full_scan_interval:
