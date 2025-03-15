@@ -149,16 +149,16 @@ def generate_weather_image(config):
     
     # Generate QR code for the radar image URL
     qr = qrcode.make(radar_url_qr)
-    qr = qr.resize((120, 120), Image.LANCZOS)  # Resize QR code
+    qr = qr.resize((138, 138), Image.LANCZOS)  # Resize QR code
 
     draw = ImageDraw.Draw(final_img)
     font = ImageFont.load_default()
     bbox = draw.textbbox((0, 0), location, font=font)
     text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    margin = 10
+    text_height = bbox[3] - bbox[1] + 8
+    margin = 0
     # Calculate positions so that QR code and text are overlaid in the bottom right corner
-    qr_x = width - qr.width - margin
+    qr_x = width - qr.width - margin + 2
     qr_y = height - (qr.height + text_height + 2 * margin)
     final_img.paste(qr, (qr_x, qr_y))
 
@@ -170,8 +170,10 @@ def generate_weather_image(config):
     # Draw top 5 stations on the left side if available
     top5 = config.get("top5", [])
     if top5 and config.get('show_top_5', True):
+        margin = 10
         left_margin = margin
         top_margin = margin
+
         for i, (station, percentage) in enumerate(top5):
             text_str = f"{station}: {percentage:.1f}%"
             bbox_station = draw.textbbox((0, 0), text_str, font=font)
