@@ -280,6 +280,8 @@ def main():
             config["station"] = {"name": station}
             config["output_path"] = os.path.join(radar_folder, f"eink_display_{station}.bmp")
             config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
+            station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
+            config['station']['location'] = station_entry.get("location", "Unknown Location")            
             image_path, updated = generate_weather_image(config)
             if image_path is None:
                 print(f"Skipping processing for station {station} due to image fetch failure.")
