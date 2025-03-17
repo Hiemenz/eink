@@ -268,7 +268,7 @@ def main():
     
 
     # If the default is below threshold and we have top5 data (or want to check a smaller subset)
-    if default_percentage < config.get('interesting_threshold', 15) and top5_list:
+    if default_updated and default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_station = None
         best_percentage = 0
         best_image_path = None
