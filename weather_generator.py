@@ -288,14 +288,11 @@ def main():
                 continue
             if updated and image_path is not None:
                 update_count += 1  # Increment update_count if updated is True and image_path is not None
-                image_updated = True
-            perc = calculate_non_bw_percentage(config["quantized_path"])
-            if perc > best_percentage:
-                if image_path is not None:
+                perc = calculate_non_bw_percentage(config["quantized_path"])
+                if perc > best_percentage:
                     best_percentage = perc
                     best_station = station
                     best_image_path = config["quantized_path"]
-                    update_count += 1  # Increment update_count if a new best station is selected and image_path is not None
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}% interesting pixels.")
             final_display_image = best_image_path
