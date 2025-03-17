@@ -238,8 +238,6 @@ def main():
     os.makedirs(radar_folder, exist_ok=True)
     
     config = load_config('config.yml')
-    
-    update_count = 0  # Initialize update_count
 
     # Load persistent state, which stores the time of the last full scan and the cached top5.
     state = load_state(STATE_FILE) or {}
@@ -262,14 +260,12 @@ def main():
     default_image_path, default_updated = generate_weather_image(config)
     if default_image_path is None and not default_updated:
         print(f"Default station {default_station}: No changes detected. Keeping current display.")
-        default_image_path = config["quantized_path"]  # Use the last valid image
-    if default_updated and default_image_path is not None:
-        update_count += 1  # Increment update_count if default_updated is True and image_path is not None
+        default_image_path = config["quantized_path"]
     default_percentage = calculate_non_bw_percentage(config["quantized_path"])
     print(f"Default station ({default_station}) has {default_percentage:.2f}% interesting pixels.")
-    
-    image_updated = default_updated  # flag to track if any new image was generated
+    should_update = default_updated  # Use a flag to indicate if an update occurred
     final_display_image = default_image_path
+    
 
     # If the default is below threshold and we have top5 data (or want to check a smaller subset)
     if default_percentage < config.get('interesting_threshold', 15) and top5_list:
@@ -287,7 +283,7 @@ def main():
                 print(f"Skipping processing for station {station} due to image fetch failure.")
                 continue
             if updated and image_path is not None:
-                update_count += 1  # Increment update_count if updated is True and image_path is not None
+                should_update = True  # Set flag to True if an update occurred
                 perc = calculate_non_bw_percentage(config["quantized_path"])
                 if perc > best_percentage:
                     best_percentage = perc
@@ -299,7 +295,7 @@ def main():
     else:
         print("Default station is dynamic enough; using default image.")
 
-    if update_count > 0:  # Check if update_count is greater than 0
+    if should_update:  # Check if an update occurred
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)
             print(f"Displayed image: {final_display_image}")
