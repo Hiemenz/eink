@@ -282,13 +282,12 @@ def main():
             if image_path is None:
                 print(f"Skipping processing for station {station} due to image fetch failure.")
                 continue
-            if updated and image_path is not None:
-                should_update = True  # Set flag to True if an update occurred
-                perc = calculate_non_bw_percentage(config["quantized_path"])
-                if perc > best_percentage:
-                    best_percentage = perc
-                    best_station = station
-                    best_image_path = config["quantized_path"]
+            should_update = True  # Set flag to True for any successful image generation
+            perc = calculate_non_bw_percentage(config["quantized_path"])
+            if perc > best_percentage:
+                best_percentage = perc
+                best_station = station
+                best_image_path = config["quantized_path"]
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}% interesting pixels.")
             final_display_image = best_image_path
