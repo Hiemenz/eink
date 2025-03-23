@@ -294,29 +294,6 @@ def main():
     final_display_image = default_image_path
 
     
-    # Update the final display image to include the updated last_ten overlay
-    try:
-        last_ten = state.get("last_ten", [])
-        from PIL import ImageDraw, ImageFont
-        final_img = Image.open(final_display_image).convert("RGB")
-        draw = ImageDraw.Draw(final_img)
-        font = ImageFont.load_default()
-        margin = 10
-        left_margin = margin
-        count = len(last_ten)
-        if count > 0:
-            sample_text = "Sample"
-            bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
-            line_height = bbox_sample[3] - bbox_sample[1]
-            total_text_height = count * (line_height + margin) - margin
-            bottom_y = final_img.height - margin - total_text_height
-            for i, station in enumerate(last_ten):
-                text_str = f"{station}"
-                draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
-        final_img.save(final_display_image)
-    except Exception as e:
-        print(f"Failed to update last_ten overlay: {e}")
-    
     # Save updated state (including last_ten) so it carries over on refresh
     save_state(STATE_FILE, state)
 
@@ -362,6 +339,29 @@ def main():
     save_state(STATE_FILE, state)
 
     if should_update:  # Check if an update occurred
+        # Update the final display image to include the updated last_ten overlay
+        try:
+            last_ten = state.get("last_ten", [])
+            from PIL import ImageDraw, ImageFont
+            final_img = Image.open(final_display_image).convert("RGB")
+            draw = ImageDraw.Draw(final_img)
+            font = ImageFont.load_default()
+            margin = 10
+            left_margin = margin
+            count = len(last_ten)
+            if count > 0:
+                sample_text = "Sample"
+                bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
+                line_height = bbox_sample[3] - bbox_sample[1]
+                total_text_height = count * (line_height + margin) - margin
+                bottom_y = final_img.height - margin - total_text_height
+                for i, station in enumerate(last_ten):
+                    text_str = f"{station}"
+                    draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
+            final_img.save(final_display_image)
+        except Exception as e:
+            print(f"Failed to update last_ten overlay: {e}")
+
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)
             print(f"Displayed image: {final_display_image}")

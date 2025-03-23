@@ -8,7 +8,7 @@ max_font_size: 51
 min_font_size: 10
 font_path: /Library/Fonts/Arial\ Unicode.ttf
 output_path: eink_display.bmp
-interesting_threshold: 15
+interesting_threshold: 12
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: fit # "crop"  # or "fit"
