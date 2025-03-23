@@ -14,6 +14,8 @@ output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: fit # "crop"  # or "fit"
 url_qr_loop: False
 show_top_5: True
+special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
+show_last_ten: True
 
 station:
   name: KOHX

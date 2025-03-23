@@ -1,7 +1,11 @@
 import requests
 import re
 
-def get_special_weather_messages(url):
+
+URL = "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
+
+def get_special_weather_messages(url=URL):
+    print('checking special weather message')
     response = requests.get(url)
     if response.status_code != 200:
         print(f"Failed to retrieve data. Status code: {response.status_code}")
@@ -13,7 +17,7 @@ def get_special_weather_messages(url):
         messages = '\n\n'.join(re.sub(r'<.*?>', '', match).strip() for match in matches)
         return messages
     else:
-        return "No special weather messages found."
+        return None 
 
 if __name__ == "__main__":
     url = "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
@@ -24,4 +28,4 @@ if __name__ == "__main__":
         print(messages)
 
 
-send text to LLM and return it 
+# send text to LLM and return it 

@@ -4,6 +4,7 @@ import requests
 import io
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
+from special_weather_message import get_special_weather_messages
 from eink_generator import load_config  # assuming load_config loads your YAML config
 import math
 import platform
@@ -66,7 +67,7 @@ def quantize_to_seven_colors(input_path, output_path, threshold=0):
     original.save(output_path, format="bmp")
     print(f"Quantized image saved to {output_path}")
 
-def generate_weather_image(config):
+def generate_weather_image(config, special_msg=None):
     """
     Generate a weather image from the National Weather Service radar for the given station.
     Saves the image (and its quantized version) into the "radar" folder.
@@ -147,6 +148,15 @@ def generate_weather_image(config):
     if os.path.exists(quantized_output_path):
         old_quant = Image.open(quantized_output_path).convert("RGB")
     
+    # Fetch and overlay special weather message QR code if enabled and special_msg is provided
+    if config.get("check_special_weather", True) and special_msg:
+        try:
+            special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
+            qr_topright = qrcode.make(special_url).resize((138, 138), Image.LANCZOS)
+            final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, 2))
+        except Exception as e:
+            print(f"Error adding special weather QR code: {e}")
+
     # Generate QR code for the radar image URL
     qr = qrcode.make(radar_url_qr)
     qr = qr.resize((138, 138), Image.LANCZOS)  # Resize QR code
@@ -180,6 +190,20 @@ def generate_weather_image(config):
             line_height = bbox_station[3] - bbox_station[1]
             draw.text((left_margin, top_margin + i * (line_height + margin)), text_str, fill="black", font=font)
 
+    last_ten = config.get("last_ten", [])
+    if last_ten and config.get('show_last_ten', True):
+        margin = 10
+        left_margin = margin
+        # Calculate line height using a sample text
+        sample_text = "Sample"
+        bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
+        line_height = bbox_sample[3] - bbox_sample[1]
+        total_text_height = len(last_ten) * (line_height + margin) - margin
+        bottom_y = height - margin - total_text_height
+        for i, station in enumerate(last_ten):
+            text_str = f"{station}"
+            draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
+
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
     # Generate new quantized image from the updated raw image.
@@ -207,6 +231,7 @@ def full_station_scan(config):
     Returns a dictionary mapping station -> interesting pixel percentage.
     """
     percentages = {}
+    special_msg = get_special_weather_messages()
     for station_data in config.get("stations", []):
         station = station_data.get("name")
         if not station:
@@ -214,7 +239,7 @@ def full_station_scan(config):
         config["station"] = station_data
         config["output_path"] = os.path.join("radar", f"eink_display_{station}.bmp")
         config["quantized_path"] = os.path.join("radar", f"eink_quantized_display_{station}.bmp")
-        result = generate_weather_image(config)
+        result = generate_weather_image(config, special_msg=special_msg)
         if result is None:
             print(f"Skipping processing for station {station} due to image fetch failure.")
             continue
@@ -238,6 +263,7 @@ def main():
     os.makedirs(radar_folder, exist_ok=True)
     
     config = load_config('config.yml')
+    special_msg = get_special_weather_messages()
 
     # Load persistent state, which stores the time of the last full scan and the cached top5.
     state = load_state(STATE_FILE) or {}
@@ -248,6 +274,7 @@ def main():
     if state.get("last_full_scan") and (now - state["last_full_scan"] < full_scan_interval):
         top5_data = state.get("top5", [])
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
+
         print("Using cached top 5 stations:", top5_list)
         config["top5"] = top5_list  # Set top5 in config for use in generate_weather_image
     else:
@@ -257,7 +284,7 @@ def main():
     default_station = config.get("station", {}).get("name", "KTYX")
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
-    default_image_path, default_updated = generate_weather_image(config)
+    default_image_path, default_updated = generate_weather_image(config, special_msg=special_msg)
     if default_image_path is None and not default_updated:
         print(f"Default station {default_station}: No changes detected. Keeping current display.")
         default_image_path = config["quantized_path"]
@@ -265,7 +292,33 @@ def main():
     print(f"Default station ({default_station}) has {default_percentage:.2f}% interesting pixels.")
     should_update = default_updated  # Use a flag to indicate if an update occurred
     final_display_image = default_image_path
+
     
+    # Update the final display image to include the updated last_ten overlay
+    try:
+        last_ten = state.get("last_ten", [])
+        from PIL import ImageDraw, ImageFont
+        final_img = Image.open(final_display_image).convert("RGB")
+        draw = ImageDraw.Draw(final_img)
+        font = ImageFont.load_default()
+        margin = 10
+        left_margin = margin
+        count = len(last_ten)
+        if count > 0:
+            sample_text = "Sample"
+            bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
+            line_height = bbox_sample[3] - bbox_sample[1]
+            total_text_height = count * (line_height + margin) - margin
+            bottom_y = final_img.height - margin - total_text_height
+            for i, station in enumerate(last_ten):
+                text_str = f"{station}"
+                draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
+        final_img.save(final_display_image)
+    except Exception as e:
+        print(f"Failed to update last_ten overlay: {e}")
+    
+    # Save updated state (including last_ten) so it carries over on refresh
+    save_state(STATE_FILE, state)
 
     # If the default is below threshold and we have top5 data (or want to check a smaller subset)
     if default_updated and default_percentage < config.get('interesting_threshold', 15) and top5_list:
@@ -278,7 +331,7 @@ def main():
             config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
             station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
             config['station']['location'] = station_entry.get("location", "Unknown Location")            
-            image_path, updated = generate_weather_image(config)
+            image_path, updated = generate_weather_image(config, special_msg=special_msg)
             if image_path is None:
                 print(f"Skipping processing for station {station} due to image fetch failure.")
                 continue
@@ -291,8 +344,22 @@ def main():
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}% interesting pixels.")
             final_display_image = best_image_path
+            current_station = best_station
     else:
         print("Default station is dynamic enough; using default image.")
+    
+    if 'current_station' not in locals():
+        current_station = default_station
+    
+    last_ten = state.get("last_ten", [])
+    # if current_station in last_ten:
+    #     last_ten.remove(current_station)
+    last_ten.append(current_station)
+    if len(last_ten) > 10:
+        last_ten = last_ten[-10:]
+    state["last_ten"] = last_ten
+    config["last_ten"] = last_ten
+    save_state(STATE_FILE, state)
 
     if should_update:  # Check if an update occurred
         if platform.system() == "Linux":  # Only display on Raspberry Pi
@@ -305,6 +372,8 @@ def main():
         if now - state.get("last_full_scan", 0) >= full_scan_interval:
             # Immediately mark the state as updated before starting the full scan.
             state["last_full_scan"] = now
+            state["top5"] = state.get('top5', [])
+            state["last_ten"] =  state.get('last_ten', [])
             save_state(STATE_FILE, state)
             print("Full refresh state updated in JSON. Running full refresh after display update...")
             
