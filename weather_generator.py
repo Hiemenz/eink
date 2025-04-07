@@ -36,21 +36,64 @@ def distance(c1, c2):
     # Euclidean distance in RGB space
     return math.sqrt((c1[0] - c2[0])**2 + (c1[1] - c2[1])**2 + (c1[2] - c2[2])**2)
 
-def quantize_to_seven_colors(input_path, output_path, threshold=0):
+def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
     """
     Quantize an image to 7 colors:
       - Pixels within a Euclidean distance 'threshold' of white (255,255,255) are set to white.
       - All other pixels are mapped to the closest color from a fixed five-color palette.
     """
     white = (255, 255, 255)
-    palette_5 = [
+
+    if more_colors:
+        palette_5 = [
+        # Red steps
+        (255, 204, 204),  # Light Red
+        (255, 102, 102),  # Medium Light Red
+        (255, 0, 0),      # Red
+        (153, 0, 0),      # Dark Red
+        (102, 0, 0),      # Very Dark Red
+
+        # Green steps
+        (204, 255, 204),  # Light Green
+        (102, 255, 102),  # Medium Light Green
+        (0, 255, 0),      # Green
+        (0, 153, 0),      # Dark Green
+        (0, 102, 0),      # Very Dark Green
+
+        # Blue steps
+        (204, 204, 255),  # Light Blue
+        (102, 102, 255),  # Medium Light Blue
+        (0, 0, 255),      # Blue
+        (0, 0, 153),      # Dark Blue
+        (0, 0, 102),      # Very Dark Blue
+
+        # Yellow steps
+        (255, 255, 204),  # Light Yellow
+        (255, 255, 102),  # Medium Light Yellow
+        (255, 255, 0),    # Yellow
+        (204, 204, 0),    # Dark Yellow
+        (153, 153, 0),    # Very Dark Yellow
+
+        # Orange steps
+        (255, 224, 192),  # Light Orange
+        (255, 178, 102),  # Medium Light Orange
+        (255, 128, 0),    # Orange
+        (204, 102, 0),    # Dark Orange
+        (153, 76, 0),     # Very Dark Orange
+
+        # Black and white
+        (0, 0, 0),        # Black
+
+    ]
+    else: 
+        palette_5 = [
         (255, 0, 0),   # red
         (0, 255, 0),   # green
         (0, 0, 255),   # blue
         (255, 255, 0), # yellow
         (255, 128, 0), # orange
-        (0, 0, 0)      # black
-    ]
+        (0, 0, 0)     # black
+        ]
     
     original = Image.open(input_path).convert("RGB")
     pixels = original.load()
@@ -207,7 +250,9 @@ def generate_weather_image(config, special_msg=None):
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
     # Generate new quantized image from the updated raw image.
-    quantize_to_seven_colors(output_path, quantized_output_path, threshold=75)
+
+    more_colors = config.get('more_colors', False)
+    quantize_to_seven_colors(output_path, quantized_output_path, more_colors, threshold=75)
     new_quant = Image.open(quantized_output_path).convert("RGB")
     if old_quant is not None and images_are_equal(old_quant, new_quant):
         print(f"Station {station}: Quantized image unchanged.")
@@ -270,11 +315,10 @@ def main():
     now = time.time()
     full_scan_interval = config.get('full_scan_interval', 3600)  # one hour in seconds
 
-    # Use cached top5 data if available and not expired.
-    if state.get("last_full_scan") and (now - state["last_full_scan"] < full_scan_interval):
-        top5_data = state.get("top5", [])
+    # Use cached top5 data if available, regardless of age.
+    top5_data = state.get("top5", [])
+    if top5_data:
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
-
         print("Using cached top 5 stations:", top5_list)
         config["top5"] = top5_list  # Set top5 in config for use in generate_weather_image
     else:
