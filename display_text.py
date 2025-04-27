@@ -1,12 +1,15 @@
 import requests
 import json
 import yaml
+import csv
+import random
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
-
-from display import display_single_image 
-
 import platform
+
+if platform.system() != "Darwin":
+    from display import display_single_image 
+
 
 def wrap_text(text, font, draw, max_width):
     words = text.split()
@@ -86,6 +89,14 @@ def generate_content(prompt, api_key=None):
     else:
         raise Exception(f"Error: {response.status_code}, {response.text}")
 
+def get_random_question(csv_path):
+    """Return a random 'question' field from a CSV with headers 'topic,question'."""
+    with open(csv_path, newline='', encoding='utf-8') as csvfile:
+        rows = list(csv.DictReader(csvfile))
+    if not rows:
+        raise ValueError("CSV file is empty or malformed.")
+    return random.choice(rows)["question"].strip()
+
 def generate_seed():
     import uuid
 
@@ -98,23 +109,25 @@ def main():
     try:
         config = load_config('display_text_config.yml')
 
-        if not config.get('override_message_trigger', False):
-
-            prompt = generate_seed() + ' ' + config['instructions']
-            # print(prompt)
-            result = generate_content(prompt, config['GEMINI_API_KEY'])
-
-            # Extract the text content
-            text_content = result["candidates"][0]["content"]["parts"][0]["text"]
-        else: 
+        if config.get('override_message_trigger', False):
             text_content = config.get('override_message', 'this is a text holer')
+        elif config.get('csv_question_file'):
+            text_content = get_random_question(config['csv_question_file'])
+        else:
+            prompt = generate_seed() + ' ' + config['instructions']
+            result = generate_content(prompt, config['GEMINI_API_KEY'])
+            text_content = result["candidates"][0]["content"]["parts"][0]["text"]
 
         print(text_content)
         width = config.get('width', 800)
         height = config.get('height', 400)
         image_path = config.get('image_path', 'output.bmp')
         generate_image(text_content, width, height, image_path)
-        display_single_image(image_path)
+        # Only display the image on hardware that supports the e‑ink display
+        if platform.system() != "Darwin":  # Skip display on macOS
+            display_single_image(image_path)
+        else: 
+            print('skipping display')
 
     except Exception as e:
         print(e)

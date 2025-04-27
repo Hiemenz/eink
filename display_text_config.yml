@@ -1,4 +1,8 @@
+GEMINI_API_KEY: insert_api_key
 
+# csv_question_file: data/questions/quesitons.csv
+
+csv_question_file: data/questions/eink_facts.csv
 
 _instructions: >
   Generate a creative and engaging conversation starter that is unique
