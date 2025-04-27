@@ -1,0 +1,48 @@
+GEMINI_API_KEY: AIzaSyB-8b1_LeTeKP6DU3sNOAZMqHOXuA4A3WE
+
+
+_instructions: >
+  Generate a creative and engaging conversation starter that is unique
+   and different each time. Make sure it’s intriguing and can spark
+   interesting discussions across various topics like travel, personal 
+  experiences, hobbies, future aspirations, or hypothetical scenarios.
+  only return one and nothing else
+
+
+__instructions: > 
+  Generate a unique and fascinating fun fact on any topic. Ensure the fact is not a repeat of previous facts and covers a wide variety of 
+  subjects including science, history, animals, space, technology, art, and more
+  ONLY return the fact and nothing else
+
+# trivia questions
+# instructions: |
+#   Generate one trivia question. Return only the question and answer split them with a |, nothing else.
+
+# prompt engineering advice
+#instructions:  Generate one prompt engineering advice. Return only one advice nothing else.
+
+# instructions: |
+#   Generate one Programming Challenges or Concepts (Something to keep coding mind sharp) keep it three sentences
+
+# instructions: |
+#   Generate one Daily Quotes or Wisdom (Inspiring, Motivational, or Thought-Provoking). Return only one nothing else.
+
+
+instructions: |
+  Generate a unique and fascinating fun fact on any topic.
+    subjects including science, history, animals, space, technology and art
+    ONLY return the fact and nothing else
+
+
+
+#instructions:  Generate one light hearted conversation starter. return only one
+
+override_message_trigger: False
+override_message: | 
+   Good night see you tomorrow Rach!  <3 :)
+
+
+
+image_path: test_image.bmp
+width: 800
+height: 480
