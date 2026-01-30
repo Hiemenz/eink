@@ -1,0 +1,35 @@
+# Saint of the Day Configuration
+# ===============================
+
+# API Configuration
+# Choose between "gemini" or "openai"
+api_provider: gemini
+
+# Gemini API Key (or set GEMINI_API_KEY environment variable)
+GEMINI_API_KEY: insert_api_key
+
+# OpenAI API Key (or set OPENAI_API_KEY environment variable)
+# OPENAI_API_KEY: insert_api_key
+# openai_model: gpt-3.5-turbo
+
+# Temperature controls creativity (lower = more factual)
+temperature: 0.7
+
+# Custom prompt (optional - uses {date} placeholder for current date)
+# Uncomment and modify to customize the output format
+# prompt: |
+#   Today is {date}. Tell me about the Catholic saint whose feast day
+#   is celebrated today. Include their name, what they did, and why
+#   they became a saint. Keep it brief for an e-ink display.
+
+# Display Settings
+width: 800
+height: 480
+background_color: white
+text_color: black
+max_font_size: 28
+min_font_size: 12
+margin: 25
+
+# Output file
+output_path: saint_of_the_day.bmp
