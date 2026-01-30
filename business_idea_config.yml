@@ -1,0 +1,47 @@
+# Business Idea Generator Configuration
+# =====================================
+
+# API Configuration
+# Choose between "gemini" or "openai"
+api_provider: gemini
+
+# Gemini API Key (or set GEMINI_API_KEY environment variable)
+GEMINI_API_KEY: insert_api_key
+
+# OpenAI API Key (or set OPENAI_API_KEY environment variable)
+# OPENAI_API_KEY: insert_api_key
+# openai_model: gpt-3.5-turbo
+
+# Temperature controls creativity (0.0 = focused, 2.0 = very creative)
+temperature: 1.5
+
+# Custom prompt for generating business ideas
+# The generator adds a unique seed automatically for variety
+prompt: |
+  Generate a unique, creative money-making business idea that someone could
+  realistically start. Include:
+
+  IDEA: A catchy business name and one-line concept
+
+  WHAT IT DOES: Brief description (2-3 sentences max)
+
+  WHY IT WORKS: The market opportunity (1-2 sentences)
+
+  GET STARTED: First steps with minimal investment (1-2 sentences)
+
+  Keep the total response concise (under 150 words) for e-ink display.
+  Be creative, practical, and inspiring. No markdown formatting.
+  Make sure this idea is DIFFERENT from common suggestions.
+
+# Display Settings
+width: 800
+height: 480
+background_color: white
+text_color: black
+max_font_size: 32
+min_font_size: 12
+margin: 25
+
+# Output files
+output_path: business_idea.bmp
+history_file: business_ideas_history.json
