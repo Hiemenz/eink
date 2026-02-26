@@ -6,13 +6,97 @@ text_color: black
 image_format: bmp
 max_font_size: 51
 min_font_size: 10
-font_path: /Library/Fonts/Arial\ Unicode.ttf
-output_path: eink_display.bmp
+font_path: "/Library/Fonts/Arial Unicode.ttf"
+output_path: images/eink_display.bmp
 interesting_threshold: 12
+alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: fit # "crop"  # or "fit"
 url_qr_loop: False
+
+# ── Module selector ──────────────────────────────────────────────────────────
+# Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
+#          | franklin_cam | parking_garage | module_cycler
+active_module: weather
+# Seconds between updates (used by cron/systemd and shown in the web UI)
+update_interval: 300
+
+# ── Saint of the Day ─────────────────────────────────────────────────────────
+saint_of_day:
+  output_path: images/saint_display.bmp
+  cache_dir: data/
+
+# ── Wikipedia Image of the Day ───────────────────────────────────────────────
+wiki_image:
+  output_path: images/wiki_display.bmp
+  cache_dir: data/
+
+# ── Movie Slideshow ──────────────────────────────────────────────────────────
+movie_slideshow:
+  movies_dir: data/movies
+  active_movie: ""          # Set to folder name inside data/movies/
+  output_path: images/movie_display.bmp
+
+# ── NASA Astronomy Picture of the Day ────────────────────────────────────────
+nasa_apod:
+  output_path: images/nasa_apod.bmp
+  api_key: DEMO_KEY         # Get a free key at api.nasa.gov for higher rate limits
+
+# ── Quote of the Day ─────────────────────────────────────────────────────────
+quote_of_day:
+  output_path: images/quote_display.bmp
+
+# ── On This Day in History ───────────────────────────────────────────────────
+on_this_day:
+  output_path: images/onthisday_display.bmp
+
+# ── Moon Phase ───────────────────────────────────────────────────────────────
+moon_phase:
+  output_path: images/moon_display.bmp
+
+# ── Art of the Day (Met Museum) ───────────────────────────────────────────────
+art_of_day:
+  output_path: images/art_display.bmp
+
+# ── Chess Puzzle of the Day (Lichess) ────────────────────────────────────────
+chess_puzzle:
+  output_path: images/chess_display.bmp
+
+# ── Flight Radar (OpenSky Network) ─────────────────────────────────────────
+flight_radar:
+  output_path: images/flight_display.bmp
+  cache_dir: data/
+  radius_deg: 1.0
+  cache_ttl_seconds: 300
+  opensky_username: ""
+  opensky_password: ""
+  map_zoom: 9
+# ── Franklin Five Points Camera ──────────────────────────────────────────────
+franklin_cam:
+  output_path: images/franklin_cam.bmp
+  camera_alias: 603e9a4490992
+  stream_id: 604atz1hdklyiqukb
+  stream_host: s96.ipcamlive.com
+  label: "Five Points — Downtown Franklin"
+
+# ── Downtown Franklin Parking ────────────────────────────────────────────────
+parking_garage:
+  output_path: images/parking_display.bmp
+  api_url: https://apps.franklintn.gov/indect/structure
+  history_file: data/parking_history.parquet
+  cache_dir: data
+
+# ── Module Cycler ────────────────────────────────────────────────────────────
+module_cycler:
+  state_file: data/cycler_state.json
+  modules:
+    - weather
+    - franklin_cam
+    - parking_garage
+    - nasa_apod
+    - flight_radar
+
 show_top_5: True
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
 show_last_ten: True
@@ -21,6 +105,23 @@ station:
   name: KOHX
   location: Nashville, TN
   zone_code: tn
+
+# Location coordinates for detailed forecast
+forecast_location:
+  latitude: 35.9251
+  longitude: -86.8689
+  name: "Franklin, TN"
+
+# Show forecast when radar has nothing interesting
+show_forecast_fallback: True
+
+# Forecast display settings
+forecast_display:
+  max_font_size: 100
+  min_font_size: 8
+  num_periods: 5
+  margin: 10
+  header_scale: 1.3  # headers are 1.3x bigger than detail text
 
 stations: 
     - name: KRLX
