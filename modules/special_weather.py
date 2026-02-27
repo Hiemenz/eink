@@ -1,0 +1,59 @@
+import requests
+import re
+
+
+URL = "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
+
+def get_special_weather_messages(url=URL):
+    print('checking special weather message')
+    response = requests.get(url)
+    if response.status_code != 200:
+        print(f"Failed to retrieve data. Status code: {response.status_code}")
+        return None
+
+    # Extract relevant weather messages using regex from <pre> tag
+    matches = re.findall(r'<pre[^>]*>(.*?)</pre>', response.text, re.DOTALL)
+    if matches:
+        messages = '\n\n'.join(re.sub(r'<.*?>', '', match).strip() for match in matches)
+        return messages
+    else:
+        return None
+
+
+def get_alert_headline(messages: str) -> str:
+    """Extract the first meaningful headline line from raw NWS alert text."""
+    if not messages:
+        return ""
+
+    SKIP_PATTERNS = [
+        r'^\s*$',
+        r'^[\-/\.]+$',
+        r'^[A-Z]{2,4}Z\d+',
+        r'^\d{3,4}\s*(AM|PM)\s+[A-Z]+',
+        r'^National Weather Service',
+    ]
+    skip_compiled = [re.compile(p, re.IGNORECASE) for p in SKIP_PATTERNS]
+
+    for line in messages.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if any(p.match(line) for p in skip_compiled):
+            continue
+        return line[:80]
+
+    for line in messages.splitlines():
+        line = line.strip()
+        if line:
+            return line[:80]
+
+    return "Special Weather Alert"
+
+
+if __name__ == "__main__":
+    url = "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
+    messages = get_special_weather_messages(url)
+
+    if messages:
+        print("Special Weather Messages:")
+        print(messages)

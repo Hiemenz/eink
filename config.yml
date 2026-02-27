@@ -7,12 +7,14 @@ image_format: bmp
 max_font_size: 51
 min_font_size: 10
 font_path: "/Library/Fonts/Arial Unicode.ttf"
+bold_font_path: "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
 output_path: images/eink_display.bmp
 interesting_threshold: 12
 alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
-radar_mode: fit # "crop"  # or "fit"
+radar_mode: panel # "crop" | "fit" | "panel"
+panel_width: 280    # width of conditions panel (panel mode only)
 url_qr_loop: False
 
 # ── Module selector ──────────────────────────────────────────────────────────
@@ -105,6 +107,16 @@ station:
   name: KOHX
   location: Nashville, TN
   zone_code: tn
+  lat: 36.2472
+  lon: -86.5625
+  neighbor_left:
+    name: KNQA       # Memphis, TN — fills left blank strip
+    lat: 35.3447
+    lon: -89.8734
+  neighbor_right:
+    name: KMRX       # Knoxville/Tri Cities, TN — fills right blank strip
+    lat: 36.1686
+    lon: -83.4017
 
 # Location coordinates for detailed forecast
 forecast_location:

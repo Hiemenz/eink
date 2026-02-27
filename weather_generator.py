@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw, ImageFont
 import qrcode
 from special_weather_message import get_special_weather_messages
 from eink_generator import load_config  # assuming load_config loads your YAML config
+from detailed_forecast import get_detailed_forecast, generate_forecast_image
 import math
 import platform
 import os
@@ -369,6 +370,30 @@ def main():
     else:
         print("Default station is dynamic enough; using default image.")
     
+    # If no interesting radar found anywhere, fall back to forecast display
+    if 'best_percentage' not in locals():
+        best_percentage = default_percentage
+    final_percentage = best_percentage if 'best_station' in locals() and best_station else default_percentage
+
+    if config.get('show_forecast_fallback', False) and final_percentage < config.get('interesting_threshold', 15):
+        print(f"No interesting radar found (best: {final_percentage:.2f}%). Falling back to forecast display.")
+        forecast_config = config.get('forecast_location', {})
+        lat = forecast_config.get('latitude')
+        lon = forecast_config.get('longitude')
+        if lat and lon:
+            forecast_data = get_detailed_forecast(lat, lon)
+            if forecast_data:
+                forecast_output = os.path.join(radar_folder, "forecast_display.bmp")
+                forecast_path = generate_forecast_image(config, forecast_data, forecast_output)
+                if forecast_path:
+                    final_display_image = forecast_path
+                    should_update = True
+                    print(f"Using forecast display: {forecast_path}")
+            else:
+                print("Failed to fetch forecast data, keeping radar display.")
+        else:
+            print("No forecast_location coordinates in config, keeping radar display.")
+
     if 'current_station' not in locals():
         current_station = default_station
     

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>E-Ink Display Control</title>
+<style>
+  :root {
+    --bg: #f5f5f0;
+    --card: #ffffff;
+    --border: #e0e0d8;
+    --accent: #2d6a4f;
+    --accent-light: #52b788;
+    --danger: #c0392b;
+    --text: #1a1a1a;
+    --muted: #666;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); padding: 16px; }
+  h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 20px; color: var(--accent); }
+  h2 { font-size: 1rem; font-weight: 600; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 960px; margin: 0 auto; }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .card.wide { grid-column: 1 / -1; }
+
+  /* Module selector */
+  .module-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .module-btn {
+    padding: 8px 16px; border-radius: 20px; border: 2px solid var(--border);
+    background: var(--bg); cursor: pointer; font-size: 0.85rem; font-weight: 500;
+    transition: all 0.15s;
+  }
+  .module-btn.active { border-color: var(--accent); background: var(--accent); color: white; }
+  .module-btn:hover:not(.active) { border-color: var(--accent-light); }
+
+  /* Preview */
+  #preview-img { width: 100%; border-radius: 4px; border: 1px solid var(--border); display: block; }
+  .preview-footer { font-size: 0.75rem; color: var(--muted); margin-top: 6px; }
+
+  /* Generate button */
+  .btn { display: inline-block; padding: 10px 20px; border-radius: var(--radius); font-weight: 600; font-size: 0.9rem; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #1f4f39; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Interval */
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=number], select, input[type=text] {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.85rem; width: 100%; margin-top: 4px;
+  }
+  label { font-size: 0.85rem; color: var(--muted); }
+
+  /* Output log */
+  #output-log {
+    display: none; margin-top: 12px; background: #111; color: #eee;
+    padding: 12px; border-radius: 6px; font-family: monospace; font-size: 0.78rem;
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+
+  /* Movies */
+  .movie-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .movie-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border);
+    font-size: 0.85rem;
+  }
+  .movie-item.active-movie { border-color: var(--accent); background: #f0faf5; }
+  .badge { font-size: 0.72rem; padding: 2px 8px; border-radius: 10px; background: var(--accent); color: white; }
+
+  /* Config panel */
+  details summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; color: var(--accent); }
+  pre { font-size: 0.75rem; background: var(--bg); padding: 10px; border-radius: 6px; overflow-x: auto; margin-top: 8px; }
+
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot-green { background: #2ecc71; }
+  .dot-grey  { background: #aaa; }
+</style>
+</head>
+<body>
+
+<h1>🖼 E-Ink Display Control</h1>
+
+<div class="grid">
+
+  <!-- Module selector -->
+  <div class="card">
+    <h2>Active Module</h2>
+    <div class="module-grid">
+      {% for m in module_options %}
+      <form method="POST" action="/module" style="display:inline">
+        <input type="hidden" name="module" value="{{ m }}">
+        <button type="submit" class="module-btn {% if config.active_module == m %}active{% endif %}">
+          {{ {"weather":"🌩 Weather","text":"💬 Text/Facts","saint_of_day":"✝ Saint of Day","wiki_image":"📷 Wiki Image","movie_slideshow":"🎬 Movie","nasa_apod":"🚀 NASA APOD","quote_of_day":"💭 Quote","on_this_day":"📅 On This Day","moon_phase":"🌙 Moon Phase","art_of_day":"🎨 Art of Day"}[m] or m }}
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button class="btn btn-primary" id="generate-btn" onclick="runGenerate()">▶ Generate Now</button>
+      <span id="gen-status" style="font-size:0.8rem;color:var(--muted)"></span>
+    </div>
+    <div id="output-log"></div>
+  </div>
+
+  <!-- Live preview -->
+  <div class="card">
+    <h2>Current Preview</h2>
+    <img id="preview-img" src="/preview?t={{ range(1,9999) | random }}" alt="preview">
+    <p class="preview-footer">
+      Module: <strong>{{ config.active_module }}</strong> &nbsp;|&nbsp;
+      <a href="#" onclick="refreshPreview(); return false;">↻ Refresh</a>
+    </p>
+  </div>
+
+  <!-- Update interval -->
+  <div class="card">
+    <h2>Update Interval</h2>
+    <form method="POST" action="/interval">
+      <label>Seconds between updates: <strong id="interval-val">{{ config.update_interval or 300 }}</strong>s</label>
+      <input type="range" min="30" max="3600" step="30"
+             value="{{ config.update_interval or 300 }}"
+             oninput="document.getElementById('interval-val').textContent=this.value"
+             name="seconds">
+      <div class="row">
+        <button type="submit" class="btn btn-outline btn-sm">Save</button>
+        <span style="font-size:0.78rem;color:var(--muted)">Used by cron/systemd scheduler</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- Movie slideshow -->
+  <div class="card">
+    <h2>🎬 Movie Slideshow</h2>
+
+    {% if current_frame_info %}
+    <p style="font-size:0.85rem;margin-bottom:10px">
+      <span class="status-dot dot-green"></span>
+      <strong>{{ current_frame_info.movie }}</strong> &nbsp;—&nbsp;
+      Frame {{ current_frame_info.frame + 1 }} / {{ current_frame_info.total }}
+    </p>
+    {% endif %}
+
+    <div class="movie-list">
+      {% for movie in movies %}
+      <div class="movie-item {% if config.movie_slideshow and config.movie_slideshow.active_movie == movie %}active-movie{% endif %}">
+        <span>{{ movie }}</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          {% if config.movie_slideshow and config.movie_slideshow.active_movie == movie %}
+          <span class="badge">active</span>
+          {% else %}
+          <form method="POST" action="/movies/select">
+            <input type="hidden" name="movie" value="{{ movie }}">
+            <button type="submit" class="btn btn-outline btn-sm">Select</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% if not movies %}
+      <p style="font-size:0.82rem;color:var(--muted)">No movies yet. Upload a ZIP of frames below.</p>
+      {% endif %}
+    </div>
+
+    <details style="margin-top:14px">
+      <summary>Upload movie frames (ZIP)</summary>
+      <form method="POST" action="/movies/upload" enctype="multipart/form-data" style="margin-top:10px">
+        <input type="file" name="file" accept=".zip" style="font-size:0.82rem">
+        <div class="row">
+          <button type="submit" class="btn btn-outline btn-sm">Upload ZIP</button>
+          <span style="font-size:0.75rem;color:var(--muted)">Images extracted into data/movies/&lt;name&gt;/</span>
+        </div>
+      </form>
+    </details>
+  </div>
+
+  <!-- Raw config -->
+  <div class="card wide">
+    <details>
+      <summary>⚙ Raw Configuration (config.yml)</summary>
+      <pre id="raw-config">{{ config | tojson(indent=2) }}</pre>
+      <div style="margin-top:10px">
+        <label>Quick update (JSON key=value, e.g. <code>interesting_threshold=20</code>)</label>
+        <div class="row">
+          <input type="text" id="cfg-key" placeholder='Key (dot notation ok, e.g. station.name)' style="flex:1">
+          <input type="text" id="cfg-val" placeholder='Value'>
+          <button class="btn btn-outline btn-sm" onclick="quickConfigUpdate()">Apply</button>
+        </div>
+        <div id="cfg-status" style="font-size:0.78rem;margin-top:6px;color:var(--muted)"></div>
+      </div>
+    </details>
+  </div>
+
+</div><!-- /grid -->
+
+<script>
+function refreshPreview() {
+  document.getElementById("preview-img").src = "/preview?t=" + Date.now();
+}
+
+// Auto-refresh preview every 60 seconds
+setInterval(refreshPreview, 60000);
+
+async function runGenerate() {
+  const btn = document.getElementById("generate-btn");
+  const status = document.getElementById("gen-status");
+  const log = document.getElementById("output-log");
+  btn.disabled = true;
+  btn.textContent = "⏳ Running…";
+  status.textContent = "";
+  log.style.display = "none";
+  log.textContent = "";
+
+  try {
+    const resp = await fetch("/generate", { method: "POST" });
+    const data = await resp.json();
+    log.textContent = data.output || "(no output)";
+    log.style.display = "block";
+    status.textContent = data.ok ? "✓ Done" : "✗ Error";
+    status.style.color = data.ok ? "#2ecc71" : "#e74c3c";
+    if (data.ok) refreshPreview();
+  } catch (e) {
+    status.textContent = "✗ Request failed";
+    status.style.color = "#e74c3c";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "▶ Generate Now";
+  }
+}
+
+async function quickConfigUpdate() {
+  const key = document.getElementById("cfg-key").value.trim();
+  const rawVal = document.getElementById("cfg-val").value.trim();
+  const status = document.getElementById("cfg-status");
+  if (!key) { status.textContent = "Key is required."; return; }
+
+  let val = rawVal;
+  // Try to parse as JSON (numbers, booleans, etc.)
+  try { val = JSON.parse(rawVal); } catch(_) {}
+
+  const resp = await fetch("/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [key]: val })
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    status.textContent = `✓ Updated ${key}`;
+    status.style.color = "#2ecc71";
+    // Refresh raw config display
+    const cfgResp = await fetch("/config");
+    const cfg = await cfgResp.json();
+    document.getElementById("raw-config").textContent = JSON.stringify(cfg, null, 2);
+  } else {
+    status.textContent = "✗ Failed";
+    status.style.color = "#e74c3c";
+  }
+}
+</script>
+
+</body>
+</html>

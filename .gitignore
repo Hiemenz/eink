@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Cache files
+data/*_cache_*.json
+data/flight_cache.json
+data/parking_history.parquet
+
+# Generated image outputs
+radar/*.bmp
+images/
+
+# Dev tooling
+.claude/
