@@ -341,44 +341,73 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         if box_count > 0 and y < height - 20:
             box_h = height - y - 2
             box_w = text_w // box_count
-            hr_time_font = _font(11)
-            hr_temp_font = _font(16)
+            inner_w = box_w - 8   # horizontal padding inside box
+            inner_h = box_h - 6   # vertical padding inside box
+            gap = 2               # px between lines
+
+            # Does any slot have precip? Use consistent line count across all boxes.
+            has_precip = any(s["precip"] for s in hourly[:box_count])
+            num_lines = 4 if has_precip else 3
+
+            # Find the largest base font where all lines fit inside the box.
+            # Temp uses base*1.6; time/desc/precip use base.
+            best_base = 8
+            for base_sz in range(24, 7, -1):
+                temp_sz = max(base_sz, int(base_sz * 1.6))
+                bf = _font(base_sz)
+                tf = _font(temp_sz)
+                lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+                lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
+                # Widest possible strings
+                max_w = max(
+                    draw.textbbox((0, 0), "12 AM", font=bf)[2],
+                    draw.textbbox((0, 0), "100°", font=tf)[2],
+                    draw.textbbox((0, 0), "Overcast", font=bf)[2],
+                )
+                if total_h <= inner_h and max_w <= inner_w:
+                    best_base = base_sz
+                    break
+
+            bf = _font(best_base)
+            tf = _font(max(best_base, int(best_base * 1.6)))
+            lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+            lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+
             for i, slot in enumerate(hourly[:box_count]):
                 bx = text_x + i * box_w
                 by = y
-                draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)], outline=BLACK, width=1)
+                draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)],
+                                outline=BLACK, width=1)
 
-                # Time (centered at top)
-                time_str = slot["time"]
-                tb = draw.textbbox((0, 0), time_str, font=hr_time_font)
-                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 3),
-                          time_str, fill=BLACK, font=hr_time_font)
+                # Centre content block vertically inside the box
+                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
+                cy = by + (box_h - total_h) // 2
 
-                # Temp (centered, larger)
-                temp_str = f"{slot['temp']}\u00b0"
-                tb = draw.textbbox((0, 0), temp_str, font=hr_temp_font)
-                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 17),
-                          temp_str, fill=BLACK, font=hr_temp_font)
+                def _center_text(text, font, top_y):
+                    w = draw.textbbox((0, 0), text, font=font)[2]
+                    draw.text((bx + (box_w - w) // 2, top_y), text, fill=BLACK, font=font)
 
-                # Description (fit to box width, shrink font then truncate)
+                # Time
+                _center_text(slot["time"], bf, cy)
+                cy += lh_base + gap
+
+                # Temp
+                _center_text(f"{slot['temp']}\u00b0", tf, cy)
+                cy += lh_temp + gap
+
+                # Description (truncate to fit width)
                 desc = slot["desc"]
-                df = hr_time_font
-                for sz in range(11, 7, -1):
-                    df = _font(sz)
-                    if draw.textbbox((0, 0), desc, font=df)[2] <= box_w - 6:
-                        break
-                while desc and draw.textbbox((0, 0), desc, font=df)[2] > box_w - 6:
+                while desc and draw.textbbox((0, 0), desc, font=bf)[2] > inner_w:
                     desc = desc[:-1]
-                tb = draw.textbbox((0, 0), desc, font=df)
-                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 36),
-                          desc, fill=BLACK, font=df)
+                _center_text(desc, bf, cy)
+                cy += lh_base + gap
 
-                # Precip % if any and space allows
-                if slot["precip"] and by + 50 < by + box_h - 2:
-                    prec = f"{slot['precip']}%"
-                    pb = draw.textbbox((0, 0), prec, font=hr_time_font)
-                    draw.text((bx + (box_w - (pb[2] - pb[0])) // 2, by + 50),
-                              prec, fill=BLACK, font=hr_time_font)
+                # Precip (only if any slot has it)
+                if has_precip:
+                    prec = f"{slot['precip']}%" if slot["precip"] else ""
+                    if prec:
+                        _center_text(prec, bf, cy)
 
 
 if platform.system() == "Linux":
