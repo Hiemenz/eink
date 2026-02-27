@@ -281,7 +281,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     # Two-column data rows — pressure row gets a drawn trend arrow
     label_font = _font(15)
     value_font = _font(18)
-    row_h = 26
+    row_h = 24
     raw_trend = conditions.get("pressure_trend", "")
     trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
 
@@ -289,6 +289,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         ("Humidity",   f"{conditions['humidity']}%",                                              ""),
         ("Pressure",   f"{conditions['pressure']} inHg",                                          trend_dir),
         ("Visibility", f"{conditions['visibility']} mi",                                          ""),
+        ("UV Index",   f"{conditions['uv_index']}",                                               ""),
         ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} / G{conditions['wind_gust']} mph", ""),
         ("Rain Today", f"{conditions['rain_today']}\"",                                           ""),
         ("Rain 7-Day", f"{conditions['rain_7day']}\"",                                            ""),
@@ -332,20 +333,52 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     draw.text((text_x, y), hl_str, fill=BLACK, font=_font(15))
     y += row_h
 
-    # Hourly forecast (next 3 hours)
+    # Hourly forecast grid (next 3 hours)
     hourly = conditions.get("hourly_forecast", [])
-    if hourly and y + 10 < height:
+    if hourly:
         y = _separator(y)
-        hr_font = _font(13)
-        for slot in hourly:
-            if y + 16 > height:
-                break
-            desc_short = slot["desc"][:12]
-            line = f"{slot['time']}  {slot['temp']}\u00b0  {desc_short}"
-            if slot["precip"]:
-                line += f"  {slot['precip']}%"
-            draw.text((text_x, y), line, fill=BLACK, font=hr_font)
-            y += 18
+        box_count = min(3, len(hourly))
+        if box_count > 0 and y < height - 20:
+            box_h = height - y - 2
+            box_w = text_w // box_count
+            hr_time_font = _font(11)
+            hr_temp_font = _font(16)
+            for i, slot in enumerate(hourly[:box_count]):
+                bx = text_x + i * box_w
+                by = y
+                draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)], outline=BLACK, width=1)
+
+                # Time (centered at top)
+                time_str = slot["time"]
+                tb = draw.textbbox((0, 0), time_str, font=hr_time_font)
+                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 3),
+                          time_str, fill=BLACK, font=hr_time_font)
+
+                # Temp (centered, larger)
+                temp_str = f"{slot['temp']}\u00b0"
+                tb = draw.textbbox((0, 0), temp_str, font=hr_temp_font)
+                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 17),
+                          temp_str, fill=BLACK, font=hr_temp_font)
+
+                # Description (fit to box width, shrink font then truncate)
+                desc = slot["desc"]
+                df = hr_time_font
+                for sz in range(11, 7, -1):
+                    df = _font(sz)
+                    if draw.textbbox((0, 0), desc, font=df)[2] <= box_w - 6:
+                        break
+                while desc and draw.textbbox((0, 0), desc, font=df)[2] > box_w - 6:
+                    desc = desc[:-1]
+                tb = draw.textbbox((0, 0), desc, font=df)
+                draw.text((bx + (box_w - (tb[2] - tb[0])) // 2, by + 36),
+                          desc, fill=BLACK, font=df)
+
+                # Precip % if any and space allows
+                if slot["precip"] and by + 50 < by + box_h - 2:
+                    prec = f"{slot['precip']}%"
+                    pb = draw.textbbox((0, 0), prec, font=hr_time_font)
+                    draw.text((bx + (box_w - (pb[2] - pb[0])) // 2, by + 50),
+                              prec, fill=BLACK, font=hr_time_font)
 
 
 if platform.system() == "Linux":
@@ -508,21 +541,35 @@ def generate_weather_image(config, special_msg=None):
         draw_tmp.rectangle([(0, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
 
         # Location + weekday text in the right portion of the header
+        # panel_header config key takes priority; falls back to forecast_location.name
         forecast_loc = config.get("forecast_location", {})
-        loc_name = forecast_loc.get("name", "")
+        loc_name = config.get("panel_header") or forecast_loc.get("name", "")
         weekday = _date.today().strftime("%a")
-        hdr_str = f"{loc_name}  {weekday}"
-        font_path = config.get("font_path", "")
+        hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
         hdr_avail_h = header_h - 6
         hdr_text_w = panel_w - 16
-        for size in range(20, 9, -1):
-            try:
-                hdr_font = ImageFont.truetype(font_path, size)
-            except Exception:
-                hdr_font = ImageFont.load_default()
-            bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
-            if (bb[2] - bb[0]) <= hdr_text_w and (bb[3] - bb[1]) <= hdr_avail_h:
+        hdr_font = None
+        for path in [
+            config.get("bold_font_path", ""),
+            "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            config.get("font_path", ""),
+        ]:
+            if not path:
+                continue
+            for size in range(20, 9, -1):
+                try:
+                    f = ImageFont.truetype(path, size)
+                    bb = draw_tmp.textbbox((0, 0), hdr_str, font=f)
+                    if (bb[2] - bb[0]) <= hdr_text_w and (bb[3] - bb[1]) <= hdr_avail_h:
+                        hdr_font = f
+                        break
+                except Exception:
+                    break
+            if hdr_font:
                 break
+        if hdr_font is None:
+            hdr_font = ImageFont.load_default()
         bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
         text_y = (header_h - (bb[3] - bb[1])) // 2
         draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
