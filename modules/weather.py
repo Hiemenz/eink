@@ -266,9 +266,9 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     draw.text((text_x, y), temp_str, fill=BLACK, font=font)
     y += draw.textbbox((0, 0), temp_str, font=font)[3] + 4
 
-    # Feels like / description — auto-size 13→9px to fit width
+    # Feels like / description — auto-size 15→9px to fit width
     feels_desc = f"Feels like {conditions['feels_like']}°F  \u2022  {conditions['weather_desc']}"
-    for size in range(13, 8, -1):
+    for size in range(15, 8, -1):
         font = _font(size)
         if draw.textbbox((0, 0), feels_desc, font=font)[2] <= text_w:
             break
@@ -279,9 +279,9 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     y = _separator(y)
 
     # Two-column data rows — pressure row gets a drawn trend arrow
-    label_font = _font(15)
-    value_font = _font(18)
-    row_h = 24
+    label_font = _font(17)
+    value_font = _font(20)
+    row_h = 26
     raw_trend = conditions.get("pressure_trend", "")
     trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
 
@@ -313,7 +313,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     y = _separator(y)
 
     # Sunrise / Sunset rows
-    sun_font = _font(18)
+    sun_font = _font(20)
     for label, value in [("Sunrise", conditions["sunrise"]), ("Sunset", conditions["sunset"])]:
         draw.text((text_x, y), label, fill=BLACK, font=sun_font)
         val_bbox = draw.textbbox((0, 0), value, font=sun_font)
@@ -325,12 +325,12 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
 
     # Moon phase
     moon_str = f"{conditions['moon_name']}  {conditions['moon_illum']}%"
-    draw.text((text_x, y), moon_str, fill=BLACK, font=_font(15))
+    draw.text((text_x, y), moon_str, fill=BLACK, font=_font(17))
     y += row_h
 
     # Today High / Low
     hl_str = f"Today  H{conditions['high_today']}\u00b0 / L{conditions['low_today']}\u00b0"
-    draw.text((text_x, y), hl_str, fill=BLACK, font=_font(15))
+    draw.text((text_x, y), hl_str, fill=BLACK, font=_font(17))
     y += row_h
 
     # Hourly forecast grid (next 3 hours)
@@ -518,7 +518,7 @@ def generate_weather_image(config, special_msg=None):
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        header_h = config.get("panel_header_height", 30)
+        header_h = 21
 
         # Radar fills full height — max scale fills the canvas, clipping ~1px from sides.
         scale = max(radar_w / radar_img.width, height / radar_img.height)

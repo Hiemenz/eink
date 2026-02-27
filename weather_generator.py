@@ -195,7 +195,7 @@ def generate_weather_image(config, special_msg=None):
             from datetime import date as _date
             panel_w = config.get("panel_width", 280)
             radar_w = width - panel_w
-            header_h = config.get("panel_header_height", 30)
+            header_h = 21
 
             # Radar fills full height — max scale fills canvas, clipping ~1px from sides.
             scale = max(radar_w / radar_img.width, height / radar_img.height)
