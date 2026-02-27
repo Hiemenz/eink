@@ -19,6 +19,7 @@ staticmap = "^0.5.7"
 geopy = "^2.4.1"
 pyarrow = "^23.0.1"
 pandas = "^3.0.1"
+astral = "^3.2"
 
 
 [build-system]
