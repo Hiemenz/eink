@@ -236,7 +236,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
 
     def _separator(y):
         draw.line([(text_x, y), (right_x, y)], fill=BLACK, width=1)
-        return y + 8
+        return y + 5
 
     def _trend_shape(x, y, trend, row_h):
         """Draw a small filled trend triangle using PIL primitives (no unicode needed)."""
@@ -281,7 +281,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     # Two-column data rows — pressure row gets a drawn trend arrow
     label_font = _font(17)
     value_font = _font(20)
-    row_h = 26
+    row_h = 24
     raw_trend = conditions.get("pressure_trend", "")
     trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
 
