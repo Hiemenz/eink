@@ -662,7 +662,7 @@ def generate(config):
 
     best_station = None
     best_percentage = default_percentage
-    if default_updated and default_percentage < config.get('interesting_threshold', 15) and top5_list:
+    if default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_percentage = 0
         best_image_path = None
         for station, _ in top5_list:
@@ -672,14 +672,17 @@ def generate(config):
             station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
             config['station']['location'] = station_entry.get("location", "Unknown Location")
             image_path, updated, _ = generate_weather_image(config, special_msg=special_msg)
+            # Use cached quantized image if it exists and hasn't changed
             if image_path is None:
+                image_path = config["quantized_path"]
+            if not os.path.exists(image_path):
                 continue
             should_update = True
             perc = calculate_non_bw_percentage(config["quantized_path"])
             if perc > best_percentage:
                 best_percentage = perc
                 best_station = station
-                best_image_path = config["quantized_path"]
+                best_image_path = image_path
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}%.")
             final_display_image = best_image_path
