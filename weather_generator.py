@@ -214,7 +214,11 @@ def generate_weather_image(config, special_msg=None):
             lat = forecast_loc.get("latitude")
             lon = forecast_loc.get("longitude")
             conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-            draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
+            # QR URL: alert link when active, otherwise radar loop
+            special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
+            panel_qr_url = special_url if (config.get("check_special_weather", True) and special_msg) \
+                else f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
+            draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr_url)
 
             # Snap content area (below header) to pure B/W before drawing header text
             panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
@@ -271,19 +275,6 @@ def generate_weather_image(config, special_msg=None):
     if os.path.exists(quantized_output_path):
         old_quant = Image.open(quantized_output_path).convert("RGB")
     
-    # Overlay special weather alert QR code (top-right of the radar area, never on the panel)
-    if config.get("check_special_weather", True) and special_msg:
-        try:
-            special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            qr_size = 138
-            qr_alert = qrcode.make(special_url).resize((qr_size, qr_size), Image.LANCZOS)
-            # In panel mode keep QR inside the radar portion; otherwise use full width
-            panel_w = config.get("panel_width", 280) if radar_mode == "panel" else 0
-            radar_right = width - panel_w
-            qr_x = radar_right - qr_size - 2
-            final_img.paste(qr_alert, (qr_x, 2))
-        except Exception as e:
-            print(f"Error adding special weather QR code: {e}")
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
