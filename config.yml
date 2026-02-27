@@ -99,7 +99,7 @@ module_cycler:
     - nasa_apod
     - flight_radar
 
-show_top_5: True
+show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
 show_last_ten: True
 more_colors: False
@@ -109,14 +109,6 @@ station:
   zone_code: tn
   lat: 36.2472
   lon: -86.5625
-  neighbor_left:
-    name: KNQA       # Memphis, TN — fills left blank strip
-    lat: 35.3447
-    lon: -89.8734
-  neighbor_right:
-    name: KMRX       # Knoxville/Tri Cities, TN — fills right blank strip
-    lat: 36.1686
-    lon: -83.4017
 
 # Location coordinates for detailed forecast
 forecast_location:

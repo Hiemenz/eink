@@ -71,7 +71,7 @@ def fetch_current_conditions(lat, lon, headers):
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
         f"weather_code,surface_pressure,"
         f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure"
+        f"&hourly=visibility,surface_pressure,temperature_2m,weather_code,precipitation_probability"
         f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
         f"&wind_speed_unit=mph"
         f"&temperature_unit=fahrenheit"
@@ -142,6 +142,29 @@ def fetch_current_conditions(lat, lon, headers):
         weather_code = current.get("weather_code", 0)
         weather_desc = _wmo_description(weather_code)
 
+        # Next 3 hourly slots after current hour
+        hourly_temps  = hourly.get("temperature_2m", [])
+        hourly_codes  = hourly.get("weather_code", [])
+        hourly_precip = hourly.get("precipitation_probability", [])
+        hourly_forecast = []
+        for i in range(1, 4):
+            idx = cur_idx + i
+            if 0 <= idx < len(hourly_times):
+                try:
+                    slot_dt = _dt.fromisoformat(hourly_times[idx])
+                    label = slot_dt.strftime("%-I %p")
+                except Exception:
+                    label = hourly_times[idx][-5:]
+                temp_h  = int(round(hourly_temps[idx]))  if idx < len(hourly_temps)  else None
+                code_h  = hourly_codes[idx]               if idx < len(hourly_codes)  else 0
+                precip_h = hourly_precip[idx]             if idx < len(hourly_precip) else 0
+                hourly_forecast.append({
+                    "time":   label,
+                    "temp":   temp_h,
+                    "desc":   _wmo_description(code_h),
+                    "precip": int(precip_h) if precip_h is not None else 0,
+                })
+
         result = {
             "temp":         int(round(current.get("temperature_2m", 0))),
             "feels_like":   int(round(current.get("apparent_temperature", 0))),
@@ -164,6 +187,7 @@ def fetch_current_conditions(lat, lon, headers):
             "low_today":    low_today,
             "moon_name":    moon_name,
             "moon_illum":   moon_illum,
+            "hourly_forecast": hourly_forecast,
         }
 
         _conditions_cache["data"] = result
@@ -323,6 +347,22 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
     # Today High / Low
     hl_str = f"Today  H{conditions['high_today']}\u00b0 / L{conditions['low_today']}\u00b0"
     draw.text((text_x, y), hl_str, fill=BLACK, font=_font(15))
+    y += row_h
+
+    # Hourly forecast (next 3 hours)
+    hourly = conditions.get("hourly_forecast", [])
+    if hourly and y + 10 < height:
+        y = _separator(y)
+        hr_font = _font(13)
+        for slot in hourly:
+            if y + 16 > height:
+                break
+            desc_short = slot["desc"][:12]
+            line = f"{slot['time']}  {slot['temp']}\u00b0  {desc_short}"
+            if slot["precip"]:
+                line += f"  {slot['precip']}%"
+            draw.text((text_x, y), line, fill=BLACK, font=hr_font)
+            y += 18
 
 
 if platform.system() == "Linux":
@@ -447,8 +487,7 @@ def generate_weather_image(config, special_msg=None):
         top = (new_h - height) // 2
         processed_radar = scaled_radar.crop((left, top, left + width, top + height))
     elif radar_mode == "fit":
-        # Strip 24px NWS title bar (top) and color legend (bottom) so primary and
-        # neighbor strips share the same vertical geographic scale.
+        # Strip 24px NWS title bar (top) and color legend (bottom).
         data_radar = radar_img.crop((0, 24, radar_img.width, radar_img.height - 24))
         scale = min(width / data_radar.width, height / data_radar.height)
         new_w = int(data_radar.width * scale)
@@ -457,19 +496,19 @@ def generate_weather_image(config, special_msg=None):
         x_offset = (width - new_w) // 2
         y_offset = (height - new_h) // 2
         primary_region = (x_offset, y_offset, x_offset + new_w, y_offset + new_h)
-        station_cfg = config.get("station", {})
-        fill_blank_strips(final_img, x_offset, y_offset, new_w, new_h, station_cfg, headers)
         final_img.paste(processed_radar, (x_offset, y_offset))
         processed_radar = None
     elif radar_mode == "panel":
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        # Keep full radar image (header + footer intact); crop-fill left portion
-        scale = max(radar_w / radar_img.width, height / radar_img.height)
-        rw = int(radar_img.width * scale)
-        rh = int(radar_img.height * scale)
-        scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
+        # Strip NWS title bar (top 24px) and color legend (bottom 24px) so the
+        # data area aligns cleanly with the conditions panel content.
+        data_radar = radar_img.crop((0, 24, radar_img.width, radar_img.height - 24))
+        scale = max(radar_w / data_radar.width, height / data_radar.height)
+        rw = int(data_radar.width * scale)
+        rh = int(data_radar.height * scale)
+        scaled_radar = data_radar.resize((rw, rh), Image.LANCZOS)
         left_crop = (rw - radar_w) // 2
         top_crop  = (rh - height)  // 2
         processed_radar = scaled_radar.crop((left_crop, top_crop,
@@ -559,119 +598,6 @@ def calculate_non_bw_percentage(image_path, region=None):
         return 0.0
     non_bw_count = sum(1 for pixel in pixels if pixel not in [(0, 0, 0), (255, 255, 255)])
     return (non_bw_count / len(pixels)) * 100
-
-
-def fetch_radar_image(station, headers):
-    url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200 and "image" in resp.headers.get("Content-Type", ""):
-                return Image.open(io.BytesIO(resp.content)).convert("RGB")
-            if resp.status_code == 404 and attempt < 2:
-                time.sleep(2)
-        except Exception as e:
-            print(f"Error fetching {station}: {e}")
-    return None
-
-
-def fill_blank_strips(canvas, x_offset, y_offset, primary_w, primary_h, station_config, headers):
-    width, height = canvas.size
-
-    primary_lat = station_config.get("lat")
-    primary_lon = station_config.get("lon")
-    canvas_km_per_px = NWS_KM_PER_PX / (primary_w / 600.0) if primary_w else NWS_KM_PER_PX
-
-    def _place_horizontal_neighbor(nb_cfg, strip_canvas_x_start, strip_canvas_x_end, dst_x):
-        """Fetch neighbor, crop header/footer, scale, crop geographically correct columns, paste."""
-        if isinstance(nb_cfg, str):
-            nb_name, nb_lat, nb_lon = nb_cfg, None, None
-        else:
-            nb_name = nb_cfg.get("name")
-            nb_lat  = nb_cfg.get("lat")
-            nb_lon  = nb_cfg.get("lon")
-
-        img = fetch_radar_image(nb_name, headers)
-        if not img:
-            return
-
-        # Remove 24px header (top) and 24px footer (bottom) → data area only
-        data_img = img.crop((0, 24, img.width, max(img.height - 24, 24 + 1)))
-
-        # Resize to (primary_w × height): preserves horizontal geographic scale,
-        # stretches data area vertically to fill the full strip height (no gaps)
-        scaled = data_img.resize((primary_w, height), Image.LANCZOS)
-
-        if nb_lat is not None and nb_lon is not None and primary_lat is not None and primary_lon is not None:
-            # Compute geographic east-west offset in canvas pixels
-            lat_rad = math.radians(primary_lat)
-            dx_km = (nb_lon - primary_lon) * math.cos(lat_rad) * 111.32  # positive = neighbor is east
-            dx_canvas_px = dx_km / canvas_km_per_px  # positive = neighbor center is to the right
-
-            primary_center_canvas_x = x_offset + primary_w / 2
-            nb_center_canvas_x = primary_center_canvas_x + dx_canvas_px
-            nb_left_canvas_x = nb_center_canvas_x - primary_w / 2
-
-            # Columns in scaled neighbor that correspond to the strip
-            col_start = int(round(strip_canvas_x_start - nb_left_canvas_x))
-            col_end   = int(round(strip_canvas_x_end   - nb_left_canvas_x))
-        else:
-            # Fallback: edge-crop (old behavior)
-            if dst_x == 0:  # left strip
-                col_start = primary_w - (strip_canvas_x_end - strip_canvas_x_start)
-                col_end   = primary_w
-            else:           # right strip
-                col_start = 0
-                col_end   = strip_canvas_x_end - strip_canvas_x_start
-
-        # Clamp to valid image bounds
-        col_start = max(0, min(col_start, primary_w))
-        col_end   = max(0, min(col_end,   primary_w))
-        if col_end <= col_start:
-            return
-
-        cropped = scaled.crop((col_start, 0, col_end, height))
-        canvas.paste(cropped, (dst_x, 0))
-
-    # Left strip
-    if x_offset > 0:
-        nb = station_config.get("neighbor_left")
-        if nb:
-            _place_horizontal_neighbor(nb, 0, x_offset, 0)
-
-    # Right strip
-    right_strip_w = width - (x_offset + primary_w)
-    if right_strip_w > 0:
-        nb = station_config.get("neighbor_right")
-        if nb:
-            _place_horizontal_neighbor(nb, x_offset + primary_w, width, x_offset + primary_w)
-
-    # Top strip (unchanged)
-    if y_offset > 0:
-        neighbor = station_config.get("neighbor_top")
-        if neighbor:
-            img = fetch_radar_image(neighbor, headers)
-            if img:
-                scale = max(width / img.width, y_offset / img.height)
-                nw = int(img.width * scale)
-                nh = int(img.height * scale)
-                scaled = img.resize((nw, nh), Image.LANCZOS)
-                cropped = scaled.crop((0, nh - y_offset, width, nh))
-                canvas.paste(cropped, (0, 0))
-
-    # Bottom strip (unchanged)
-    bottom_strip_h = height - (y_offset + primary_h)
-    if bottom_strip_h > 0:
-        neighbor = station_config.get("neighbor_bottom")
-        if neighbor:
-            img = fetch_radar_image(neighbor, headers)
-            if img:
-                scale = max(width / img.width, bottom_strip_h / img.height)
-                nw = int(img.width * scale)
-                nh = int(img.height * scale)
-                scaled = img.resize((nw, nh), Image.LANCZOS)
-                cropped = scaled.crop((0, 0, width, bottom_strip_h))
-                canvas.paste(cropped, (0, y_offset + primary_h))
 
 
 def full_station_scan(config, skip_station=None):
