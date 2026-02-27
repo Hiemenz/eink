@@ -200,11 +200,12 @@ def fetch_current_conditions(lat, lon, headers):
         return None
 
 
-def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
+def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30):
     """
     Draw the current-conditions data panel on an existing PIL Image.
-    panel_x: left edge of the panel in canvas pixels
-    panel_w: width of the panel in pixels
+    panel_x:  left edge of the panel in canvas pixels
+    panel_w:  width of the panel in pixels
+    header_h: vertical offset where content starts (header drawn externally)
     """
     draw = ImageDraw.Draw(canvas)
     height = canvas.size[1]
@@ -248,22 +249,6 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
         else:  # steady
             draw.rectangle([x, cy - 2, x + 2*r, cy + 2], fill=BLACK)
         return 2*r + 4  # pixel width consumed
-
-    # --- Black header bar — height matches NWS radar banner (~38px) ---
-    header_h = 38
-    draw.rectangle([(panel_x, 0), (panel_x + panel_w - 1, header_h - 1)], fill=BLACK)
-    forecast_loc = config.get("forecast_location", {})
-    loc_name = forecast_loc.get("name", "")
-    weekday = _date.today().strftime("%a")
-    hdr_str = f"{loc_name}  {weekday}"
-    hdr_avail_h = header_h - 6
-    for size in range(20, 9, -1):
-        hdr_font = _font(size)
-        bb = draw.textbbox((0, 0), hdr_str, font=hdr_font)
-        if (bb[2] - bb[0]) <= text_w and (bb[3] - bb[1]) <= hdr_avail_h:
-            break
-    bb = draw.textbbox((0, 0), hdr_str, font=hdr_font)
-    draw.text((text_x, (header_h - (bb[3] - bb[1])) // 2), hdr_str, fill=WHITE, font=hdr_font)
 
     if conditions is None:
         draw.text((panel_x + panel_w // 2, height // 2), "No data",
@@ -500,32 +485,56 @@ def generate_weather_image(config, special_msg=None):
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        # Strip NWS title bar (top 38px) and color legend (bottom 38px) so the
-        # data area aligns with the conditions panel header bottom edge.
-        data_radar = radar_img.crop((0, 38, radar_img.width, radar_img.height - 38))
-        scale = max(radar_w / data_radar.width, height / data_radar.height)
+        header_h = 30
+
+        # Strip NWS header/legend; scale radar to fill the area BELOW the header bar.
+        data_radar = radar_img.crop((0, 38, radar_img.width, radar_img.height - 24))
+        radar_canvas_h = height - header_h
+        scale = max(radar_w / data_radar.width, radar_canvas_h / data_radar.height)
         rw = int(data_radar.width * scale)
         rh = int(data_radar.height * scale)
         scaled_radar = data_radar.resize((rw, rh), Image.LANCZOS)
         left_crop = (rw - radar_w) // 2
-        top_crop  = (rh - height)  // 2
+        top_crop  = (rh - radar_canvas_h) // 2
         processed_radar = scaled_radar.crop((left_crop, top_crop,
-                                             left_crop + radar_w, top_crop + height))
-        final_img.paste(processed_radar, (0, 0))
+                                             left_crop + radar_w, top_crop + radar_canvas_h))
+        final_img.paste(processed_radar, (0, header_h))
 
-        # White panel background
+        # White panel background (below header)
         draw_tmp = ImageDraw.Draw(final_img)
-        draw_tmp.rectangle([(radar_w, 0), (width - 1, height - 1)], fill="white")
+        draw_tmp.rectangle([(radar_w, header_h), (width - 1, height - 1)], fill="white")
 
-        # Thin vertical separator
-        draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
+        # Full-width unified black header bar
+        draw_tmp.rectangle([(0, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+
+        # Location + weekday text in the right portion of the header
+        forecast_loc = config.get("forecast_location", {})
+        loc_name = forecast_loc.get("name", "")
+        weekday = _date.today().strftime("%a")
+        hdr_str = f"{loc_name}  {weekday}"
+        font_path = config.get("font_path", "")
+        hdr_avail_h = header_h - 6
+        hdr_text_w = panel_w - 16
+        for size in range(20, 9, -1):
+            try:
+                hdr_font = ImageFont.truetype(font_path, size)
+            except Exception:
+                hdr_font = ImageFont.load_default()
+            bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
+            if (bb[2] - bb[0]) <= hdr_text_w and (bb[3] - bb[1]) <= hdr_avail_h:
+                break
+        bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
+        text_y = (header_h - (bb[3] - bb[1])) // 2
+        draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
+
+        # Thin vertical separator (below header)
+        draw_tmp.line([(radar_w, header_h), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
 
         # Fetch & render current conditions
-        forecast_loc = config.get("forecast_location", {})
         lat = forecast_loc.get("latitude")
         lon = forecast_loc.get("longitude")
         conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w)
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
 
         primary_region = (0, 0, radar_w, height)   # interesting% measured on radar only
         processed_radar = None

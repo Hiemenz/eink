@@ -9,7 +9,7 @@ min_font_size: 10
 font_path: "/Library/Fonts/Arial Unicode.ttf"
 bold_font_path: "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
 output_path: images/eink_display.bmp
-interesting_station: true   # Auto-switch to most active radar when default is below threshold
+interesting_station: false   # Auto-switch to most active radar when default is below threshold
 interesting_threshold: 12  # % colored pixels below which the default is considered boring
 alert_banner_height: 40
 full_scan_interval: 3600
