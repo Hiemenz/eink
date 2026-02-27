@@ -11,6 +11,10 @@ __pycache__/
 data/*_cache_*.json
 data/flight_cache.json
 data/parking_history.parquet
+data/cycler_state.json
+
+# Runtime state
+radar/radar_state.json
 
 # Generated image outputs
 radar/*.bmp
