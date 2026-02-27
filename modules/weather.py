@@ -267,7 +267,7 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     draw.ellipse(bb, outline=B)
 
 
-def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30):
+def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None):
     """
     Draw the current-conditions data panel on an existing PIL Image.
     panel_x:  left edge of the panel in canvas pixels
@@ -323,24 +323,62 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         return
 
     y = header_h + 6
-
-    # Temperature — auto-size 56–72px to fill panel width
     temp_str = f"{conditions['temp']}°F"
-    for size in range(72, 55, -2):
-        font = _font(size)
-        if draw.textbbox((0, 0), temp_str, font=font)[2] <= text_w:
-            break
-    draw.text((text_x, y), temp_str, fill=BLACK, font=font)
-    y += draw.textbbox((0, 0), temp_str, font=font)[3] + 4
-
-    # Feels like / description — auto-size 15→9px to fit width
     feels_desc = f"Feels like {conditions['feels_like']}°F  \u2022  {conditions['weather_desc']}"
-    for size in range(15, 8, -1):
-        font = _font(size)
-        if draw.textbbox((0, 0), feels_desc, font=font)[2] <= text_w:
-            break
-    draw.text((text_x, y), feels_desc, fill=BLACK, font=font)
-    y += draw.textbbox((0, 0), feels_desc, font=font)[3] + 4
+
+    if qr_url:
+        # Pass 1: measure both rows at full text_w to get total height for QR size
+        for size in range(72, 55, -2):
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= text_w:
+                break
+        for size in range(15, 8, -1):
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= text_w:
+                break
+        t_h = draw.textbbox((0, 0), temp_str, font=f_temp)[3]
+        f_h = draw.textbbox((0, 0), feels_desc, font=f_feels)[3]
+        qr_size = t_h + 4 + f_h        # span both rows including their gap
+        top_text_w = text_w - qr_size - 4
+
+        # Pass 2: refit both rows into the narrower width
+        for size in range(72, 55, -2):
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= top_text_w:
+                break
+        for size in range(15, 8, -1):
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= top_text_w:
+                break
+    else:
+        qr_size = 0
+        top_text_w = text_w
+        for size in range(72, 55, -2):
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= text_w:
+                break
+        for size in range(15, 8, -1):
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= text_w:
+                break
+
+    # Temperature
+    draw.text((text_x, y), temp_str, fill=BLACK, font=f_temp)
+    temp_h = draw.textbbox((0, 0), temp_str, font=f_temp)[3]
+    y += temp_h + 4
+
+    # Paste QR filling temperature + feels-like height
+    if qr_url:
+        try:
+            qr_img = qrcode.make(qr_url).convert("RGB")
+            qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
+            canvas.paste(qr_img, (panel_x + panel_w - margin - qr_size, header_h + 6))
+        except Exception as e:
+            print(f"[panel] QR code error: {e}")
+
+    # Feels like / description
+    draw.text((text_x, y), feels_desc, fill=BLACK, font=f_feels)
+    y += draw.textbbox((0, 0), feels_desc, font=f_feels)[3] + 4
 
     # Separator
     y = _separator(y)
@@ -656,7 +694,7 @@ def generate_weather_image(config, special_msg=None):
         lat = forecast_loc.get("latitude")
         lon = forecast_loc.get("longitude")
         conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=radar_url_qr)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
         panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
