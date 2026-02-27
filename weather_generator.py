@@ -197,18 +197,15 @@ def generate_weather_image(config, special_msg=None):
             radar_w = width - panel_w
             header_h = 30
 
-            # Strip NWS title bar + legend; scale radar below the header bar
-            data_radar = radar_img.crop((0, 38, radar_img.width, radar_img.height - 24))
+            # Fit full radar image (NWS title bar + color legend) into radar canvas.
             radar_canvas_h = height - header_h
-            scale = max(radar_w / data_radar.width, radar_canvas_h / data_radar.height)
-            rw = int(data_radar.width * scale)
-            rh = int(data_radar.height * scale)
-            scaled_radar = data_radar.resize((rw, rh), Image.LANCZOS)
-            left_crop = (rw - radar_w) // 2
-            top_crop  = (rh - radar_canvas_h) // 2
-            processed_radar = scaled_radar.crop((left_crop, top_crop,
-                                                 left_crop + radar_w, top_crop + radar_canvas_h))
-            final_img.paste(processed_radar, (0, header_h))
+            scale = min(radar_w / radar_img.width, radar_canvas_h / radar_img.height)
+            rw = int(radar_img.width * scale)
+            rh = int(radar_img.height * scale)
+            scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
+            x_off = (radar_w - rw) // 2
+            y_off = header_h + (radar_canvas_h - rh) // 2
+            final_img.paste(scaled_radar, (x_off, y_off))
 
             draw_tmp = ImageDraw.Draw(final_img)
             draw_tmp.rectangle([(radar_w, header_h), (width - 1, height - 1)], fill="white")
@@ -448,28 +445,6 @@ def main():
     save_state(STATE_FILE, state)
 
     if should_update:  # Check if an update occurred
-        # Update the final display image to include the updated last_ten overlay
-        try:
-            last_ten = state.get("last_ten", [])
-            from PIL import ImageDraw, ImageFont
-            final_img = Image.open(final_display_image).convert("RGB")
-            draw = ImageDraw.Draw(final_img)
-            font = ImageFont.load_default()
-            margin = 10
-            left_margin = margin
-            count = len(last_ten)
-            if count > 0:
-                sample_text = "Sample"
-                bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
-                line_height = bbox_sample[3] - bbox_sample[1]
-                total_text_height = count * (line_height + margin) - margin
-                bottom_y = final_img.height - margin - total_text_height
-                for i, station in enumerate(last_ten):
-                    text_str = f"{station}"
-                    draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
-            final_img.save(final_display_image)
-        except Exception as e:
-            print(f"Failed to update last_ten overlay: {e}")
 
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)

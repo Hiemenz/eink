@@ -520,18 +520,16 @@ def generate_weather_image(config, special_msg=None):
 
         header_h = 30
 
-        # Strip NWS header/legend; scale radar to fill the area BELOW the header bar.
-        data_radar = radar_img.crop((0, 38, radar_img.width, radar_img.height - 24))
+        # Fit full radar image (NWS title bar + color legend) into the radar canvas.
+        # Uses min-scale (letterbox) so both bars are fully visible.
         radar_canvas_h = height - header_h
-        scale = max(radar_w / data_radar.width, radar_canvas_h / data_radar.height)
-        rw = int(data_radar.width * scale)
-        rh = int(data_radar.height * scale)
-        scaled_radar = data_radar.resize((rw, rh), Image.LANCZOS)
-        left_crop = (rw - radar_w) // 2
-        top_crop  = (rh - radar_canvas_h) // 2
-        processed_radar = scaled_radar.crop((left_crop, top_crop,
-                                             left_crop + radar_w, top_crop + radar_canvas_h))
-        final_img.paste(processed_radar, (0, header_h))
+        scale = min(radar_w / radar_img.width, radar_canvas_h / radar_img.height)
+        rw = int(radar_img.width * scale)
+        rh = int(radar_img.height * scale)
+        scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
+        x_off = (radar_w - rw) // 2
+        y_off = header_h + (radar_canvas_h - rh) // 2
+        final_img.paste(scaled_radar, (x_off, y_off))
 
         # White panel background (below header)
         draw_tmp = ImageDraw.Draw(final_img)
