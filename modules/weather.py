@@ -662,7 +662,7 @@ def generate(config):
 
     best_station = None
     best_percentage = default_percentage
-    if default_percentage < config.get('interesting_threshold', 15) and top5_list:
+    if config.get('interesting_station', True) and default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_percentage = 0
         best_image_path = None
         for station, _ in top5_list:

@@ -9,7 +9,8 @@ min_font_size: 10
 font_path: "/Library/Fonts/Arial Unicode.ttf"
 bold_font_path: "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
 output_path: images/eink_display.bmp
-interesting_threshold: 12
+interesting_station: true   # Auto-switch to most active radar when default is below threshold
+interesting_threshold: 12  # % colored pixels below which the default is considered boring
 alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
@@ -103,12 +104,17 @@ show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
 show_last_ten: True
 more_colors: False
-station:
-  name: KOHX
-  location: Nashville, TN
-  zone_code: tn
-  lat: 36.2472
-  lon: -86.5625
+
+# ── Radar station presets ─────────────────────────────────────────────────────
+# To switch stations, change station: *KOHX to any anchor name below.
+_presets:
+  kohx: &KOHX  {name: KOHX, location: "Nashville, TN",       zone_code: tn, lat: 36.2472, lon: -86.5625}
+  kilx: &KILX  {name: KILX, location: "Lincoln, IL",          zone_code: il, lat: 40.1506, lon: -89.3367}
+  krax: &KRAX  {name: KRAX, location: "Raleigh, NC",          zone_code: nc, lat: 35.6654, lon: -78.4897}
+  ktlx: &KTLX  {name: KTLX, location: "Oklahoma City, OK",   zone_code: ok, lat: 35.3331, lon: -97.2778}
+  kfws: &KFWS  {name: KFWS, location: "Dallas/Fort Worth, TX", zone_code: tx, lat: 32.5731, lon: -97.3031}
+
+station: *KOHX
 
 # Location coordinates for detailed forecast
 forecast_location:
