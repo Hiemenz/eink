@@ -249,8 +249,8 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
             draw.rectangle([x, cy - 2, x + 2*r, cy + 2], fill=BLACK)
         return 2*r + 4  # pixel width consumed
 
-    # --- Black header bar — location text auto-sized to fill it ---
-    header_h = 30
+    # --- Black header bar — height matches NWS radar banner (~38px) ---
+    header_h = 38
     draw.rectangle([(panel_x, 0), (panel_x + panel_w - 1, header_h - 1)], fill=BLACK)
     forecast_loc = config.get("forecast_location", {})
     loc_name = forecast_loc.get("name", "")
@@ -301,14 +301,12 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
     trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
 
     rows = [
-        ("Humidity",   f"{conditions['humidity']}%",                         ""),
-        ("UV Index",   str(conditions['uv_index']),                           ""),
-        ("Pressure",   f"{conditions['pressure']} inHg",                     trend_dir),
-        ("Visibility", f"{conditions['visibility']} mi",                     ""),
-        ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} mph", ""),
-        ("Gusts",      f"{conditions['wind_gust']} mph",                     ""),
-        ("Rain Today", f"{conditions['rain_today']}\"",                      ""),
-        ("Rain 7-Day", f"{conditions['rain_7day']}\"",                       ""),
+        ("Humidity",   f"{conditions['humidity']}%",                                              ""),
+        ("Pressure",   f"{conditions['pressure']} inHg",                                          trend_dir),
+        ("Visibility", f"{conditions['visibility']} mi",                                          ""),
+        ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} / G{conditions['wind_gust']} mph", ""),
+        ("Rain Today", f"{conditions['rain_today']}\"",                                           ""),
+        ("Rain 7-Day", f"{conditions['rain_7day']}\"",                                            ""),
     ]
 
     for label, value, row_trend in rows:
@@ -502,9 +500,9 @@ def generate_weather_image(config, special_msg=None):
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        # Strip NWS title bar (top 24px) and color legend (bottom 24px) so the
-        # data area aligns cleanly with the conditions panel content.
-        data_radar = radar_img.crop((0, 24, radar_img.width, radar_img.height - 24))
+        # Strip NWS title bar (top 38px) and color legend (bottom 38px) so the
+        # data area aligns with the conditions panel header bottom edge.
+        data_radar = radar_img.crop((0, 38, radar_img.width, radar_img.height - 38))
         scale = max(radar_w / data_radar.width, height / data_radar.height)
         rw = int(data_radar.width * scale)
         rh = int(data_radar.height * scale)
@@ -714,7 +712,7 @@ def generate(config):
     config["last_ten"] = last_ten
     save_state(STATE_FILE, state)
 
-    if should_update and final_display_image:
+    if should_update and final_display_image and config.get('interesting_station', True):
         if now - state.get("last_full_scan", 0) >= full_scan_interval:
             state["last_full_scan"] = now
             save_state(STATE_FILE, state)
