@@ -323,55 +323,51 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         return
 
     y = header_h + 6
-    temp_str   = f"{conditions['temp']}°F"
+    temp_str = f"{conditions['temp']}°F"
     feels_desc = f"Feels like {conditions['feels_like']}°F  \u2022  {conditions['weather_desc']}"
 
     if qr_url:
-        # Pass 1: measure combined height of temp + feels-like at full width
+        # Pass 1: measure both rows at full text_w to get total height for QR size
         for size in range(72, 55, -2):
-            f = _font(size)
-            if draw.textbbox((0, 0), temp_str, font=f)[2] <= text_w:
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= text_w:
                 break
-        p1_temp_h = draw.textbbox((0, 0), temp_str, font=f)[3]
         for size in range(15, 8, -1):
-            f = _font(size)
-            if draw.textbbox((0, 0), feels_desc, font=f)[2] <= text_w:
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= text_w:
                 break
-        p1_feels_h = draw.textbbox((0, 0), feels_desc, font=f)[3]
-        qr_size    = max(p1_temp_h + 4 + p1_feels_h, text_w // 2)
+        t_h = draw.textbbox((0, 0), temp_str, font=f_temp)[3]
+        f_h = draw.textbbox((0, 0), feels_desc, font=f_feels)[3]
+        qr_size = t_h + 4 + f_h        # span both rows including their gap
         top_text_w = text_w - qr_size - 4
 
-        # Pass 2: refit both texts into the narrower left column
+        # Pass 2: refit both rows into the narrower width
         for size in range(72, 55, -2):
-            temp_font = _font(size)
-            if draw.textbbox((0, 0), temp_str, font=temp_font)[2] <= top_text_w:
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= top_text_w:
                 break
         for size in range(15, 8, -1):
-            feels_font = _font(size)
-            if draw.textbbox((0, 0), feels_desc, font=feels_font)[2] <= top_text_w:
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= top_text_w:
                 break
     else:
         qr_size = 0
         top_text_w = text_w
         for size in range(72, 55, -2):
-            temp_font = _font(size)
-            if draw.textbbox((0, 0), temp_str, font=temp_font)[2] <= text_w:
+            f_temp = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=f_temp)[2] <= text_w:
                 break
         for size in range(15, 8, -1):
-            feels_font = _font(size)
-            if draw.textbbox((0, 0), feels_desc, font=feels_font)[2] <= text_w:
+            f_feels = _font(size)
+            if draw.textbbox((0, 0), feels_desc, font=f_feels)[2] <= text_w:
                 break
 
     # Temperature
-    draw.text((text_x, y), temp_str, fill=BLACK, font=temp_font)
-    temp_h = draw.textbbox((0, 0), temp_str, font=temp_font)[3]
+    draw.text((text_x, y), temp_str, fill=BLACK, font=f_temp)
+    temp_h = draw.textbbox((0, 0), temp_str, font=f_temp)[3]
     y += temp_h + 4
 
-    # Feels like / description
-    draw.text((text_x, y), feels_desc, fill=BLACK, font=feels_font)
-    y += draw.textbbox((0, 0), feels_desc, font=feels_font)[3] + 4
-
-    # Paste QR spanning temp + feels-like height
+    # Paste QR filling temperature + feels-like height
     if qr_url:
         try:
             qr_img = qrcode.make(qr_url).convert("RGB")
@@ -379,6 +375,10 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
             canvas.paste(qr_img, (panel_x + panel_w - margin - qr_size, header_h + 6))
         except Exception as e:
             print(f"[panel] QR code error: {e}")
+
+    # Feels like / description
+    draw.text((text_x, y), feels_desc, fill=BLACK, font=f_feels)
+    y += draw.textbbox((0, 0), feels_desc, font=f_feels)[3] + 4
 
     # Separator
     y = _separator(y)
