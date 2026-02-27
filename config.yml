@@ -15,8 +15,9 @@ alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: panel # "crop" | "fit" | "panel"
-panel_width: 280    # width of conditions panel (panel mode only)
-panel_header: "Franklin, TN"   # text shown in the unified header bar (panel mode)
+panel_width: 280          # width of conditions panel (panel mode only)
+panel_header: "Franklin, TN"   # text shown in the panel header bar
+panel_header_height: 30        # height in px of the black header bar on the panel side
 url_qr_loop: False
 
 # ── Module selector ──────────────────────────────────────────────────────────

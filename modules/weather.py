@@ -518,14 +518,14 @@ def generate_weather_image(config, special_msg=None):
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        header_h = 30
+        header_h = config.get("panel_header_height", 30)
 
-        # Radar fills full height — letterboxed into the left canvas.
-        scale = min(radar_w / radar_img.width, height / radar_img.height)
+        # Radar fills full height — max scale fills the canvas, clipping ~1px from sides.
+        scale = max(radar_w / radar_img.width, height / radar_img.height)
         rw = int(radar_img.width * scale)
         rh = int(radar_img.height * scale)
         scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
-        x_off = (radar_w - rw) // 2
+        x_off = (radar_w - rw) // 2   # negative = PIL auto-crops the sides
         y_off = (height - rh) // 2
         final_img.paste(scaled_radar, (x_off, y_off))
 
