@@ -240,29 +240,29 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     bb = [cx - r, cy - r, cx + r, cy + r]
 
     if fraction < 0.0625 or fraction > 0.9375:
-        # New moon: solid black disc
-        draw.ellipse(bb, fill=B)
+        # New moon: solid white disc with black outline
+        draw.ellipse(bb, fill=W, outline=B)
         return
     if 0.4375 < fraction < 0.5625:
-        # Full moon: white disc with black outline
-        draw.ellipse(bb, fill=W, outline=B)
+        # Full moon: solid black disc
+        draw.ellipse(bb, fill=B)
         return
 
     # Terminator x-radius; 0 = straight vertical (quarter), r = full (crescent)
     tx = int(r * abs(math.cos(fraction * 2 * math.pi)))
 
     if fraction < 0.5:
-        # Waxing: right side lit — fill dark, clear right half, shadow terminator
-        draw.ellipse(bb, fill=B)
-        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)
-        if tx > 0:
-            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
-    else:
-        # Waning: left side lit — fill dark, clear left half, restore terminator
+        # Waxing: right side lit (black) — fill disc black, erase left half, whiten terminator
         draw.ellipse(bb, fill=B)
         draw.rectangle([cx - r, cy - r, cx, cy + r], fill=W)
         if tx > 0:
             draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
+    else:
+        # Waning: left side lit (black) — fill disc black, erase right half, shadow terminator
+        draw.ellipse(bb, fill=B)
+        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)
+        if tx > 0:
+            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
 
     draw.ellipse(bb, outline=B)
 
