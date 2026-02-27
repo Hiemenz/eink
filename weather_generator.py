@@ -130,20 +130,14 @@ def generate_weather_image(config, special_msg=None):
     height = config.get("height", 480)
     background_color = config.get("background_color_weather", "white")
     station = config.get("station", {}).get("name", "KTYX")
-    location = config.get("station", {}).get("location", "Unknown Location")
-    
+
     output_path = config.get("output_path") or os.path.join(radar_folder, f"eink_display_{station}.bmp")
     quantized_output_path = config.get("quantized_path") or os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
-    
+
     radar_mode = config.get("radar_mode", "crop").lower()
     final_img = Image.new("RGB", (width, height), color=background_color)
-    
-    radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
 
-    if config.get("url_qr_loop", True):
-        radar_url_qr = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
-    else: 
-        radar_url_qr = f'https://radar.weather.gov/station/{station.lower()}/standard'
+    radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -237,61 +231,19 @@ def generate_weather_image(config, special_msg=None):
     if os.path.exists(quantized_output_path):
         old_quant = Image.open(quantized_output_path).convert("RGB")
     
-    # Fetch and overlay special weather message QR code if enabled and special_msg is provided
+    # Overlay special weather alert QR code (top-right of the radar area, never on the panel)
     if config.get("check_special_weather", True) and special_msg:
         try:
             special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            qr_topright = qrcode.make(special_url).resize((138, 138), Image.LANCZOS)
-            final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, 2))
+            qr_size = 138
+            qr_alert = qrcode.make(special_url).resize((qr_size, qr_size), Image.LANCZOS)
+            # In panel mode keep QR inside the radar portion; otherwise use full width
+            panel_w = config.get("panel_width", 280) if radar_mode == "panel" else 0
+            radar_right = width - panel_w
+            qr_x = radar_right - qr_size - 2
+            final_img.paste(qr_alert, (qr_x, 2))
         except Exception as e:
             print(f"Error adding special weather QR code: {e}")
-
-    # Generate QR code for the radar image URL
-    qr = qrcode.make(radar_url_qr)
-    qr = qr.resize((138, 138), Image.LANCZOS)  # Resize QR code
-
-    draw = ImageDraw.Draw(final_img)
-    font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), location, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1] + 8
-    margin = 0
-    # Calculate positions so that QR code and text are overlaid in the bottom right corner
-    qr_x = width - qr.width - margin + 2
-    qr_y = height - (qr.height + text_height + 2 * margin)
-    final_img.paste(qr, (qr_x, qr_y))
-
-    # Draw text below the QR code
-    text_x = qr_x
-    text_y = qr_y + qr.height + margin
-    draw.text((text_x, text_y), location, fill="black", font=font)
-    
-    # Draw top 5 stations on the left side if available
-    top5 = config.get("top5", [])
-    if top5 and config.get('show_top_5', True):
-        margin = 10
-        left_margin = margin
-        top_margin = margin
-
-        for i, (station, percentage) in enumerate(top5):
-            text_str = f"{station}: {percentage:.1f}%"
-            bbox_station = draw.textbbox((0, 0), text_str, font=font)
-            line_height = bbox_station[3] - bbox_station[1]
-            draw.text((left_margin, top_margin + i * (line_height + margin)), text_str, fill="black", font=font)
-
-    last_ten = config.get("last_ten", [])
-    if last_ten and config.get('show_last_ten', True):
-        margin = 10
-        left_margin = margin
-        # Calculate line height using a sample text
-        sample_text = "Sample"
-        bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
-        line_height = bbox_sample[3] - bbox_sample[1]
-        total_text_height = len(last_ten) * (line_height + margin) - margin
-        bottom_y = height - margin - total_text_height
-        for i, station in enumerate(last_ten):
-            text_str = f"{station}"
-            draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
 
     final_img.save(output_path)
     print(f"Saved final weather image to {output_path}")
@@ -345,7 +297,6 @@ def update_top5(percentages):
     """
     sorted_stations = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
     top5 = sorted_stations[:5]
-    print("Top 5 stations from full scan:", top5)
     return top5
 
 
@@ -365,8 +316,7 @@ def main():
     top5_data = state.get("top5", [])
     if top5_data:
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
-        print("Using cached top 5 stations:", top5_list)
-        config["top5"] = top5_list  # Set top5 in config for use in generate_weather_image
+        config["top5"] = top5_list
     else:
         top5_list = []  # will be updated later if needed
 
