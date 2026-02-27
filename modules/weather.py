@@ -338,7 +338,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
             if draw.textbbox((0, 0), feels_desc, font=f)[2] <= text_w:
                 break
         p1_feels_h = draw.textbbox((0, 0), feels_desc, font=f)[3]
-        qr_size    = p1_temp_h + 4 + p1_feels_h
+        qr_size    = max(p1_temp_h + 4 + p1_feels_h, text_w // 2)
         top_text_w = text_w - qr_size - 4
 
         # Pass 2: refit both texts into the narrower left column
