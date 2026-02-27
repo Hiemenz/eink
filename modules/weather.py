@@ -71,14 +71,14 @@ def fetch_current_conditions(lat, lon, headers):
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
         f"weather_code,surface_pressure,"
         f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure"
+        f"&hourly=visibility,surface_pressure,temperature_2m,weather_code,precipitation_probability"
         f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
         f"&wind_speed_unit=mph"
         f"&temperature_unit=fahrenheit"
         f"&precipitation_unit=inch"
         f"&timezone=auto"
         f"&past_days=7"
-        f"&forecast_days=1"
+        f"&forecast_days=2"
     )
 
     try:
@@ -142,6 +142,29 @@ def fetch_current_conditions(lat, lon, headers):
         weather_code = current.get("weather_code", 0)
         weather_desc = _wmo_description(weather_code)
 
+        # Next 3 hourly slots after current hour
+        hourly_temps  = hourly.get("temperature_2m", [])
+        hourly_codes  = hourly.get("weather_code", [])
+        hourly_precip = hourly.get("precipitation_probability", [])
+        hourly_forecast = []
+        for i in range(1, 4):
+            idx = cur_idx + i
+            if 0 <= idx < len(hourly_times):
+                try:
+                    slot_dt = _dt.fromisoformat(hourly_times[idx])
+                    label = slot_dt.strftime("%-I %p")
+                except Exception:
+                    label = hourly_times[idx][-5:]
+                temp_h  = int(round(hourly_temps[idx]))  if idx < len(hourly_temps)  else None
+                code_h  = hourly_codes[idx]               if idx < len(hourly_codes)  else 0
+                precip_h = hourly_precip[idx]             if idx < len(hourly_precip) else 0
+                hourly_forecast.append({
+                    "time":   label,
+                    "temp":   temp_h,
+                    "desc":   _wmo_description(code_h),
+                    "precip": int(precip_h) if precip_h is not None else 0,
+                })
+
         result = {
             "temp":         int(round(current.get("temperature_2m", 0))),
             "feels_like":   int(round(current.get("apparent_temperature", 0))),
@@ -164,6 +187,7 @@ def fetch_current_conditions(lat, lon, headers):
             "low_today":    low_today,
             "moon_name":    moon_name,
             "moon_illum":   moon_illum,
+            "hourly_forecast": hourly_forecast,
         }
 
         _conditions_cache["data"] = result
@@ -176,11 +200,12 @@ def fetch_current_conditions(lat, lon, headers):
         return None
 
 
-def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
+def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30):
     """
     Draw the current-conditions data panel on an existing PIL Image.
-    panel_x: left edge of the panel in canvas pixels
-    panel_w: width of the panel in pixels
+    panel_x:  left edge of the panel in canvas pixels
+    panel_w:  width of the panel in pixels
+    header_h: vertical offset where content starts (header drawn externally)
     """
     draw = ImageDraw.Draw(canvas)
     height = canvas.size[1]
@@ -211,7 +236,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
 
     def _separator(y):
         draw.line([(text_x, y), (right_x, y)], fill=BLACK, width=1)
-        return y + 8
+        return y + 5
 
     def _trend_shape(x, y, trend, row_h):
         """Draw a small filled trend triangle using PIL primitives (no unicode needed)."""
@@ -224,22 +249,6 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
         else:  # steady
             draw.rectangle([x, cy - 2, x + 2*r, cy + 2], fill=BLACK)
         return 2*r + 4  # pixel width consumed
-
-    # --- Black header bar — location text auto-sized to fill it ---
-    header_h = 30
-    draw.rectangle([(panel_x, 0), (panel_x + panel_w - 1, header_h - 1)], fill=BLACK)
-    forecast_loc = config.get("forecast_location", {})
-    loc_name = forecast_loc.get("name", "")
-    weekday = _date.today().strftime("%a")
-    hdr_str = f"{loc_name}  {weekday}"
-    hdr_avail_h = header_h - 6
-    for size in range(20, 9, -1):
-        hdr_font = _font(size)
-        bb = draw.textbbox((0, 0), hdr_str, font=hdr_font)
-        if (bb[2] - bb[0]) <= text_w and (bb[3] - bb[1]) <= hdr_avail_h:
-            break
-    bb = draw.textbbox((0, 0), hdr_str, font=hdr_font)
-    draw.text((text_x, (header_h - (bb[3] - bb[1])) // 2), hdr_str, fill=WHITE, font=hdr_font)
 
     if conditions is None:
         draw.text((panel_x + panel_w // 2, height // 2), "No data",
@@ -257,9 +266,9 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
     draw.text((text_x, y), temp_str, fill=BLACK, font=font)
     y += draw.textbbox((0, 0), temp_str, font=font)[3] + 4
 
-    # Feels like / description — auto-size 13→9px to fit width
+    # Feels like / description — auto-size 15→9px to fit width
     feels_desc = f"Feels like {conditions['feels_like']}°F  \u2022  {conditions['weather_desc']}"
-    for size in range(13, 8, -1):
+    for size in range(15, 8, -1):
         font = _font(size)
         if draw.textbbox((0, 0), feels_desc, font=font)[2] <= text_w:
             break
@@ -270,21 +279,20 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
     y = _separator(y)
 
     # Two-column data rows — pressure row gets a drawn trend arrow
-    label_font = _font(15)
-    value_font = _font(18)
-    row_h = 26
+    label_font = _font(17)
+    value_font = _font(20)
+    row_h = 24
     raw_trend = conditions.get("pressure_trend", "")
     trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
 
     rows = [
-        ("Humidity",   f"{conditions['humidity']}%",                         ""),
-        ("UV Index",   str(conditions['uv_index']),                           ""),
-        ("Pressure",   f"{conditions['pressure']} inHg",                     trend_dir),
-        ("Visibility", f"{conditions['visibility']} mi",                     ""),
-        ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} mph", ""),
-        ("Gusts",      f"{conditions['wind_gust']} mph",                     ""),
-        ("Rain Today", f"{conditions['rain_today']}\"",                      ""),
-        ("Rain 7-Day", f"{conditions['rain_7day']}\"",                       ""),
+        ("Humidity",   f"{conditions['humidity']}%",                                              ""),
+        ("Pressure",   f"{conditions['pressure']} inHg",                                          trend_dir),
+        ("Visibility", f"{conditions['visibility']} mi",                                          ""),
+        ("UV Index",   f"{conditions['uv_index']}",                                               ""),
+        ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} / G{conditions['wind_gust']} mph", ""),
+        ("Rain Today", f"{conditions['rain_today']}\"",                                           ""),
+        ("Rain 7-Day", f"{conditions['rain_7day']}\"",                                            ""),
     ]
 
     for label, value, row_trend in rows:
@@ -305,7 +313,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
     y = _separator(y)
 
     # Sunrise / Sunset rows
-    sun_font = _font(18)
+    sun_font = _font(20)
     for label, value in [("Sunrise", conditions["sunrise"]), ("Sunset", conditions["sunset"])]:
         draw.text((text_x, y), label, fill=BLACK, font=sun_font)
         val_bbox = draw.textbbox((0, 0), value, font=sun_font)
@@ -317,12 +325,89 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w):
 
     # Moon phase
     moon_str = f"{conditions['moon_name']}  {conditions['moon_illum']}%"
-    draw.text((text_x, y), moon_str, fill=BLACK, font=_font(15))
+    draw.text((text_x, y), moon_str, fill=BLACK, font=_font(17))
     y += row_h
 
     # Today High / Low
     hl_str = f"Today  H{conditions['high_today']}\u00b0 / L{conditions['low_today']}\u00b0"
-    draw.text((text_x, y), hl_str, fill=BLACK, font=_font(15))
+    draw.text((text_x, y), hl_str, fill=BLACK, font=_font(17))
+    y += row_h
+
+    # Hourly forecast grid (next 3 hours)
+    hourly = conditions.get("hourly_forecast", [])
+    if hourly:
+        y = _separator(y)
+        box_count = min(3, len(hourly))
+        if box_count > 0 and y < height - 20:
+            box_h = height - y - 2
+            box_w = text_w // box_count
+            inner_w = box_w - 8   # horizontal padding inside box
+            inner_h = box_h - 6   # vertical padding inside box
+            gap = 2               # px between lines
+
+            # Does any slot have precip? Use consistent line count across all boxes.
+            has_precip = any(s["precip"] for s in hourly[:box_count])
+            num_lines = 4 if has_precip else 3
+
+            # Find the largest base font where all lines fit inside the box.
+            # Temp uses base*1.6; time/desc/precip use base.
+            best_base = 8
+            for base_sz in range(24, 7, -1):
+                temp_sz = max(base_sz, int(base_sz * 1.6))
+                bf = _font(base_sz)
+                tf = _font(temp_sz)
+                lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+                lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
+                # Widest possible strings
+                max_w = max(
+                    draw.textbbox((0, 0), "12 AM", font=bf)[2],
+                    draw.textbbox((0, 0), "100°", font=tf)[2],
+                    draw.textbbox((0, 0), "Overcast", font=bf)[2],
+                )
+                if total_h <= inner_h and max_w <= inner_w:
+                    best_base = base_sz
+                    break
+
+            bf = _font(best_base)
+            tf = _font(max(best_base, int(best_base * 1.6)))
+            lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+            lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+
+            for i, slot in enumerate(hourly[:box_count]):
+                bx = text_x + i * box_w
+                by = y
+                draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)],
+                                outline=BLACK, width=1)
+
+                # Centre content block vertically inside the box
+                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
+                cy = by + (box_h - total_h) // 2
+
+                def _center_text(text, font, top_y):
+                    w = draw.textbbox((0, 0), text, font=font)[2]
+                    draw.text((bx + (box_w - w) // 2, top_y), text, fill=BLACK, font=font)
+
+                # Time
+                _center_text(slot["time"], bf, cy)
+                cy += lh_base + gap
+
+                # Temp
+                _center_text(f"{slot['temp']}\u00b0", tf, cy)
+                cy += lh_temp + gap
+
+                # Description (truncate to fit width)
+                desc = slot["desc"]
+                while desc and draw.textbbox((0, 0), desc, font=bf)[2] > inner_w:
+                    desc = desc[:-1]
+                _center_text(desc, bf, cy)
+                cy += lh_base + gap
+
+                # Precip (only if any slot has it)
+                if has_precip:
+                    prec = f"{slot['precip']}%" if slot["precip"] else ""
+                    if prec:
+                        _center_text(prec, bf, cy)
 
 
 if platform.system() == "Linux":
@@ -447,8 +532,7 @@ def generate_weather_image(config, special_msg=None):
         top = (new_h - height) // 2
         processed_radar = scaled_radar.crop((left, top, left + width, top + height))
     elif radar_mode == "fit":
-        # Strip 24px NWS title bar (top) and color legend (bottom) so primary and
-        # neighbor strips share the same vertical geographic scale.
+        # Strip 24px NWS title bar (top) and color legend (bottom).
         data_radar = radar_img.crop((0, 24, radar_img.width, radar_img.height - 24))
         scale = min(width / data_radar.width, height / data_radar.height)
         new_w = int(data_radar.width * scale)
@@ -457,49 +541,79 @@ def generate_weather_image(config, special_msg=None):
         x_offset = (width - new_w) // 2
         y_offset = (height - new_h) // 2
         primary_region = (x_offset, y_offset, x_offset + new_w, y_offset + new_h)
-        station_cfg = config.get("station", {})
-        fill_blank_strips(final_img, x_offset, y_offset, new_w, new_h, station_cfg, headers)
         final_img.paste(processed_radar, (x_offset, y_offset))
         processed_radar = None
     elif radar_mode == "panel":
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        # Keep full radar image (header + footer intact); crop-fill left portion
+        header_h = 21
+
+        # Radar fills full height — max scale fills the canvas, clipping ~1px from sides.
         scale = max(radar_w / radar_img.width, height / radar_img.height)
         rw = int(radar_img.width * scale)
         rh = int(radar_img.height * scale)
         scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
-        left_crop = (rw - radar_w) // 2
-        top_crop  = (rh - height)  // 2
-        processed_radar = scaled_radar.crop((left_crop, top_crop,
-                                             left_crop + radar_w, top_crop + height))
-        final_img.paste(processed_radar, (0, 0))
+        x_off = (radar_w - rw) // 2   # negative = PIL auto-crops the sides
+        y_off = (height - rh) // 2
+        final_img.paste(scaled_radar, (x_off, y_off))
 
-        # White panel background
+        # White panel background (full height on right side)
         draw_tmp = ImageDraw.Draw(final_img)
         draw_tmp.rectangle([(radar_w, 0), (width - 1, height - 1)], fill="white")
 
-        # Thin vertical separator
-        draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
-
-        # Fetch & render current conditions
+        # Fetch & render conditions (content starts below header_h)
         forecast_loc = config.get("forecast_location", {})
         lat = forecast_loc.get("latitude")
         lon = forecast_loc.get("longitude")
         conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w)
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
 
-        primary_region = (0, 0, radar_w, height)   # interesting% measured on radar only
-        processed_radar = None
-
-        # Snap panel pixels to pure black/white so anti-aliased text fringe
-        # (grey ~90-140) doesn't get quantized to orange in the 7-color palette.
-        panel_box = (radar_w, 0, width, height)
-        panel_bw = final_img.crop(panel_box).convert("L").point(
+        # Snap only the content area (below header) to pure B/W before drawing header text
+        panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
             lambda px: 255 if px > 128 else 0
         ).convert("RGB")
-        final_img.paste(panel_bw, (radar_w, 0))
+        final_img.paste(panel_bw, (radar_w, header_h))
+
+        # Black header bar on the RIGHT panel only — drawn last so snap doesn't erode text
+        draw_tmp = ImageDraw.Draw(final_img)
+        draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+
+        # Location + weekday text in the header
+        loc_name = config.get("panel_header") or forecast_loc.get("name", "")
+        weekday = _date.today().strftime("%a")
+        hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
+        hdr_font = None
+        for path in [
+            config.get("bold_font_path", ""),
+            "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            config.get("font_path", ""),
+        ]:
+            if not path:
+                continue
+            for size in range(20, 9, -1):
+                try:
+                    f = ImageFont.truetype(path, size)
+                    bb = draw_tmp.textbbox((0, 0), hdr_str, font=f)
+                    if (bb[2] - bb[0]) <= panel_w - 16 and (bb[3] - bb[1]) <= header_h - 6:
+                        hdr_font = f
+                        break
+                except Exception:
+                    break
+            if hdr_font:
+                break
+        if hdr_font is None:
+            hdr_font = ImageFont.load_default()
+        bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
+        text_y = (header_h - (bb[3] - bb[1])) // 2
+        draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
+
+        # Thin vertical separator (full height)
+        draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
+
+        primary_region = (0, 0, radar_w, height)
+        processed_radar = None
     else:
         raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
 
@@ -559,119 +673,6 @@ def calculate_non_bw_percentage(image_path, region=None):
         return 0.0
     non_bw_count = sum(1 for pixel in pixels if pixel not in [(0, 0, 0), (255, 255, 255)])
     return (non_bw_count / len(pixels)) * 100
-
-
-def fetch_radar_image(station, headers):
-    url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
-    for attempt in range(3):
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200 and "image" in resp.headers.get("Content-Type", ""):
-                return Image.open(io.BytesIO(resp.content)).convert("RGB")
-            if resp.status_code == 404 and attempt < 2:
-                time.sleep(2)
-        except Exception as e:
-            print(f"Error fetching {station}: {e}")
-    return None
-
-
-def fill_blank_strips(canvas, x_offset, y_offset, primary_w, primary_h, station_config, headers):
-    width, height = canvas.size
-
-    primary_lat = station_config.get("lat")
-    primary_lon = station_config.get("lon")
-    canvas_km_per_px = NWS_KM_PER_PX / (primary_w / 600.0) if primary_w else NWS_KM_PER_PX
-
-    def _place_horizontal_neighbor(nb_cfg, strip_canvas_x_start, strip_canvas_x_end, dst_x):
-        """Fetch neighbor, crop header/footer, scale, crop geographically correct columns, paste."""
-        if isinstance(nb_cfg, str):
-            nb_name, nb_lat, nb_lon = nb_cfg, None, None
-        else:
-            nb_name = nb_cfg.get("name")
-            nb_lat  = nb_cfg.get("lat")
-            nb_lon  = nb_cfg.get("lon")
-
-        img = fetch_radar_image(nb_name, headers)
-        if not img:
-            return
-
-        # Remove 24px header (top) and 24px footer (bottom) → data area only
-        data_img = img.crop((0, 24, img.width, max(img.height - 24, 24 + 1)))
-
-        # Resize to (primary_w × height): preserves horizontal geographic scale,
-        # stretches data area vertically to fill the full strip height (no gaps)
-        scaled = data_img.resize((primary_w, height), Image.LANCZOS)
-
-        if nb_lat is not None and nb_lon is not None and primary_lat is not None and primary_lon is not None:
-            # Compute geographic east-west offset in canvas pixels
-            lat_rad = math.radians(primary_lat)
-            dx_km = (nb_lon - primary_lon) * math.cos(lat_rad) * 111.32  # positive = neighbor is east
-            dx_canvas_px = dx_km / canvas_km_per_px  # positive = neighbor center is to the right
-
-            primary_center_canvas_x = x_offset + primary_w / 2
-            nb_center_canvas_x = primary_center_canvas_x + dx_canvas_px
-            nb_left_canvas_x = nb_center_canvas_x - primary_w / 2
-
-            # Columns in scaled neighbor that correspond to the strip
-            col_start = int(round(strip_canvas_x_start - nb_left_canvas_x))
-            col_end   = int(round(strip_canvas_x_end   - nb_left_canvas_x))
-        else:
-            # Fallback: edge-crop (old behavior)
-            if dst_x == 0:  # left strip
-                col_start = primary_w - (strip_canvas_x_end - strip_canvas_x_start)
-                col_end   = primary_w
-            else:           # right strip
-                col_start = 0
-                col_end   = strip_canvas_x_end - strip_canvas_x_start
-
-        # Clamp to valid image bounds
-        col_start = max(0, min(col_start, primary_w))
-        col_end   = max(0, min(col_end,   primary_w))
-        if col_end <= col_start:
-            return
-
-        cropped = scaled.crop((col_start, 0, col_end, height))
-        canvas.paste(cropped, (dst_x, 0))
-
-    # Left strip
-    if x_offset > 0:
-        nb = station_config.get("neighbor_left")
-        if nb:
-            _place_horizontal_neighbor(nb, 0, x_offset, 0)
-
-    # Right strip
-    right_strip_w = width - (x_offset + primary_w)
-    if right_strip_w > 0:
-        nb = station_config.get("neighbor_right")
-        if nb:
-            _place_horizontal_neighbor(nb, x_offset + primary_w, width, x_offset + primary_w)
-
-    # Top strip (unchanged)
-    if y_offset > 0:
-        neighbor = station_config.get("neighbor_top")
-        if neighbor:
-            img = fetch_radar_image(neighbor, headers)
-            if img:
-                scale = max(width / img.width, y_offset / img.height)
-                nw = int(img.width * scale)
-                nh = int(img.height * scale)
-                scaled = img.resize((nw, nh), Image.LANCZOS)
-                cropped = scaled.crop((0, nh - y_offset, width, nh))
-                canvas.paste(cropped, (0, 0))
-
-    # Bottom strip (unchanged)
-    bottom_strip_h = height - (y_offset + primary_h)
-    if bottom_strip_h > 0:
-        neighbor = station_config.get("neighbor_bottom")
-        if neighbor:
-            img = fetch_radar_image(neighbor, headers)
-            if img:
-                scale = max(width / img.width, bottom_strip_h / img.height)
-                nw = int(img.width * scale)
-                nh = int(img.height * scale)
-                scaled = img.resize((nw, nh), Image.LANCZOS)
-                cropped = scaled.crop((0, 0, width, bottom_strip_h))
-                canvas.paste(cropped, (0, y_offset + primary_h))
 
 
 def full_station_scan(config, skip_station=None):
@@ -736,7 +737,7 @@ def generate(config):
 
     best_station = None
     best_percentage = default_percentage
-    if default_updated and default_percentage < config.get('interesting_threshold', 15) and top5_list:
+    if config.get('interesting_station', True) and default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_percentage = 0
         best_image_path = None
         for station, _ in top5_list:
@@ -746,14 +747,17 @@ def generate(config):
             station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
             config['station']['location'] = station_entry.get("location", "Unknown Location")
             image_path, updated, _ = generate_weather_image(config, special_msg=special_msg)
+            # Use cached quantized image if it exists and hasn't changed
             if image_path is None:
+                image_path = config["quantized_path"]
+            if not os.path.exists(image_path):
                 continue
             should_update = True
             perc = calculate_non_bw_percentage(config["quantized_path"])
             if perc > best_percentage:
                 best_percentage = perc
                 best_station = station
-                best_image_path = config["quantized_path"]
+                best_image_path = image_path
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}%.")
             final_display_image = best_image_path
@@ -785,7 +789,7 @@ def generate(config):
     config["last_ten"] = last_ten
     save_state(STATE_FILE, state)
 
-    if should_update and final_display_image:
+    if should_update and final_display_image and config.get('interesting_station', True):
         if now - state.get("last_full_scan", 0) >= full_scan_interval:
             state["last_full_scan"] = now
             save_state(STATE_FILE, state)

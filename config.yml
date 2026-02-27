@@ -9,12 +9,14 @@ min_font_size: 10
 font_path: "/Library/Fonts/Arial Unicode.ttf"
 bold_font_path: "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
 output_path: images/eink_display.bmp
-interesting_threshold: 12
+interesting_station: false   # Auto-switch to most active radar when default is below threshold
+interesting_threshold: 12  # % colored pixels below which the default is considered boring
 alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 radar_mode: panel # "crop" | "fit" | "panel"
-panel_width: 280    # width of conditions panel (panel mode only)
+panel_width: 280          # width of conditions panel (panel mode only)
+panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
 
 # ── Module selector ──────────────────────────────────────────────────────────
@@ -99,24 +101,21 @@ module_cycler:
     - nasa_apod
     - flight_radar
 
-show_top_5: True
+show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
-show_last_ten: True
+show_last_ten: False
 more_colors: False
-station:
-  name: KOHX
-  location: Nashville, TN
-  zone_code: tn
-  lat: 36.2472
-  lon: -86.5625
-  neighbor_left:
-    name: KNQA       # Memphis, TN — fills left blank strip
-    lat: 35.3447
-    lon: -89.8734
-  neighbor_right:
-    name: KMRX       # Knoxville/Tri Cities, TN — fills right blank strip
-    lat: 36.1686
-    lon: -83.4017
+
+# ── Radar station presets ─────────────────────────────────────────────────────
+# To switch stations, change station: *KOHX to any anchor name below.
+_presets:
+  kohx: &KOHX  {name: KOHX, location: "Nashville, TN",       zone_code: tn, lat: 36.2472, lon: -86.5625}
+  kilx: &KILX  {name: KILX, location: "Lincoln, IL",          zone_code: il, lat: 40.1506, lon: -89.3367}
+  krax: &KRAX  {name: KRAX, location: "Raleigh, NC",          zone_code: nc, lat: 35.6654, lon: -78.4897}
+  ktlx: &KTLX  {name: KTLX, location: "Oklahoma City, OK",   zone_code: ok, lat: 35.3331, lon: -97.2778}
+  kfws: &KFWS  {name: KFWS, location: "Dallas/Fort Worth, TX", zone_code: tx, lat: 32.5731, lon: -97.3031}
+
+station: *KOHX
 
 # Location coordinates for detailed forecast
 forecast_location:

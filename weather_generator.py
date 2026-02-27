@@ -192,33 +192,73 @@ def generate_weather_image(config, special_msg=None):
             top = (new_h - height) // 2
             processed_radar = scaled_radar.crop((left, top, left + width, top + height))
         else:
+            from datetime import date as _date
             panel_w = config.get("panel_width", 280)
             radar_w = width - panel_w
+            header_h = 21
+
+            # Radar fills full height — max scale fills canvas, clipping ~1px from sides.
             scale = max(radar_w / radar_img.width, height / radar_img.height)
             rw = int(radar_img.width * scale)
             rh = int(radar_img.height * scale)
             scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
-            left_crop = (rw - radar_w) // 2
-            top_crop  = (rh - height)  // 2
-            processed_radar = scaled_radar.crop((left_crop, top_crop,
-                                                 left_crop + radar_w, top_crop + height))
-            final_img.paste(processed_radar, (0, 0))
+            x_off = (radar_w - rw) // 2   # negative = PIL auto-crops the sides
+            y_off = (height - rh) // 2
+            final_img.paste(scaled_radar, (x_off, y_off))
 
             draw_tmp = ImageDraw.Draw(final_img)
             draw_tmp.rectangle([(radar_w, 0), (width - 1, height - 1)], fill="white")
-            draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
 
+            # Fetch conditions and draw panel content (starts below header_h)
             forecast_loc = config.get("forecast_location", {})
             lat = forecast_loc.get("latitude")
             lon = forecast_loc.get("longitude")
             conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-            draw_conditions_panel(final_img, conditions, config, radar_w, panel_w)
+            draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
 
-            panel_box = (radar_w, 0, width, height)
-            panel_bw = final_img.crop(panel_box).convert("L").point(
+            # Snap content area (below header) to pure B/W before drawing header text
+            panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
                 lambda px: 255 if px > 128 else 0
             ).convert("RGB")
-            final_img.paste(panel_bw, (radar_w, 0))
+            final_img.paste(panel_bw, (radar_w, header_h))
+
+            # Black header bar on right panel only — drawn last
+            draw_tmp = ImageDraw.Draw(final_img)
+            draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+
+            loc_name = config.get("panel_header") or forecast_loc.get("name", "")
+            weekday = _date.today().strftime("%a")
+            hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
+            hdr_font = None
+            font_path = config.get("font_path", "")
+            for path in [
+                config.get("bold_font_path", ""),
+                "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                font_path,
+            ]:
+                if not path:
+                    continue
+                for size in range(20, 9, -1):
+                    try:
+                        f = ImageFont.truetype(path, size)
+                        bb = draw_tmp.textbbox((0, 0), hdr_str, font=f)
+                        if (bb[2] - bb[0]) <= panel_w - 16 and (bb[3] - bb[1]) <= header_h - 6:
+                            hdr_font = f
+                            break
+                    except Exception:
+                        break
+                if hdr_font:
+                    break
+            if hdr_font is None:
+                hdr_font = ImageFont.load_default()
+            bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
+            text_y = (header_h - (bb[3] - bb[1])) // 2
+            draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
+
+            # Thin vertical separator (full height)
+            draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
+
             processed_radar = None
     else:
         raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
@@ -403,28 +443,6 @@ def main():
     save_state(STATE_FILE, state)
 
     if should_update:  # Check if an update occurred
-        # Update the final display image to include the updated last_ten overlay
-        try:
-            last_ten = state.get("last_ten", [])
-            from PIL import ImageDraw, ImageFont
-            final_img = Image.open(final_display_image).convert("RGB")
-            draw = ImageDraw.Draw(final_img)
-            font = ImageFont.load_default()
-            margin = 10
-            left_margin = margin
-            count = len(last_ten)
-            if count > 0:
-                sample_text = "Sample"
-                bbox_sample = draw.textbbox((0, 0), sample_text, font=font)
-                line_height = bbox_sample[3] - bbox_sample[1]
-                total_text_height = count * (line_height + margin) - margin
-                bottom_y = final_img.height - margin - total_text_height
-                for i, station in enumerate(last_ten):
-                    text_str = f"{station}"
-                    draw.text((left_margin, bottom_y + i * (line_height + margin)), text_str, fill="black", font=font)
-            final_img.save(final_display_image)
-        except Exception as e:
-            print(f"Failed to update last_ten overlay: {e}")
 
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)
