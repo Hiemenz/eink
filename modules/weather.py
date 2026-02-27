@@ -322,32 +322,41 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
                   fill=BLACK, font=_font(18), anchor="mm")
         return
 
-    # QR code — sized and placed after temperature row height is known
-    qr_size = 60 if qr_url else 0
-
-    # Narrower text width for the temperature row to leave room for the QR
-    top_text_w = text_w - (qr_size + 4) if qr_size else text_w
-
     y = header_h + 6
+    temp_str = f"{conditions['temp']}°F"
+
+    if qr_url:
+        # Pass 1: find temperature height with full text_w to size the QR
+        for size in range(72, 55, -2):
+            font = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=font)[2] <= text_w:
+                break
+        qr_size = draw.textbbox((0, 0), temp_str, font=font)[3]
+        top_text_w = text_w - qr_size - 4
+        # Pass 2: refit temperature into the narrower width beside the QR
+        for size in range(72, 55, -2):
+            font = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=font)[2] <= top_text_w:
+                break
+    else:
+        qr_size = 0
+        for size in range(72, 55, -2):
+            font = _font(size)
+            if draw.textbbox((0, 0), temp_str, font=font)[2] <= text_w:
+                break
 
     # Temperature — auto-size 56–72px to fill available width (beside QR if present)
-    temp_str = f"{conditions['temp']}°F"
-    for size in range(72, 55, -2):
-        font = _font(size)
-        if draw.textbbox((0, 0), temp_str, font=font)[2] <= top_text_w:
-            break
     draw.text((text_x, y), temp_str, fill=BLACK, font=font)
     temp_h = draw.textbbox((0, 0), temp_str, font=font)[3]
     y += temp_h + 4
 
-    # Paste QR vertically centred beside the temperature
+    # Paste QR filling the full temperature row height
     if qr_url:
         try:
             qr_img = qrcode.make(qr_url).convert("RGB")
             qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
             qr_x = panel_x + panel_w - margin - qr_size
-            qr_y = (header_h + 6) + (temp_h - qr_size) // 2
-            canvas.paste(qr_img, (qr_x, max(header_h + 2, qr_y)))
+            canvas.paste(qr_img, (qr_x, header_h + 6))
         except Exception as e:
             print(f"[panel] QR code error: {e}")
 
