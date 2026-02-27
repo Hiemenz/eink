@@ -518,79 +518,37 @@ def generate_weather_image(config, special_msg=None):
         panel_w = config.get("panel_width", 280)
         radar_w = width - panel_w
 
-        header_h = 30
-
-        # Fit full radar image (NWS title bar + color legend) into the radar canvas.
-        # Uses min-scale (letterbox) so both bars are fully visible.
-        radar_canvas_h = height - header_h
-        scale = min(radar_w / radar_img.width, radar_canvas_h / radar_img.height)
+        # Radar fills full height — no header bar.
+        scale = min(radar_w / radar_img.width, height / radar_img.height)
         rw = int(radar_img.width * scale)
         rh = int(radar_img.height * scale)
         scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
         x_off = (radar_w - rw) // 2
-        y_off = header_h + (radar_canvas_h - rh) // 2
+        y_off = (height - rh) // 2
         final_img.paste(scaled_radar, (x_off, y_off))
 
-        # White panel background (below header)
+        # White panel background (full height)
         draw_tmp = ImageDraw.Draw(final_img)
-        draw_tmp.rectangle([(radar_w, header_h), (width - 1, height - 1)], fill="white")
+        draw_tmp.rectangle([(radar_w, 0), (width - 1, height - 1)], fill="white")
 
-        # Fetch & render current conditions
+        # Fetch & render current conditions (panel starts from top, header_h=0)
         forecast_loc = config.get("forecast_location", {})
         lat = forecast_loc.get("latitude")
         lon = forecast_loc.get("longitude")
         conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=0)
 
-        # Snap panel pixels to pure black/white BEFORE drawing the header so
-        # anti-aliased text fringe doesn't get quantized to orange, and so the
-        # snap doesn't accidentally erode the white-on-black header text.
-        panel_box = (radar_w, header_h, width, height)
-        panel_bw = final_img.crop(panel_box).convert("L").point(
+        # Snap panel to pure B/W so grey anti-alias fringe isn't quantized to orange
+        panel_bw = final_img.crop((radar_w, 0, width, height)).convert("L").point(
             lambda px: 255 if px > 128 else 0
         ).convert("RGB")
-        final_img.paste(panel_bw, (radar_w, header_h))
+        final_img.paste(panel_bw, (radar_w, 0))
 
-        # Full-width unified black header bar — drawn LAST so nothing overwrites it.
+        # Thin vertical separator between radar and panel
         draw_tmp = ImageDraw.Draw(final_img)
-        draw_tmp.rectangle([(0, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+        draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
 
-        # Thin vertical separator
-        draw_tmp.line([(radar_w, header_h), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
-
-        # Location + weekday text (panel_header config key, or forecast_location.name)
-        loc_name = config.get("panel_header") or forecast_loc.get("name", "")
-        weekday = _date.today().strftime("%a")
-        hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
-        hdr_avail_h = header_h - 6
-        hdr_text_w = panel_w - 16
-        hdr_font = None
-        for path in [
-            config.get("bold_font_path", ""),
-            "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-            config.get("font_path", ""),
-        ]:
-            if not path:
-                continue
-            for size in range(20, 9, -1):
-                try:
-                    f = ImageFont.truetype(path, size)
-                    bb = draw_tmp.textbbox((0, 0), hdr_str, font=f)
-                    if (bb[2] - bb[0]) <= hdr_text_w and (bb[3] - bb[1]) <= hdr_avail_h:
-                        hdr_font = f
-                        break
-                except Exception:
-                    break
-            if hdr_font:
-                break
-        if hdr_font is None:
-            hdr_font = ImageFont.load_default()
-        bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
-        text_y = (header_h - (bb[3] - bb[1])) // 2
-        draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
-
-        primary_region = (0, 0, radar_w, height)   # interesting% measured on radar only
+        primary_region = (0, 0, radar_w, height)
         processed_radar = None
     else:
         raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
