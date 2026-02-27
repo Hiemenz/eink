@@ -322,19 +322,10 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
                   fill=BLACK, font=_font(18), anchor="mm")
         return
 
-    # QR code — top-right corner of the panel, just below the header
-    qr_size = 0
-    if qr_url:
-        try:
-            qr_img = qrcode.make(qr_url).convert("RGB")
-            qr_size = 60
-            qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
-            canvas.paste(qr_img, (panel_x + panel_w - margin - qr_size, header_h + 4))
-        except Exception as e:
-            print(f"[panel] QR code error: {e}")
-            qr_size = 0
+    # QR code — sized and placed after temperature row height is known
+    qr_size = 60 if qr_url else 0
 
-    # Narrower text width for rows that share vertical space with the QR code
+    # Narrower text width for the temperature row to leave room for the QR
     top_text_w = text_w - (qr_size + 4) if qr_size else text_w
 
     y = header_h + 6
@@ -346,13 +337,25 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         if draw.textbbox((0, 0), temp_str, font=font)[2] <= top_text_w:
             break
     draw.text((text_x, y), temp_str, fill=BLACK, font=font)
-    y += draw.textbbox((0, 0), temp_str, font=font)[3] + 4
+    temp_h = draw.textbbox((0, 0), temp_str, font=font)[3]
+    y += temp_h + 4
 
-    # Feels like / description — auto-size 15→9px to fit width (beside QR if present)
+    # Paste QR vertically centred beside the temperature
+    if qr_url:
+        try:
+            qr_img = qrcode.make(qr_url).convert("RGB")
+            qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
+            qr_x = panel_x + panel_w - margin - qr_size
+            qr_y = (header_h + 6) + (temp_h - qr_size) // 2
+            canvas.paste(qr_img, (qr_x, max(header_h + 2, qr_y)))
+        except Exception as e:
+            print(f"[panel] QR code error: {e}")
+
+    # Feels like / description — auto-size 15→9px to fit full width (below QR)
     feels_desc = f"Feels like {conditions['feels_like']}°F  \u2022  {conditions['weather_desc']}"
     for size in range(15, 8, -1):
         font = _font(size)
-        if draw.textbbox((0, 0), feels_desc, font=font)[2] <= top_text_w:
+        if draw.textbbox((0, 0), feels_desc, font=font)[2] <= text_w:
             break
     draw.text((text_x, y), feels_desc, fill=BLACK, font=font)
     y += draw.textbbox((0, 0), feels_desc, font=font)[3] + 4
