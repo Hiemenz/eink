@@ -8,7 +8,10 @@ from modules.special_weather import get_special_weather_messages, get_alert_head
 from eink_generator import load_config
 from modules.forecast import get_detailed_forecast, generate_forecast_image
 from modules.moon_phase import _moon_age, _phase_fraction, _phase_name, _illumination
-from datetime import datetime as _dt, date as _date
+from datetime import datetime as _dt, date as _date, timedelta as _td
+from zoneinfo import ZoneInfo
+from astral import LocationInfo
+from astral.sun import sun as _astral_sun
 import math
 import platform
 import os
@@ -109,11 +112,35 @@ def fetch_current_conditions(lat, lon, headers):
         rain_today = precip_list[-1] if precip_list else 0.0
         rain_7day = sum(p for p in precip_list if p is not None)
 
-        # Sunrise / Sunset (last daily entry = today)
+        # Sunrise / Sunset — astral gives second-precision local times and exact delta
         sunrise_list = daily.get("sunrise", [])
-        sunset_list = daily.get("sunset", [])
+        sunset_list  = daily.get("sunset", [])
+        tz_name      = data.get("timezone", "UTC")
+        # Fallback to Open-Meteo minute-precision if astral fails
         sunrise = _parse_time(sunrise_list[-1]) if sunrise_list else "N/A"
-        sunset = _parse_time(sunset_list[-1]) if sunset_list else "N/A"
+        sunset  = _parse_time(sunset_list[-1])  if sunset_list  else "N/A"
+        sunrise_delta = ""
+        sunset_delta  = ""
+        try:
+            _tz  = ZoneInfo(tz_name)
+            _loc = LocationInfo(latitude=lat, longitude=lon)
+            _today = _date.today()
+            _s_td  = _astral_sun(_loc.observer, date=_today,            tzinfo=_tz)
+            _s_yd  = _astral_sun(_loc.observer, date=_today - _td(days=1), tzinfo=_tz)
+            sunrise = _s_td["sunrise"].strftime("%-I:%M %p")
+            sunset  = _s_td["sunset"].strftime("%-I:%M %p")
+            def _delta_str(a, b):
+                # Compare time-of-day only — a/b are datetimes on different dates
+                a_s = a.hour * 3600 + a.minute * 60 + a.second
+                b_s = b.hour * 3600 + b.minute * 60 + b.second
+                d   = a_s - b_s
+                sign = "+" if d >= 0 else "-"
+                s = abs(d)
+                return f"{sign}{s // 60}:{s % 60:02d}"
+            sunrise_delta = _delta_str(_s_td["sunrise"], _s_yd["sunrise"])
+            sunset_delta  = _delta_str(_s_td["sunset"],  _s_yd["sunset"])
+        except Exception as e:
+            print(f"[weather] astral sunrise/sunset error: {e}")
 
         # High / Low today
         high_today = int(round(daily.get("temperature_2m_max", [0])[-1] or 0))
@@ -181,8 +208,10 @@ def fetch_current_conditions(lat, lon, headers):
             "visibility":   visibility_mi,
             "rain_today":   round(rain_today, 2) if rain_today else 0.0,
             "rain_7day":    round(rain_7day, 2),
-            "sunrise":      sunrise,
-            "sunset":       sunset,
+            "sunrise":       sunrise,
+            "sunset":        sunset,
+            "sunrise_delta": sunrise_delta,
+            "sunset_delta":  sunset_delta,
             "high_today":   high_today,
             "low_today":    low_today,
             "moon_name":    moon_name,
@@ -198,6 +227,44 @@ def fetch_current_conditions(lat, lon, headers):
     except Exception as e:
         print(f"[weather] Error parsing conditions response: {e}")
         return None
+
+
+def _draw_panel_moon(draw, cx, cy, r, fraction):
+    """Draw a simple e-ink-friendly moon phase disc on a PIL ImageDraw.
+
+    fraction: 0.0 = new moon, 0.5 = full moon.
+    Waxing phases illuminate the right side; waning illuminate the left.
+    """
+    B = (0, 0, 0)
+    W = (255, 255, 255)
+    bb = [cx - r, cy - r, cx + r, cy + r]
+
+    if fraction < 0.0625 or fraction > 0.9375:
+        # New moon: solid black disc
+        draw.ellipse(bb, fill=B)
+        return
+    if 0.4375 < fraction < 0.5625:
+        # Full moon: white disc with black outline
+        draw.ellipse(bb, fill=W, outline=B)
+        return
+
+    # Terminator x-radius; 0 = straight vertical (quarter), r = full (crescent)
+    tx = int(r * abs(math.cos(fraction * 2 * math.pi)))
+
+    if fraction < 0.5:
+        # Waxing: right side lit — fill dark, clear right half, shadow terminator
+        draw.ellipse(bb, fill=B)
+        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)
+        if tx > 0:
+            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
+    else:
+        # Waning: left side lit — fill dark, clear left half, restore terminator
+        draw.ellipse(bb, fill=B)
+        draw.rectangle([cx - r, cy - r, cx, cy + r], fill=W)
+        if tx > 0:
+            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
+
+    draw.ellipse(bb, outline=B)
 
 
 def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30):
@@ -312,26 +379,48 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     # Separator
     y = _separator(y)
 
-    # Sunrise / Sunset rows
-    sun_font = _font(20)
-    for label, value in [("Sunrise", conditions["sunrise"]), ("Sunset", conditions["sunset"])]:
+    # Sunrise / Sunset rows with delta from yesterday
+    sun_font   = _font(20)
+    delta_font = _font(13)
+    sun_rows = [
+        ("Sunrise", conditions["sunrise"], conditions.get("sunrise_delta", "")),
+        ("Sunset",  conditions["sunset"],  conditions.get("sunset_delta", "")),
+    ]
+    for label, value, delta in sun_rows:
         draw.text((text_x, y), label, fill=BLACK, font=sun_font)
         val_bbox = draw.textbbox((0, 0), value, font=sun_font)
-        draw.text((right_x - (val_bbox[2] - val_bbox[0]), y), value, fill=BLACK, font=sun_font)
+        val_w = val_bbox[2] - val_bbox[0]
+        draw.text((right_x - val_w, y), value, fill=BLACK, font=sun_font)
+        if delta:
+            d_bb = draw.textbbox((0, 0), delta, font=delta_font)
+            d_w  = d_bb[2] - d_bb[0]
+            d_h  = d_bb[3] - d_bb[1]
+            # Right-align delta just left of the time value
+            dx = right_x - val_w - d_w - 5
+            dy = y + (row_h - d_h) // 2
+            draw.text((dx, dy), delta, fill=BLACK, font=delta_font)
         y += row_h
 
     # Separator
     y = _separator(y)
 
-    # Moon phase
-    moon_str = f"{conditions['moon_name']}  {conditions['moon_illum']}%"
-    draw.text((text_x, y), moon_str, fill=BLACK, font=_font(17))
+    # Moon phase name + illumination, with drawn moon disc on the right (spans 2 rows)
+    moon_font = _font(17)
+    moon_str  = f"{conditions['moon_name']}  {conditions['moon_illum']}%"
+    hl_str    = f"Today  H{conditions['high_today']}\u00b0 / L{conditions['low_today']}\u00b0"
+    two_row_h = 2 * row_h
+    moon_r    = max(8, (two_row_h - 6) // 2)
+    moon_cx   = right_x - moon_r - 1
+    moon_cy   = y + two_row_h // 2 - 3
+
+    draw.text((text_x, y), moon_str, fill=BLACK, font=moon_font)
+    y += row_h
+    draw.text((text_x, y), hl_str, fill=BLACK, font=moon_font)
     y += row_h
 
-    # Today High / Low
-    hl_str = f"Today  H{conditions['high_today']}\u00b0 / L{conditions['low_today']}\u00b0"
-    draw.text((text_x, y), hl_str, fill=BLACK, font=_font(17))
-    y += row_h
+    age_val  = _moon_age()
+    frac_val = _phase_fraction(age_val)
+    _draw_panel_moon(draw, moon_cx, moon_cy, moon_r, frac_val)
 
     # Hourly forecast grid (next 3 hours)
     hourly = conditions.get("hourly_forecast", [])
