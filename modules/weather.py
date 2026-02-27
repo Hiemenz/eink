@@ -78,7 +78,7 @@ def fetch_current_conditions(lat, lon, headers):
         f"&precipitation_unit=inch"
         f"&timezone=auto"
         f"&past_days=7"
-        f"&forecast_days=1"
+        f"&forecast_days=2"
     )
 
     try:
@@ -537,12 +537,30 @@ def generate_weather_image(config, special_msg=None):
         draw_tmp = ImageDraw.Draw(final_img)
         draw_tmp.rectangle([(radar_w, header_h), (width - 1, height - 1)], fill="white")
 
-        # Full-width unified black header bar
+        # Fetch & render current conditions
+        forecast_loc = config.get("forecast_location", {})
+        lat = forecast_loc.get("latitude")
+        lon = forecast_loc.get("longitude")
+        conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
+
+        # Snap panel pixels to pure black/white BEFORE drawing the header so
+        # anti-aliased text fringe doesn't get quantized to orange, and so the
+        # snap doesn't accidentally erode the white-on-black header text.
+        panel_box = (radar_w, header_h, width, height)
+        panel_bw = final_img.crop(panel_box).convert("L").point(
+            lambda px: 255 if px > 128 else 0
+        ).convert("RGB")
+        final_img.paste(panel_bw, (radar_w, header_h))
+
+        # Full-width unified black header bar — drawn LAST so nothing overwrites it.
+        draw_tmp = ImageDraw.Draw(final_img)
         draw_tmp.rectangle([(0, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
 
-        # Location + weekday text in the right portion of the header
-        # panel_header config key takes priority; falls back to forecast_location.name
-        forecast_loc = config.get("forecast_location", {})
+        # Thin vertical separator
+        draw_tmp.line([(radar_w, header_h), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
+
+        # Location + weekday text (panel_header config key, or forecast_location.name)
         loc_name = config.get("panel_header") or forecast_loc.get("name", "")
         weekday = _date.today().strftime("%a")
         hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
@@ -574,25 +592,8 @@ def generate_weather_image(config, special_msg=None):
         text_y = (header_h - (bb[3] - bb[1])) // 2
         draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
 
-        # Thin vertical separator (below header)
-        draw_tmp.line([(radar_w, header_h), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
-
-        # Fetch & render current conditions
-        lat = forecast_loc.get("latitude")
-        lon = forecast_loc.get("longitude")
-        conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h)
-
         primary_region = (0, 0, radar_w, height)   # interesting% measured on radar only
         processed_radar = None
-
-        # Snap panel pixels to pure black/white so anti-aliased text fringe
-        # (grey ~90-140) doesn't get quantized to orange in the 7-color palette.
-        panel_box = (radar_w, 0, width, height)
-        panel_bw = final_img.crop(panel_box).convert("L").point(
-            lambda px: 255 if px > 128 else 0
-        ).convert("RGB")
-        final_img.paste(panel_bw, (radar_w, 0))
     else:
         raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
 
