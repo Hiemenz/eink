@@ -11,6 +11,12 @@ import math
 import platform
 import os
 
+try:
+    from modules.weather import fetch_current_conditions, draw_conditions_panel
+    _PANEL_SUPPORT = True
+except ImportError:
+    _PANEL_SUPPORT = False
+
 if platform.system() == "Linux":  # Only import on Raspberry Pi
     # from waveshare_epd import epd7in5_V2, epd7in3f  # Adjust the import based on your specific model
     from display import display_color_image
@@ -181,8 +187,47 @@ def generate_weather_image(config, special_msg=None):
         y_offset = (height - new_h) // 2
         final_img.paste(processed_radar, (x_offset, y_offset))
         processed_radar = None
+    elif radar_mode == "panel":
+        if not _PANEL_SUPPORT:
+            print("[warning] Panel mode requires modules/weather.py — falling back to crop")
+            scale = max(width / radar_img.width, height / radar_img.height)
+            new_w = int(radar_img.width * scale)
+            new_h = int(radar_img.height * scale)
+            scaled_radar = radar_img.resize((new_w, new_h), Image.LANCZOS)
+            left = (new_w - width) // 2
+            top = (new_h - height) // 2
+            processed_radar = scaled_radar.crop((left, top, left + width, top + height))
+        else:
+            panel_w = config.get("panel_width", 280)
+            radar_w = width - panel_w
+            scale = max(radar_w / radar_img.width, height / radar_img.height)
+            rw = int(radar_img.width * scale)
+            rh = int(radar_img.height * scale)
+            scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
+            left_crop = (rw - radar_w) // 2
+            top_crop  = (rh - height)  // 2
+            processed_radar = scaled_radar.crop((left_crop, top_crop,
+                                                 left_crop + radar_w, top_crop + height))
+            final_img.paste(processed_radar, (0, 0))
+
+            draw_tmp = ImageDraw.Draw(final_img)
+            draw_tmp.rectangle([(radar_w, 0), (width - 1, height - 1)], fill="white")
+            draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
+
+            forecast_loc = config.get("forecast_location", {})
+            lat = forecast_loc.get("latitude")
+            lon = forecast_loc.get("longitude")
+            conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
+            draw_conditions_panel(final_img, conditions, config, radar_w, panel_w)
+
+            panel_box = (radar_w, 0, width, height)
+            panel_bw = final_img.crop(panel_box).convert("L").point(
+                lambda px: 255 if px > 128 else 0
+            ).convert("RGB")
+            final_img.paste(panel_bw, (radar_w, 0))
+            processed_radar = None
     else:
-        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop' or 'fit'.")
+        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
 
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
