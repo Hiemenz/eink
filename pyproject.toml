@@ -6,7 +6,7 @@ authors = ["hiemenz <kevinhiemenz1@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.9"
 pillow = "^11.1.0"
 pyaml = "^25.1.0"
 requests = "^2.32.3"
@@ -17,8 +17,8 @@ spidev = {version = "^3.6", markers = "sys_platform == 'linux'"}
 rpi-gpio = {version = "^0.7.1", markers = "sys_platform == 'linux'"}
 staticmap = "^0.5.7"
 geopy = "^2.4.1"
-pyarrow = "^23.0.1"
-pandas = "^3.0.1"
+pyarrow = "^16.0.0"
+pandas = "^2.2.0"
 astral = "^3.2"
 
 
