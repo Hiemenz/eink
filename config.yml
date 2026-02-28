@@ -18,6 +18,10 @@ radar_mode: panel # "crop" | "fit" | "panel"
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
+panel_qr_radar: true   # show radar link QR in panel when no alerts active
+panel_qr_size: 116        # 0 = auto-calculate from temp row height; >0 = fixed pixels
+panel_qr_x_offset: -17   # shift QR left from right edge of panel (extra pixels)
+panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 
 # ── Module selector ──────────────────────────────────────────────────────────
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
@@ -124,7 +128,7 @@ forecast_location:
   name: "Franklin, TN"
 
 # Show forecast when radar has nothing interesting
-show_forecast_fallback: True
+show_forecast_fallback: false
 
 # Forecast display settings
 forecast_display:
