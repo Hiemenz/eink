@@ -338,7 +338,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
                 break
         t_h = draw.textbbox((0, 0), temp_str, font=f_temp)[3]
         f_h = draw.textbbox((0, 0), feels_desc, font=f_feels)[3]
-        qr_size = t_h + 4 + f_h        # span both rows including their gap
+        qr_size = config.get('panel_qr_size', 0) or (t_h + 4 + f_h)  # fixed override or auto from row heights
         top_text_w = text_w - qr_size - 4
 
         # Pass 2: refit both rows into the narrower width
@@ -372,7 +372,9 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         try:
             qr_img = qrcode.make(qr_url).convert("RGB")
             qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
-            canvas.paste(qr_img, (panel_x + panel_w - margin - qr_size, header_h + 6))
+            qr_x = panel_x + panel_w - margin - qr_size - config.get('panel_qr_x_offset', 0)
+            qr_y = header_h + 6 + config.get('panel_qr_y_offset', 0)
+            canvas.paste(qr_img, (qr_x, qr_y))
         except Exception as e:
             print(f"[panel] QR code error: {e}")
 
@@ -694,7 +696,13 @@ def generate_weather_image(config, special_msg=None):
         lat = forecast_loc.get("latitude")
         lon = forecast_loc.get("longitude")
         conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=radar_url_qr)
+        if special_msg:
+            panel_qr = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
+        elif config.get('panel_qr_radar', False):
+            panel_qr = radar_url_qr
+        else:
+            panel_qr = None
+        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
         panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
@@ -702,12 +710,17 @@ def generate_weather_image(config, special_msg=None):
         ).convert("RGB")
         final_img.paste(panel_bw, (radar_w, header_h))
 
-        # Black header bar on the RIGHT panel only — drawn last so snap doesn't erode text
+        # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
+        # Red when an alert is active, black otherwise
         draw_tmp = ImageDraw.Draw(final_img)
-        draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+        header_color = (180, 0, 0) if special_msg else (0, 0, 0)
+        draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=header_color)
 
         # Location + weekday text in the header
-        loc_name = config.get("panel_header") or forecast_loc.get("name", "")
+        current_station = config['station']['name']
+        station_loc = (config['station'].get('location') or
+                       config.get("panel_header") or forecast_loc.get("name", ""))
+        loc_name = f"{current_station}  {station_loc}" if station_loc else current_station
         weekday = _date.today().strftime("%a")
         hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
         hdr_font = None
@@ -864,32 +877,6 @@ def generate(config):
 
     best_station = None
     best_percentage = default_percentage
-    if config.get('interesting_station', True) and default_percentage < config.get('interesting_threshold', 15) and top5_list:
-        best_percentage = 0
-        best_image_path = None
-        for station, _ in top5_list:
-            config["station"] = {"name": station}
-            config["output_path"] = os.path.join(radar_folder, f"eink_display_{station}.bmp")
-            config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
-            station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
-            config['station']['location'] = station_entry.get("location", "Unknown Location")
-            image_path, updated, _ = generate_weather_image(config, special_msg=special_msg)
-            # Use cached quantized image if it exists and hasn't changed
-            if image_path is None:
-                image_path = config["quantized_path"]
-            if not os.path.exists(image_path):
-                continue
-            should_update = True
-            perc = calculate_non_bw_percentage(config["quantized_path"])
-            if perc > best_percentage:
-                best_percentage = perc
-                best_station = station
-                best_image_path = image_path
-        if best_station and best_image_path is not None:
-            print(f"Switching display to station {best_station} with {best_percentage:.2f}%.")
-            final_display_image = best_image_path
-    else:
-        print("Default station is dynamic enough; using default image.")
 
     final_percentage = best_percentage if best_station else default_percentage
 
@@ -915,18 +902,6 @@ def generate(config):
     state["last_ten"] = last_ten
     config["last_ten"] = last_ten
     save_state(STATE_FILE, state)
-
-    if should_update and final_display_image and config.get('interesting_station', True):
-        if now - state.get("last_full_scan", 0) >= full_scan_interval:
-            state["last_full_scan"] = now
-            save_state(STATE_FILE, state)
-            print("Running full station refresh...")
-            percentages = full_station_scan(config, skip_station=default_station)
-            percentages[default_station] = default_percentage
-            top5_list = update_top5(percentages)
-            top5_data = [{"station": s, "percentage": p} for s, p in top5_list]
-            state["top5"] = top5_data
-            save_state(STATE_FILE, state)
 
     return final_display_image if should_update else None
 

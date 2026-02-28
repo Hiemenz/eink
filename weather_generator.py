@@ -216,8 +216,12 @@ def generate_weather_image(config, special_msg=None):
             conditions = fetch_current_conditions(lat, lon, headers) if lat and lon else None
             # QR URL: alert link when active, otherwise radar loop
             special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            panel_qr_url = special_url if (config.get("check_special_weather", True) and special_msg) \
-                else f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
+            if config.get("check_special_weather", True) and special_msg:
+                panel_qr_url = special_url
+            elif config.get('panel_qr_radar', False):
+                panel_qr_url = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
+            else:
+                panel_qr_url = None
             draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr_url)
 
             # Snap content area (below header) to pure B/W before drawing header text
@@ -226,11 +230,16 @@ def generate_weather_image(config, special_msg=None):
             ).convert("RGB")
             final_img.paste(panel_bw, (radar_w, header_h))
 
-            # Black header bar on right panel only — drawn last
+            # Header bar on right panel only — drawn last
+            # Red when an alert is active, black otherwise
             draw_tmp = ImageDraw.Draw(final_img)
-            draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=(0, 0, 0))
+            header_color = (180, 0, 0) if special_msg else (0, 0, 0)
+            draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=header_color)
 
-            loc_name = config.get("panel_header") or forecast_loc.get("name", "")
+            current_station_name = config['station']['name']
+            station_loc = (config['station'].get('location') or
+                           config.get("panel_header") or forecast_loc.get("name", ""))
+            loc_name = f"{current_station_name}  {station_loc}" if station_loc else current_station_name
             weekday = _date.today().strftime("%a")
             hdr_str = f"{loc_name}  {weekday}" if loc_name else weekday
             hdr_font = None
@@ -368,9 +377,10 @@ def main():
     # Save updated state (including last_ten) so it carries over on refresh
     save_state(STATE_FILE, state)
 
-    # If the default is below threshold and we have top5 data (or want to check a smaller subset)
-    if default_updated and default_percentage < config.get('interesting_threshold', 15) and top5_list:
-        best_station = None
+    best_station = None
+    best_percentage = default_percentage
+
+    if config.get('interesting_station', False) and default_percentage < config.get('interesting_threshold', 15) and top5_list:
         best_percentage = 0
         best_image_path = None
         for station, _ in top5_list:
@@ -378,12 +388,12 @@ def main():
             config["output_path"] = os.path.join(radar_folder, f"eink_display_{station}.bmp")
             config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
             station_entry = next((s for s in config.get("stations", []) if s["name"] == station), {})
-            config['station']['location'] = station_entry.get("location", "Unknown Location")            
+            config['station']['location'] = station_entry.get("location", "Unknown Location")
             image_path, updated = generate_weather_image(config, special_msg=special_msg)
             if image_path is None:
                 print(f"Skipping processing for station {station} due to image fetch failure.")
                 continue
-            should_update = True  # Set flag to True for any successful image generation
+            should_update = True
             perc = calculate_non_bw_percentage(config["quantized_path"])
             if perc > best_percentage:
                 best_percentage = perc
@@ -392,14 +402,10 @@ def main():
         if best_station and best_image_path is not None:
             print(f"Switching display to station {best_station} with {best_percentage:.2f}% interesting pixels.")
             final_display_image = best_image_path
-            current_station = best_station
     else:
-        print("Default station is dynamic enough; using default image.")
-    
-    # If no interesting radar found anywhere, fall back to forecast display
-    if 'best_percentage' not in locals():
-        best_percentage = default_percentage
-    final_percentage = best_percentage if 'best_station' in locals() and best_station else default_percentage
+        print("Default station is dynamic enough or switching disabled; using default image.")
+
+    final_percentage = best_percentage if best_station else default_percentage
 
     if config.get('show_forecast_fallback', False) and final_percentage < config.get('interesting_threshold', 15):
         print(f"No interesting radar found (best: {final_percentage:.2f}%). Falling back to forecast display.")
@@ -420,13 +426,9 @@ def main():
         else:
             print("No forecast_location coordinates in config, keeping radar display.")
 
-    if 'current_station' not in locals():
-        current_station = default_station
-    
+    last_ten_station = best_station if best_station else default_station
     last_ten = state.get("last_ten", [])
-    # if current_station in last_ten:
-    #     last_ten.remove(current_station)
-    last_ten.append(current_station)
+    last_ten.append(last_ten_station)
     if len(last_ten) > 10:
         last_ten = last_ten[-10:]
     state["last_ten"] = last_ten
@@ -434,29 +436,21 @@ def main():
     save_state(STATE_FILE, state)
 
     if should_update:  # Check if an update occurred
-
         if platform.system() == "Linux":  # Only display on Raspberry Pi
             display_color_image(final_display_image)
             print(f"Displayed image: {final_display_image}")
         else:
             print(f"Skipping display update on non-Raspberry Pi system: {platform.system()}")
 
-        # Check if it's time for a full refresh.
-        if now - state.get("last_full_scan", 0) >= full_scan_interval:
-            # Immediately mark the state as updated before starting the full scan.
+        if config.get('interesting_station', False) and now - state.get("last_full_scan", 0) >= full_scan_interval:
             state["last_full_scan"] = now
-            state["top5"] = state.get('top5', [])
-            state["last_ten"] =  state.get('last_ten', [])
             save_state(STATE_FILE, state)
-            print("Full refresh state updated in JSON. Running full refresh after display update...")
-            
+            print("Running full station refresh...")
             percentages = full_station_scan(config)
             top5_list = update_top5(percentages)
             top5_data = [{"station": s, "percentage": p} for s, p in top5_list]
             state["top5"] = top5_data
             save_state(STATE_FILE, state)
-        else:
-            print("Not enough time has elapsed for full refresh.")
     else:
         print("No image changes detected; display update skipped.")
 
