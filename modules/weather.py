@@ -74,7 +74,7 @@ def fetch_current_conditions(lat, lon, headers):
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
         f"weather_code,surface_pressure,"
         f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure,temperature_2m,weather_code,precipitation_probability"
+        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability"
         f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
         f"&wind_speed_unit=mph"
         f"&temperature_unit=fahrenheit"
@@ -152,7 +152,7 @@ def fetch_current_conditions(lat, lon, headers):
         moon_name = _phase_name(fraction)
         moon_illum = _illumination(fraction)
 
-        # Pressure: hPa → inHg + trend from last 2 hourly values
+        # Pressure: hPa → inHg + trend from last 3 hourly values
         pressure_hpa = current.get("surface_pressure", 1013.25)
         pressure_inhg = round(pressure_hpa * 0.02953, 2)
         pressure_hourly = hourly.get("surface_pressure", [])
@@ -161,6 +161,14 @@ def fetch_current_conditions(lat, lon, headers):
             pressure_trend = "↑" if pdiff > 0.8 else ("↓" if pdiff < -0.8 else "→")
         else:
             pressure_trend = ""
+
+        # Humidity trend from last 3 hourly values
+        humidity_hourly = hourly.get("relative_humidity_2m", [])
+        if cur_idx >= 3 and humidity_hourly and humidity_hourly[cur_idx] is not None and humidity_hourly[cur_idx - 3] is not None:
+            hdiff = humidity_hourly[cur_idx] - humidity_hourly[cur_idx - 3]
+            humidity_trend = "↑" if hdiff > 2 else ("↓" if hdiff < -2 else "→")
+        else:
+            humidity_trend = ""
 
         # Wind direction
         wind_dir = _deg_to_compass(current.get("wind_direction_10m", 0))
@@ -201,6 +209,7 @@ def fetch_current_conditions(lat, lon, headers):
             "is_day":       bool(current.get("is_day", 1)),
             "pressure":        pressure_inhg,
             "pressure_trend":  pressure_trend,
+            "humidity_trend":  humidity_trend,
             "wind_speed":   int(round(current.get("wind_speed_10m", 0))),
             "wind_dir":     wind_dir,
             "wind_gust":    int(round(current.get("wind_gusts_10m", 0))),
@@ -389,12 +398,12 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     label_font = _font(17)
     value_font = _font(20)
     row_h = 24
-    raw_trend = conditions.get("pressure_trend", "")
-    trend_dir = "up" if raw_trend == "↑" else ("down" if raw_trend == "↓" else ("steady" if raw_trend == "→" else ""))
+    def _trend_dir(arrow):
+        return "up" if arrow == "↑" else ("down" if arrow == "↓" else ("steady" if arrow == "→" else ""))
 
     rows = [
-        ("Humidity",   f"{conditions['humidity']}%",                                              ""),
-        ("Pressure",   f"{conditions['pressure']} inHg",                                          trend_dir),
+        ("Humidity",   f"{conditions['humidity']}%",       _trend_dir(conditions.get("humidity_trend", ""))),
+        ("Pressure",   f"{conditions['pressure']} inHg",   _trend_dir(conditions.get("pressure_trend", ""))),
         ("Visibility", f"{conditions['visibility']} mi",                                          ""),
         ("UV Index",   f"{conditions['uv_index']}",                                               ""),
         ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} / G{conditions['wind_gust']} mph", ""),
@@ -474,32 +483,33 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
             inner_h = box_h - 6   # vertical padding inside box
             gap = 2               # px between lines
 
-            # Does any slot have precip? Use consistent line count across all boxes.
-            has_precip = any(s["precip"] for s in hourly[:box_count])
-            num_lines = 4 if has_precip else 3
+            # Collect the actual strings that will appear in the boxes
+            actual_times = [s["time"] for s in hourly[:box_count]]
+            actual_descs = [s["desc"] for s in hourly[:box_count]]
+            longest_time = max(actual_times, key=len) if actual_times else "12 AM"
+            longest_desc = max(actual_descs, key=len) if actual_descs else ""
 
             # Find the largest base font where all lines fit inside the box.
-            # Temp uses base*1.6; time/desc/precip use base.
+            # Temp uses base*1.8; time/desc use base. Precip sits in corner, not a content line.
             best_base = 8
             for base_sz in range(24, 7, -1):
-                temp_sz = max(base_sz, int(base_sz * 1.6))
+                temp_sz = max(base_sz, int(base_sz * 1.8))
                 bf = _font(base_sz)
                 tf = _font(temp_sz)
                 lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
                 lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
-                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
-                # Widest possible strings
+                # Need room for: corner row (time/precip) + temp (centered) + desc (bottom)
+                total_h = lh_temp + 2 * lh_base + 8
                 max_w = max(
-                    draw.textbbox((0, 0), "12 AM", font=bf)[2],
                     draw.textbbox((0, 0), "100°", font=tf)[2],
-                    draw.textbbox((0, 0), "Overcast", font=bf)[2],
+                    draw.textbbox((0, 0), longest_desc, font=bf)[2],
                 )
                 if total_h <= inner_h and max_w <= inner_w:
                     best_base = base_sz
                     break
 
             bf = _font(best_base)
-            tf = _font(max(best_base, int(best_base * 1.6)))
+            tf = _font(max(best_base, int(best_base * 1.8)))
             lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
             lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
 
@@ -509,34 +519,28 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
                 draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)],
                                 outline=BLACK, width=1)
 
-                # Centre content block vertically inside the box
-                total_h = lh_temp + (num_lines - 1) * (lh_base + gap)
-                cy = by + (box_h - total_h) // 2
-
                 def _center_text(text, font, top_y):
                     w = draw.textbbox((0, 0), text, font=font)[2]
                     draw.text((bx + (box_w - w) // 2, top_y), text, fill=BLACK, font=font)
 
-                # Time
-                _center_text(slot["time"], bf, cy)
-                cy += lh_base + gap
+                # Temp — vertically centered in the box
+                cy_temp = by + (box_h - lh_temp) // 2
+                _center_text(f"{slot['temp']}\u00b0", tf, cy_temp)
 
-                # Temp
-                _center_text(f"{slot['temp']}\u00b0", tf, cy)
-                cy += lh_temp + gap
+                # Time — top-left corner
+                draw.text((bx + 3, by + 2), slot["time"], fill=BLACK, font=bf)
 
-                # Description (truncate to fit width)
+                # Precip % — top-right corner
+                if slot["precip"]:
+                    prec_str = f"{slot['precip']}%"
+                    prec_w = draw.textbbox((0, 0), prec_str, font=bf)[2]
+                    draw.text((bx + box_w - 2 - prec_w - 2, by + 2), prec_str, fill=BLACK, font=bf)
+
+                # Description — pinned to bottom, centered
                 desc = slot["desc"]
                 while desc and draw.textbbox((0, 0), desc, font=bf)[2] > inner_w:
                     desc = desc[:-1]
-                _center_text(desc, bf, cy)
-                cy += lh_base + gap
-
-                # Precip (only if any slot has it)
-                if has_precip:
-                    prec = f"{slot['precip']}%" if slot["precip"] else ""
-                    if prec:
-                        _center_text(prec, bf, cy)
+                _center_text(desc, bf, by + box_h - lh_base - 3)
 
 
 if platform.system() == "Linux":
