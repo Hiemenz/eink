@@ -45,6 +45,9 @@ ALL_MODULES = [
     "moon_phase",
     "art_of_day",
     "chess_puzzle",
+    "sudoku_puzzle",
+    "poem_of_day",
+    "news_headlines",
     "flight_radar",
     "franklin_cam",
     "parking_garage",
@@ -82,6 +85,9 @@ MODULE_ARGS: dict = {
         "forecast_location.latitude":  "Latitude for weather/flight forecast",
         "forecast_location.longitude": "Longitude for weather/flight forecast",
         "forecast_location.name":      "Location display name",
+    },
+    "sudoku_puzzle": {
+        "sudoku_puzzle.num_clues": "Number of given clues (default 35; fewer = harder)",
     },
 }
 
@@ -180,6 +186,9 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "moon_phase":      os.path.join(ROOT, cfg.get("moon_phase", {}).get("output_path", "images/moon_display.bmp")),
         "art_of_day":      os.path.join(ROOT, cfg.get("art_of_day", {}).get("output_path", "images/art_display.bmp")),
         "chess_puzzle":    os.path.join(ROOT, cfg.get("chess_puzzle", {}).get("output_path", "images/chess_display.bmp")),
+        "sudoku_puzzle":   os.path.join(ROOT, cfg.get("sudoku_puzzle", {}).get("output_path", "images/sudoku_display.bmp")),
+        "poem_of_day":     os.path.join(ROOT, cfg.get("poem_of_day", {}).get("output_path", "images/poem_display.bmp")),
+        "news_headlines":  os.path.join(ROOT, cfg.get("news_headlines", {}).get("output_path", "images/news_display.bmp")),
         "flight_radar":    os.path.join(ROOT, cfg.get("flight_radar", {}).get("output_path", "images/flight_display.bmp")),
         "franklin_cam":    os.path.join(ROOT, cfg.get("franklin_cam", {}).get("output_path", "images/franklin_cam.bmp")),
         "parking_garage":  os.path.join(ROOT, cfg.get("parking_garage", {}).get("output_path", "images/parking_display.bmp")),
