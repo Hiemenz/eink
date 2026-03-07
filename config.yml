@@ -1,3 +1,9 @@
+# ── Discord Bot ───────────────────────────────────────────────────────────────
+discord:
+  bot_token: ""          # Paste your bot token here
+  channel_id: 0          # Numeric channel ID where commands are accepted
+  command_prefix: "!"
+
 width: 800
 height: 480
 background_color: white
