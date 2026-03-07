@@ -382,9 +382,6 @@ async def cmd_refresh(ctx: commands.Context):
 
     await msg.edit(content=None, embed=embed)
 
-    if success:
-        await send_display_image(ctx.channel, load_config())
-
 
 @channel_guard()
 async def cmd_status(ctx: commands.Context):
