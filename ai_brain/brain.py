@@ -66,7 +66,8 @@ class Brain:
     def __init__(self, config_path: str | None = None):
         from ai_brain.config import load_config
         self.config = load_config(config_path)
-        self.llm: LLMInterface = get_llm()
+        from ai_brain.llm import get_llm_for_agent
+        self.llm: LLMInterface = get_llm_for_agent("brain")
         self.memory: MemoryStore = get_memory()
         self.orchestrator = TaskOrchestrator(memory=self.memory)
         self.scheduler = JobScheduler()

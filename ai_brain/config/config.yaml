@@ -15,14 +15,57 @@ memory:
   max_knowledge_recalled: 10
 
 llm:
+  # ── Global defaults ──────────────────────────────────────────────────────
+  # Used by any agent that does NOT have a per-agent override below.
   provider: "anthropic"          # anthropic | openai | ollama
-  model: "claude-haiku-4-5-20251001"   # lightweight for Pi
+  model: "claude-haiku-4-5-20251001"
   temperature: 0.7
   max_tokens: 2048
-  # For Ollama (local):
-  # provider: ollama
-  # model: mistral
-  # base_url: http://localhost:11434
+
+  # ── Per-agent model tiers ────────────────────────────────────────────────
+  # Each agent can use a different provider/model.  Only specify what differs
+  # from the defaults above.  Comment out any block to use the global default.
+  #
+  # Cost guidance (per million tokens, approximate):
+  #   claude-haiku-4-5-20251001   $0.80 in  /  $4.00 out   ← fast & cheap
+  #   claude-sonnet-4-6           $3.00 in  / $15.00 out   ← best reasoning
+  #   claude-opus-4-6            $15.00 in  / $75.00 out   ← most capable
+  #   gpt-4o-mini                 $0.15 in  /  $0.60 out   ← cheapest cloud
+  #   ollama (local)              $0.00 in  /  $0.00 out   ← free, needs Pi 5
+  agents:
+    # Brain loop — makes the most LLM calls (every reflection_interval seconds).
+    # Use Ollama locally to eliminate cloud cost for routine routing decisions.
+    brain:
+      provider: "anthropic"
+      model: "claude-haiku-4-5-20251001"
+      # To switch to local (free):
+      # provider: "ollama"
+      # model: "phi3"                 # phi3 mini ~3.8B — fits Pi 4 (4GB)
+      # model: "mistral"              # 7B — better quality, needs Pi 5 (8GB)
+      # base_url: "http://localhost:11434"
+      # fallback_provider: "anthropic"
+      # fallback_model: "claude-haiku-4-5-20251001"
+
+    # ResearchAgent — web search + summarisation; Haiku is accurate enough.
+    ResearchAgent:
+      provider: "anthropic"
+      model: "claude-haiku-4-5-20251001"
+
+    # BuilderAgent — code generation; Sonnet produces significantly better code.
+    BuilderAgent:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"
+      max_tokens: 4096            # code outputs tend to be longer
+
+    # PlannerAgent — multi-step reasoning; Sonnet gives more coherent plans.
+    PlannerAgent:
+      provider: "anthropic"
+      model: "claude-sonnet-4-6"
+
+    # OperatorAgent — simple shell command generation; Haiku is fine.
+    OperatorAgent:
+      provider: "anthropic"
+      model: "claude-haiku-4-5-20251001"
 
 scheduler:
   check_interval: 10             # seconds between scheduler ticks

@@ -147,6 +147,32 @@ class BrainReader:
         ).fetchone()
         return row[0] if row else ""
 
+    def spend_summary(self) -> dict:
+        """Return today / this-month spend, or zeros if table doesn't exist."""
+        try:
+            today = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM token_usage WHERE timestamp >= current_date"
+            ).fetchone()[0]
+            month = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM token_usage "
+                "WHERE timestamp >= date_trunc('month', current_date)"
+            ).fetchone()[0]
+            total = self._conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0) FROM token_usage"
+            ).fetchone()[0]
+            top = self._conn.execute(
+                "SELECT model, COALESCE(SUM(cost_usd),0) FROM token_usage "
+                "GROUP BY model ORDER BY SUM(cost_usd) DESC LIMIT 3"
+            ).fetchall()
+            return {
+                "today": float(today),
+                "month": float(month),
+                "total": float(total),
+                "top_models": [{"model": r[0], "cost": float(r[1])} for r in top],
+            }
+        except Exception:
+            return {"today": 0.0, "month": 0.0, "total": 0.0, "top_models": []}
+
     def skill_last_run(self, skill_name: str) -> datetime | None:
         row = self._conn.execute(
             "SELECT timestamp FROM events WHERE action LIKE ? ORDER BY timestamp DESC LIMIT 1",
@@ -339,6 +365,19 @@ def _render_right(draw: ImageDraw.ImageDraw, reader: BrainReader | None,
             _draw_body(draw, cur, line, fonts)
     else:
         _draw_body(draw, cur, "No skills scheduled", fonts)
+
+    _draw_gap(cur, ROW_GAP)
+
+    # ── API Spend ─────────────────────────────────────────────────────
+    _draw_label(draw, cur, "API Spend", fonts)
+
+    spend = reader.spend_summary() if reader else {"today": 0.0, "month": 0.0, "total": 0.0, "top_models": []}
+    _draw_body(draw, cur, f"Today   ${spend['today']:.4f}", fonts, bold=True)
+    _draw_body(draw, cur, f"Month   ${spend['month']:.4f}", fonts, bold=True)
+    _draw_body(draw, cur, f"Total   ${spend['total']:.4f}", fonts)
+    for m in spend["top_models"][:2]:
+        model_short = m["model"].replace("claude-", "").replace("-2025", "")[:18]
+        _draw_body(draw, cur, f"  {model_short}: ${m['cost']:.4f}", fonts)
 
 
 def _render_footer(draw: ImageDraw.ImageDraw, reader: BrainReader | None,

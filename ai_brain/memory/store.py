@@ -99,6 +99,22 @@ class MemoryStore:
             CREATE SEQUENCE IF NOT EXISTS objectives_id_seq START 1;
         """)
 
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS token_usage (
+                id              INTEGER PRIMARY KEY,
+                timestamp       TIMESTAMP DEFAULT current_timestamp,
+                agent           VARCHAR,
+                provider        VARCHAR,
+                model           VARCHAR,
+                input_tokens    INTEGER DEFAULT 0,
+                output_tokens   INTEGER DEFAULT 0,
+                cost_usd        DOUBLE DEFAULT 0.0
+            )
+        """)
+        self._conn.execute("""
+            CREATE SEQUENCE IF NOT EXISTS token_usage_id_seq START 1;
+        """)
+
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------
@@ -258,6 +274,91 @@ class MemoryStore:
                 parts.append(f"- {k['topic']}: {k['summary'][:100]}")
 
         return "\n".join(parts)
+
+    # ------------------------------------------------------------------
+    # Token usage / cost tracking
+    # ------------------------------------------------------------------
+
+    # Pricing per million tokens (input, output) — update if rates change
+    _PRICING: dict[str, tuple[float, float]] = {
+        # Anthropic
+        "claude-haiku-4-5-20251001":  (0.80,  4.00),
+        "claude-haiku-4-5":           (0.80,  4.00),
+        "claude-sonnet-4-5":          (3.00, 15.00),
+        "claude-sonnet-4-6":          (3.00, 15.00),
+        "claude-opus-4-5":            (15.0, 75.00),
+        "claude-opus-4-6":            (15.0, 75.00),
+        # OpenAI
+        "gpt-4o":                     (2.50, 10.00),
+        "gpt-4o-mini":                (0.15,  0.60),
+        "gpt-4-turbo":                (10.0, 30.00),
+        # Ollama / local — always free
+        "ollama":                     (0.00,  0.00),
+    }
+
+    def log_token_usage(self, agent: str, provider: str, model: str,
+                        input_tokens: int, output_tokens: int) -> float:
+        """Record token usage and return the USD cost of this call."""
+        cost = self._calc_cost(model, provider, input_tokens, output_tokens)
+        self._conn.execute(
+            "INSERT INTO token_usage (id, agent, provider, model, input_tokens, output_tokens, cost_usd) "
+            "VALUES (nextval('token_usage_id_seq'), ?, ?, ?, ?, ?, ?)",
+            [agent, provider, model, input_tokens, output_tokens, cost],
+        )
+        return cost
+
+    def _calc_cost(self, model: str, provider: str, inp: int, out: int) -> float:
+        if provider.lower() == "ollama":
+            return 0.0
+        rates = self._PRICING.get(model)
+        if not rates:
+            # Try prefix match (e.g. "claude-sonnet" matches "claude-sonnet-4-6")
+            for key, val in self._PRICING.items():
+                if model.startswith(key) or key.startswith(model):
+                    rates = val
+                    break
+        if not rates:
+            return 0.0
+        return (inp * rates[0] + out * rates[1]) / 1_000_000
+
+    def get_spend_summary(self) -> dict:
+        """Return total and per-model spend stats."""
+        total = self._conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0), COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0) FROM token_usage"
+        ).fetchone()
+
+        by_model = self._conn.execute(
+            "SELECT model, provider, SUM(cost_usd), SUM(input_tokens), SUM(output_tokens), COUNT(*) "
+            "FROM token_usage GROUP BY model, provider ORDER BY SUM(cost_usd) DESC"
+        ).fetchall()
+
+        today = self._conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM token_usage WHERE timestamp >= current_date"
+        ).fetchone()[0]
+
+        this_month = self._conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM token_usage "
+            "WHERE timestamp >= date_trunc('month', current_date)"
+        ).fetchone()[0]
+
+        return {
+            "total_usd":       round(float(total[0]), 6),
+            "total_input_tok": int(total[1]),
+            "total_output_tok": int(total[2]),
+            "today_usd":       round(float(today), 6),
+            "this_month_usd":  round(float(this_month), 6),
+            "by_model": [
+                {
+                    "model":      r[0],
+                    "provider":   r[1],
+                    "cost_usd":   round(float(r[2]), 6),
+                    "input_tok":  int(r[3]),
+                    "output_tok": int(r[4]),
+                    "calls":      int(r[5]),
+                }
+                for r in by_model
+            ],
+        }
 
     def close(self) -> None:
         self._conn.close()

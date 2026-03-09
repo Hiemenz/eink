@@ -19,7 +19,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ai_brain.llm import LLMInterface, get_llm
+from ai_brain.llm import LLMInterface, get_llm, get_llm_for_agent
 from ai_brain.memory import MemoryStore, get_memory
 
 
@@ -54,7 +54,7 @@ class Agent:
         self.goal = goal
         self.tools: list[Callable] = tools or []
         self.context: dict = context or {}
-        self.llm: LLMInterface = llm or get_llm()
+        self.llm: LLMInterface = llm or get_llm_for_agent(self.__class__.name)
         self.memory: MemoryStore = memory or get_memory()
         self._tool_map: dict[str, Callable] = {t.__name__: t for t in self.tools}
 
