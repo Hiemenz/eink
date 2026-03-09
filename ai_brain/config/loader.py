@@ -70,3 +70,14 @@ def _apply_env_overrides(cfg: dict) -> None:
     openai_key = os.environ.get("OPENAI_API_KEY")
     if openai_key:
         cfg.setdefault("llm", {})["openai_api_key"] = openai_key
+
+    # OLLAMA_BASE_URL overrides the base_url for every agent using Ollama.
+    # Useful when the remote machine's IP changes:
+    #   export OLLAMA_BASE_URL=http://192.168.1.50:11434
+    ollama_url = os.environ.get("OLLAMA_BASE_URL")
+    if ollama_url:
+        cfg.setdefault("llm", {})["base_url"] = ollama_url
+        # Apply to all per-agent Ollama configs too
+        for agent_cfg in cfg.get("llm", {}).get("agents", {}).values():
+            if isinstance(agent_cfg, dict) and agent_cfg.get("provider") == "ollama":
+                agent_cfg["base_url"] = ollama_url

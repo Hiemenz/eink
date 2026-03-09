@@ -17,55 +17,88 @@ memory:
 llm:
   # ── Global defaults ──────────────────────────────────────────────────────
   # Used by any agent that does NOT have a per-agent override below.
-  provider: "anthropic"          # anthropic | openai | ollama
-  model: "claude-haiku-4-5-20251001"
+  #
+  # REMOTE OLLAMA SETUP (recommended — run the LLM on a desktop/laptop,
+  # keep the Pi lightweight):
+  #
+  #   On the remote machine:
+  #     OLLAMA_HOST=0.0.0.0 ollama serve          # bind to all interfaces
+  #     ollama pull mistral                        # or llama3.1, qwen2.5, etc.
+  #
+  #   Firewall (Linux):
+  #     sudo ufw allow from 192.168.1.0/24 to any port 11434
+  #
+  #   Then set the IP below and every agent will use the remote machine.
+  #
+  # OLLAMA_BASE_URL env var overrides base_url at runtime:
+  #   export OLLAMA_BASE_URL=http://192.168.1.50:11434
+  #
+  provider: "ollama"
+  model: "mistral"               # change to whichever model you pulled
+  base_url: "http://192.168.1.50:11434"   # ← your desktop/laptop LAN IP
   temperature: 0.7
   max_tokens: 2048
+  # Cloud fallback if the remote Ollama machine is offline
+  fallback_provider: "anthropic"
+  fallback_model: "claude-haiku-4-5-20251001"
 
   # ── Per-agent model tiers ────────────────────────────────────────────────
-  # Each agent can use a different provider/model.  Only specify what differs
-  # from the defaults above.  Comment out any block to use the global default.
+  # Each agent can override provider/model independently.
+  # Only specify what differs from the defaults above.
   #
   # Cost guidance (per million tokens, approximate):
-  #   claude-haiku-4-5-20251001   $0.80 in  /  $4.00 out   ← fast & cheap
-  #   claude-sonnet-4-6           $3.00 in  / $15.00 out   ← best reasoning
-  #   claude-opus-4-6            $15.00 in  / $75.00 out   ← most capable
-  #   gpt-4o-mini                 $0.15 in  /  $0.60 out   ← cheapest cloud
-  #   ollama (local)              $0.00 in  /  $0.00 out   ← free, needs Pi 5
+  #   mistral / llama3.1 / qwen2.5 via remote Ollama   $0.00  ← free
+  #   claude-haiku-4-5-20251001                         $0.80 in /  $4.00 out
+  #   claude-sonnet-4-6                                 $3.00 in / $15.00 out
+  #   gpt-4o-mini                                       $0.15 in /  $0.60 out
+  #
+  # Recommended remote-Ollama models by task:
+  #   Brain loop / OperatorAgent  → mistral or phi3    (fast, structured JSON)
+  #   ResearchAgent               → mistral or llama3.1 (good summarisation)
+  #   BuilderAgent                → qwen2.5-coder:7b   (best local code model)
+  #   PlannerAgent                → llama3.1:8b        (best local reasoning)
   agents:
-    # Brain loop — makes the most LLM calls (every reflection_interval seconds).
-    # Use Ollama locally to eliminate cloud cost for routine routing decisions.
+    # Brain loop — highest call volume. Remote Ollama = free routing decisions.
     brain:
-      provider: "anthropic"
-      model: "claude-haiku-4-5-20251001"
-      # To switch to local (free):
-      # provider: "ollama"
-      # model: "phi3"                 # phi3 mini ~3.8B — fits Pi 4 (4GB)
-      # model: "mistral"              # 7B — better quality, needs Pi 5 (8GB)
-      # base_url: "http://localhost:11434"
-      # fallback_provider: "anthropic"
-      # fallback_model: "claude-haiku-4-5-20251001"
+      provider: "ollama"
+      model: "mistral"
+      base_url: "http://192.168.1.50:11434"   # same as global default
+      fallback_provider: "anthropic"
+      fallback_model: "claude-haiku-4-5-20251001"
 
-    # ResearchAgent — web search + summarisation; Haiku is accurate enough.
+    # ResearchAgent — web search + summarisation.
     ResearchAgent:
-      provider: "anthropic"
-      model: "claude-haiku-4-5-20251001"
+      provider: "ollama"
+      model: "mistral"
+      base_url: "http://192.168.1.50:11434"
+      fallback_provider: "anthropic"
+      fallback_model: "claude-haiku-4-5-20251001"
 
-    # BuilderAgent — code generation; Sonnet produces significantly better code.
+    # BuilderAgent — code generation. qwen2.5-coder is best local code model.
+    # Falls back to Sonnet (cloud) for highest quality when offline.
     BuilderAgent:
-      provider: "anthropic"
-      model: "claude-sonnet-4-6"
-      max_tokens: 4096            # code outputs tend to be longer
+      provider: "ollama"
+      model: "qwen2.5-coder:7b"
+      base_url: "http://192.168.1.50:11434"
+      max_tokens: 4096
+      fallback_provider: "anthropic"
+      fallback_model: "claude-sonnet-4-6"
 
-    # PlannerAgent — multi-step reasoning; Sonnet gives more coherent plans.
+    # PlannerAgent — goal decomposition. llama3.1 handles structured JSON well.
     PlannerAgent:
-      provider: "anthropic"
-      model: "claude-sonnet-4-6"
+      provider: "ollama"
+      model: "llama3.1"
+      base_url: "http://192.168.1.50:11434"
+      fallback_provider: "anthropic"
+      fallback_model: "claude-sonnet-4-6"
 
-    # OperatorAgent — simple shell command generation; Haiku is fine.
+    # OperatorAgent — simple shell command generation.
     OperatorAgent:
-      provider: "anthropic"
-      model: "claude-haiku-4-5-20251001"
+      provider: "ollama"
+      model: "mistral"
+      base_url: "http://192.168.1.50:11434"
+      fallback_provider: "anthropic"
+      fallback_model: "claude-haiku-4-5-20251001"
 
 scheduler:
   check_interval: 10             # seconds between scheduler ticks
