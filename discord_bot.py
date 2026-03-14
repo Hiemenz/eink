@@ -52,10 +52,14 @@ ALL_MODULES = [
     "franklin_cam",
     "parking_garage",
     "module_cycler",
+    "brain_status",
 ]
 
 # Per-module configurable args shown in !modules / !set hints
 MODULE_ARGS: dict = {
+    "text": {
+        "text.message": "Message to display (set via !text <message>)",
+    },
     "weather": {
         "station":               "Radar station code (e.g. KOHX, KFWS, KTLX)",
         "radar_mode":            "Display mode: crop | fit | panel",
@@ -176,7 +180,7 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
 
     path_map = {
         "weather":         os.path.join(ROOT, "radar", f"eink_quantized_display_{station_name}.bmp"),
-        "text":            os.path.join(ROOT, cfg.get("text", {}).get("output_path", "images/eink_display.bmp")),
+        "text":            os.path.join(ROOT, cfg.get("text", {}).get("output_path", "images/text_display.bmp")),
         "saint_of_day":    os.path.join(ROOT, cfg.get("saint_of_day", {}).get("output_path", "images/saint_display.bmp")),
         "wiki_image":      os.path.join(ROOT, cfg.get("wiki_image", {}).get("output_path", "images/wiki_display.bmp")),
         "movie_slideshow": os.path.join(ROOT, cfg.get("movie_slideshow", {}).get("output_path", "images/movie_display.bmp")),
@@ -290,6 +294,43 @@ async def cmd_display(ctx: commands.Context, module: str = None):
             description=f"Module: `{module}`",
             color=discord.Color.red(),
         )
+        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+
+    await msg.edit(content=None, embed=embed)
+
+    if success:
+        await send_display_image(ctx.channel, load_config())
+        args = MODULE_ARGS.get(module)
+        if args:
+            opts = discord.Embed(
+                title=f"{module} — configurable options",
+                description="\n".join(f"`!set {k}` — {v}" for k, v in args.items()),
+                color=discord.Color.og_blurple(),
+            )
+            await ctx.send(embed=opts)
+
+
+@channel_guard()
+async def cmd_text(ctx: commands.Context, *, message: str = None):
+    """Display a custom text message on the e-ink screen."""
+    if not message:
+        await ctx.send("Usage: `!text <your message here>`")
+        return
+
+    cfg = load_config()
+    cfg.setdefault("text", {})["message"] = message
+    cfg["active_module"] = "text"
+    save_config(cfg)
+
+    msg = await ctx.send(f"Displaying: **{message[:80]}{'…' if len(message) > 80 else ''}**")
+
+    success, output = await run_main()
+
+    if success:
+        embed = discord.Embed(title="Display updated — text", color=discord.Color.green())
+        embed.add_field(name="Message", value=message[:900], inline=False)
+    else:
+        embed = discord.Embed(title="Display update failed", color=discord.Color.red())
         embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
 
     await msg.edit(content=None, embed=embed)
@@ -463,7 +504,8 @@ async def cmd_help_display(ctx: commands.Context):
     """Show command reference."""
     prefix = bot.command_prefix
     embed = discord.Embed(title="E-Ink Display Bot — Commands", color=discord.Color.og_blurple())
-    embed.add_field(name=f"{prefix}display <module>", value="Switch active module and refresh", inline=False)
+    embed.add_field(name=f"{prefix}display <module>", value="Switch active module and refresh. Shows configurable options after switching.", inline=False)
+    embed.add_field(name=f"{prefix}text <message>", value="Display a custom text message on the screen", inline=False)
     embed.add_field(name=f"{prefix}set <key> <value>", value="Update a config value (dot notation). Does not auto-refresh.", inline=False)
     embed.add_field(name=f"{prefix}refresh", value="Force display refresh with current module", inline=False)
     embed.add_field(name=f"{prefix}status", value="Show current display state", inline=False)
@@ -508,6 +550,7 @@ def main():
 
     # Register commands
     bot.command(name="display")(cmd_display)
+    bot.command(name="text")(cmd_text)
     bot.command(name="set")(cmd_set)
     bot.command(name="refresh")(cmd_refresh)
     bot.command(name="status")(cmd_status)

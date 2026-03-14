@@ -58,20 +58,24 @@ def display_single_image(image_file):
     print('display is sleeping...' )
 
 
-def display_color_image(image_file):
-    # Initialize and clear the display
-    epd = epd7in3f.EPD()
+def display_color_image(image_file, model='epd7in5_V2'):
+    """Display an image on the e-ink screen using the configured driver model."""
+    from waveshare_epd import epd7in5_V2, epd7in3f
+    driver_map = {
+        'epd7in5_V2': epd7in5_V2,
+        'epd7in3f':   epd7in3f,
+    }
+    driver = driver_map.get(model, epd7in5_V2)
+
+    epd = driver.EPD()
     epd.init()
     epd.Clear()
 
-    # Load the processed image
     image = Image.open(f'{image_file}')
-
-    # Display the image
     epd.display(epd.getbuffer(image))
 
     epd.sleep()
-    print('display is sleeping...' )
+    print(f'display is sleeping... (model: {model})')
 
 
 

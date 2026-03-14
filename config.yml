@@ -4,6 +4,9 @@ discord:
   channel_id: 0          # Numeric channel ID where commands are accepted
   command_prefix: "!"
 
+# ── Hardware ──────────────────────────────────────────────────────────────────
+display_model: epd7in5_V2   # Waveshare driver: epd7in5_V2 | epd7in3f
+
 width: 800
 height: 480
 background_color: white
@@ -41,6 +44,11 @@ brain_status:
   db_path: brain.db            # path to brain.db (relative to project root)
 # Seconds between updates (used by cron/systemd and shown in the web UI)
 update_interval: 300
+
+# ── Text Display ─────────────────────────────────────────────────────────────
+text:
+  output_path: images/text_display.bmp
+  message: ""   # set via !text <message> from Discord
 
 # ── Saint of the Day ─────────────────────────────────────────────────────────
 saint_of_day:
