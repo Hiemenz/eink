@@ -42,6 +42,11 @@ brain_status:
 # Seconds between updates (used by cron/systemd and shown in the web UI)
 update_interval: 300
 
+# ── Text Display ─────────────────────────────────────────────────────────────
+text:
+  output_path: images/text_display.bmp
+  message: ""   # set via !text <message> from Discord
+
 # ── Saint of the Day ─────────────────────────────────────────────────────────
 saint_of_day:
   output_path: images/saint_display.bmp

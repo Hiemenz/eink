@@ -87,6 +87,17 @@ def generate_content(prompt, api_key=None):
 
 def generate(config):
     """Module interface: generate text/fact image and return output path."""
+    text_cfg = config.get('text', {})
+    width = config.get('width', 800)
+    height = config.get('height', 480)
+    image_path = text_cfg.get('output_path', 'images/text_display.bmp')
+
+    # Message set directly via Discord (!text command) takes priority
+    direct_message = text_cfg.get('message', '').strip()
+    if direct_message:
+        return generate_image(direct_message, width, height, image_path)
+
+    # Fall back to display_text_config.yml for AI/CSV-driven content
     text_config_path = config.get('text_config', 'display_text_config.yml')
     with open(text_config_path, 'r') as f:
         text_config = yaml.safe_load(f)
@@ -101,9 +112,9 @@ def generate(config):
         text_content = result["candidates"][0]["content"]["parts"][0]["text"]
 
     print(text_content)
-    width = text_config.get('width', 800)
-    height = text_config.get('height', 480)
-    image_path = text_config.get('image_path', 'text_display.bmp')
+    width = text_config.get('width', width)
+    height = text_config.get('height', height)
+    image_path = text_config.get('image_path', image_path)
     return generate_image(text_content, width, height, image_path)
 
 
