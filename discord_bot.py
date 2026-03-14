@@ -364,7 +364,7 @@ async def cmd_text(ctx: commands.Context, *, message: str = None):
 
 @channel_guard()
 async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
-    """Update a config value and save to config.yml. Does not auto-refresh."""
+    """Update a config value and refresh the display."""
     if key is None or value is None:
         await ctx.send(
             "Usage: `!set <key> <value>`\n"
@@ -380,6 +380,7 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
         return
 
     cfg = load_config()
+    description = None
 
     # Special: station lookup — write full dict so config stays valid
     if key in ("station", "weather.station"):
@@ -391,41 +392,54 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
             )
             return
         update_bot_state("station", station_dict)
-        embed = discord.Embed(
-            title="Config updated",
-            description=f"**station** → `{station_dict['name']}` ({station_dict.get('location', '')})",
-            color=discord.Color.blurple(),
-        )
-        await ctx.send(embed=embed)
-        return
+        description = f"**station** → `{station_dict['name']}` ({station_dict.get('location', '')})"
+
+    # Special: "!set text <message>" — alias for !text <message>
+    elif key == "text":
+        update_bot_state("text.message", value)
+        update_bot_state("active_module", "text")
+        description = f"**text.message** → `{value}`\n**active_module** → `text`"
 
     # Special: module_cycler.modules — split by comma into a list
-    if key == "module_cycler.modules":
+    elif key == "module_cycler.modules":
         modules_list = [m.strip() for m in value.split(",") if m.strip()]
         unknown = [m for m in modules_list if m not in ALL_MODULES]
         if unknown:
             await ctx.send(f"Unknown module(s): {', '.join(f'`{m}`' for m in unknown)}\nRun `!modules` for valid names.")
             return
         update_bot_state("module_cycler.modules", modules_list)
-        embed = discord.Embed(
-            title="Config updated",
-            description=f"**module_cycler.modules** → `{', '.join(modules_list)}`",
-            color=discord.Color.blurple(),
-        )
-        await ctx.send(embed=embed)
-        return
+        description = f"**module_cycler.modules** → `{', '.join(modules_list)}`"
 
     # General key (dot notation, auto-cast)
-    cast = cast_value(value)
-    update_bot_state(key, cast)
+    else:
+        cast = cast_value(value)
+        update_bot_state(key, cast)
+        description = f"**{key}** → `{cast}`"
 
-    embed = discord.Embed(
-        title="Config updated",
-        description=f"**{key}** → `{cast}`",
-        color=discord.Color.blurple(),
-    )
-    embed.set_footer(text="Run !refresh to push changes to the display.")
-    await ctx.send(embed=embed)
+    active = load_config().get("active_module", "?")
+    msg = await ctx.send(f"Config updated — refreshing display ({active})...")
+
+    success, output = await run_main()
+
+    if success:
+        embed = discord.Embed(
+            title=f"Display refreshed — {active}",
+            description=description,
+            color=discord.Color.green(),
+        )
+        embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
+    else:
+        embed = discord.Embed(
+            title="Config updated — refresh failed",
+            description=description,
+            color=discord.Color.red(),
+        )
+        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+
+    await msg.edit(content=None, embed=embed)
+
+    if success:
+        await send_display_image(ctx.channel, load_config())
 
 
 @channel_guard()
@@ -581,6 +595,14 @@ def main():
 
     @bot.event
     async def on_ready():
+        # Seed bot_state.json from config.yml so all module keys are present.
+        # Existing bot_state overrides are preserved on top.
+        with open(CONFIG_PATH) as f:
+            base = yaml.safe_load(f) or {}
+        existing = load_bot_state()
+        merged = _deep_merge(base, existing)
+        with open(BOT_STATE_PATH, "w") as f:
+            json.dump(merged, f, indent=2)
         print(f"Discord bot ready — logged in as {bot.user} (channel_id={ALLOWED_CHANNEL or 'any'})")
 
     @bot.event
