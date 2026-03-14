@@ -150,7 +150,7 @@ def update_bot_state(key: str, value: Any) -> None:
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
-    return _deep_merge(cfg, load_bot_state())
+    return _deep_merge(cfg, load_bot_state(), safe=True)
 
 
 def find_station(code: str, cfg: dict) -> Optional[dict]:
@@ -183,7 +183,9 @@ def set_nested(cfg: dict, key: str, value) -> None:
     parts = key.split(".")
     target = cfg
     for part in parts[:-1]:
-        target = target.setdefault(part, {})
+        if not isinstance(target.get(part), dict):
+            target[part] = {}
+        target = target[part]
     target[parts[-1]] = value
 
 
