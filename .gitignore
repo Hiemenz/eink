@@ -17,6 +17,9 @@ data/cycler_state.json
 radar/radar_state.json
 bot_state.json
 
+# Secrets
+.env
+
 # Generated image outputs
 radar/*.bmp
 images/

@@ -25,7 +25,10 @@ from typing import Any, Optional
 import discord
 import yaml
 from discord.ext import commands
+from dotenv import load_dotenv
 from PIL import Image
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.yml")
@@ -554,12 +557,14 @@ def main():
 
     cfg = load_config()
     discord_cfg = cfg.get("discord", {})
-    token = discord_cfg.get("bot_token", "")
-    channel_id = discord_cfg.get("channel_id", 0)
-    prefix = discord_cfg.get("command_prefix", "!")
+
+    # Env vars take priority over config.yml
+    token = os.environ.get("DISCORD_BOT_TOKEN") or discord_cfg.get("bot_token", "")
+    channel_id = os.environ.get("DISCORD_CHANNEL_ID") or discord_cfg.get("channel_id", 0)
+    prefix = os.environ.get("DISCORD_PREFIX") or discord_cfg.get("command_prefix", "!")
 
     if not token:
-        print("ERROR: discord.bot_token is not set in config.yml")
+        print("ERROR: DISCORD_BOT_TOKEN not set in .env or config.yml discord.bot_token")
         sys.exit(1)
 
     ALLOWED_CHANNEL = int(channel_id) if channel_id else 0

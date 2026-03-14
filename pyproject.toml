@@ -22,6 +22,7 @@ pandas = "^2.2.0"
 astral = "^3.2"
 qrcode = "^8.2"
 discord-py = ">=2.3"
+python-dotenv = ">=1.0"
 
 # AI Brain dependencies
 duckdb = "^1.1.0"
