@@ -26,9 +26,25 @@ from utils import MODULE_MAP, get_logger, validate_config
 logger = get_logger("main")
 
 
+def _deep_merge(base: dict, overrides: dict) -> dict:
+    result = dict(base)
+    for k, v in overrides.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
 def load_config(path: str = "config.yml") -> Dict[str, Any]:
     with open(path) as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f)
+    bot_state_path = os.path.join(os.path.dirname(os.path.abspath(path)), "bot_state.json")
+    if os.path.exists(bot_state_path):
+        import json
+        with open(bot_state_path) as f:
+            cfg = _deep_merge(cfg, json.load(f))
+    return cfg
 
 
 def main() -> None:
