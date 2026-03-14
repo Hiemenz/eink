@@ -35,6 +35,7 @@ MODULE_MAP = {
     "franklin_cam":    "modules.franklin_cam",
     "parking_garage":  "modules.parking_garage",
     "module_cycler":   "modules.module_cycler",
+    "brain_status":    "modules.brain_status",
 }
 
 
