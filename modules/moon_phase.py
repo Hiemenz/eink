@@ -7,15 +7,14 @@ percentage, and days until next full moon on a black canvas.
 """
 
 import math
-import platform
 from datetime import date, datetime, timezone
-from PIL import Image, ImageDraw, ImageFont
+from typing import Optional
 
+from PIL import Image, ImageDraw
 
-def _font_path():
-    if platform.system() == "Darwin":
-        return "/Library/Fonts/Arial Unicode.ttf"
-    return "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
+from utils import get_font, get_logger
+
+logger = get_logger("moon")
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +26,7 @@ _REF_NEW_MOON = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
 _LUNAR_CYCLE = 29.53059  # days
 
 
-def _moon_age(today=None):
+def _moon_age(today: Optional[datetime] = None) -> float:
     """Days since the reference new moon (mod lunar cycle)."""
     if today is None:
         today = datetime.now(tz=timezone.utc)
@@ -35,12 +34,12 @@ def _moon_age(today=None):
     return delta % _LUNAR_CYCLE
 
 
-def _phase_fraction(age):
+def _phase_fraction(age: float) -> float:
     """Fraction through the lunar cycle: 0 = new, 0.5 = full."""
     return age / _LUNAR_CYCLE
 
 
-def _phase_name(fraction):
+def _phase_name(fraction: float) -> str:
     if fraction < 0.0625:
         return "New Moon"
     elif fraction < 0.25:
@@ -59,12 +58,12 @@ def _phase_name(fraction):
         return "Waning Crescent"
 
 
-def _illumination(fraction):
+def _illumination(fraction: float) -> int:
     """Percentage of the moon's face that is illuminated."""
     return round(50 * (1 - math.cos(fraction * 2 * math.pi)))
 
 
-def _days_until_full(age):
+def _days_until_full(age: float) -> float:
     """Days remaining until the next full moon."""
     fraction = age / _LUNAR_CYCLE
     if fraction < 0.5:
@@ -102,20 +101,20 @@ def _draw_moon(fraction, radius=180):
         lit_side = "left"
         phase_angle = (1.0 - fraction) * 2  # 1 (full) to 0 (new)
 
-    moon_color = (255, 255, 220, 255)
+    lit_color = (255, 255, 220, 255)
     dark_color = (30, 30, 40, 255)
 
     # Draw full disc
     draw.ellipse(
         [cx - r, cy - r, cx + r, cy + r],
-        fill=dark_color
+        fill=lit_color
     )
 
     if fraction >= 0.0625 and fraction <= 0.9375:
         # Draw the lit portion
         draw.ellipse(
             [cx - r, cy - r, cx + r, cy + r],
-            fill=moon_color if lit_side == "right" else dark_color
+            fill=dark_color if lit_side == "right" else lit_color
         )
 
         # Terminator ellipse x-radius varies with phase
@@ -125,29 +124,29 @@ def _draw_moon(fraction, radius=180):
 
         if lit_side == "right":
             # Right half is lit; overlay dark ellipse on left with curved terminator
-            # Draw the full disc lit
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=moon_color)
-            # Cover right half with dark rectangle
-            draw.rectangle([cx, cy - r - 1, cx + r + 1, cy + r + 1], fill=dark_color)
-            # Draw terminator ellipse (dark side bulge) on right
+            # Draw the full disc dark
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dark_color)
+            # Cover right half with lit rectangle
+            draw.rectangle([cx, cy - r - 1, cx + r + 1, cy + r + 1], fill=lit_color)
+            # Draw terminator ellipse (lit side bulge) on right
+            draw.ellipse(
+                [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
+                fill=lit_color
+            )
+        else:
+            # Left half is lit; overlay dark ellipse on right
+            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dark_color)
+            draw.rectangle([cx - r - 1, cy - r - 1, cx, cy + r + 1], fill=lit_color)
             draw.ellipse(
                 [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
                 fill=dark_color
             )
-        else:
-            # Left half is lit; overlay dark ellipse on right
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=moon_color)
-            draw.rectangle([cx - r - 1, cy - r - 1, cx, cy + r + 1], fill=dark_color)
-            draw.ellipse(
-                [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
-                fill=moon_color
-            )
     elif fraction < 0.0625 or fraction > 0.9375:
-        # New moon: nearly dark
+        # New moon: nearly dark (white background, dark disc)
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(40, 40, 50, 255))
     else:
-        # Full moon
-        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=moon_color)
+        # Full moon - always lit
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=lit_color)
 
     # Scale down for anti-aliasing
     final_size = canvas_size // scale
@@ -155,7 +154,7 @@ def _draw_moon(fraction, radius=180):
     return img
 
 
-def generate(config):
+def generate(config: dict) -> str:
     """Generate Moon Phase image. Return output path."""
     moon_cfg = config.get("moon_phase", {})
     output_path = moon_cfg.get("output_path", "moon_display.bmp")
@@ -168,7 +167,7 @@ def generate(config):
     illum = _illumination(fraction)
     days_to_full = _days_until_full(age)
 
-    print(f"[moon] Phase: {name} ({illum}% illuminated, {days_to_full:.1f}d to full moon)")
+    logger.info("Phase: %s (%d%% illuminated, %.1fd to full moon)", name, illum, days_to_full)
 
     # Canvas: black background
     canvas = Image.new("RGB", (width, height), (0, 0, 0))
@@ -184,7 +183,6 @@ def generate(config):
     canvas.paste(moon_img, (moon_x, moon_y), moon_img)
 
     draw = ImageDraw.Draw(canvas)
-    fp = _font_path()
 
     # Text panel on the right
     text_x = moon_x + moon_w + 30
@@ -193,28 +191,19 @@ def generate(config):
 
     # Phase name (large)
     for size in range(44, 20, -2):
-        try:
-            font = ImageFont.truetype(fp, size)
-        except Exception:
-            font = ImageFont.load_default()
+        font = get_font(size, config=config)
         if draw.textbbox((0, 0), name, font=font)[2] <= text_w:
             break
     draw.text((text_x, text_y), name, fill="white", font=font)
     text_y += draw.textbbox((0, 0), name, font=font)[3] + 18
 
     # Illumination
-    try:
-        info_font = ImageFont.truetype(fp, 26)
-    except Exception:
-        info_font = ImageFont.load_default()
+    info_font = get_font(26, config=config)
     draw.text((text_x, text_y), f"{illum}% illuminated", fill=(180, 180, 180), font=info_font)
     text_y += draw.textbbox((0, 0), "Ag", font=info_font)[3] + 12
 
     # Days until full moon
-    try:
-        sub_font = ImageFont.truetype(fp, 22)
-    except Exception:
-        sub_font = ImageFont.load_default()
+    sub_font = get_font(22, config=config)
     if fraction < 0.5:
         full_label = f"Full moon in {days_to_full:.1f} days"
     elif fraction < 0.5625:
@@ -229,15 +218,12 @@ def generate(config):
     text_y += 20
 
     # Today's date
-    try:
-        date_font = ImageFont.truetype(fp, 18)
-    except Exception:
-        date_font = ImageFont.load_default()
+    date_font = get_font(18, config=config)
     today_str = date.today().strftime("%B %-d, %Y")
     draw.text((text_x, text_y), today_str, fill=(100, 100, 100), font=date_font)
 
     canvas.save(output_path)
-    print(f"[moon] Saved to {output_path}")
+    logger.info("Saved to %s", output_path)
     return output_path
 
 
@@ -246,4 +232,4 @@ if __name__ == "__main__":
     with open("config.yml") as f:
         cfg = yaml.safe_load(f)
     path = generate(cfg)
-    print(f"Output: {path}")
+    logger.info("Output: %s", path)

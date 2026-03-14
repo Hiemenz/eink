@@ -9,26 +9,11 @@ import importlib
 import json
 import os
 
+from utils import MODULE_MAP, get_logger
+
+logger = get_logger("cycler")
 
 STATE_FILE = "data/cycler_state.json"
-
-# Import MODULE_MAP to resolve module names to import paths
-MODULE_MAP = {
-    "weather":         "modules.weather",
-    "text":            "modules.text_display",
-    "saint_of_day":    "modules.saint_of_day",
-    "wiki_image":      "modules.wiki_image",
-    "movie_slideshow": "modules.movie_slideshow",
-    "nasa_apod":       "modules.nasa_apod",
-    "quote_of_day":    "modules.quote_of_day",
-    "on_this_day":     "modules.on_this_day",
-    "moon_phase":      "modules.moon_phase",
-    "art_of_day":      "modules.art_of_day",
-    "chess_puzzle":    "modules.chess_puzzle",
-    "flight_radar":    "modules.flight_radar",
-    "franklin_cam":    "modules.franklin_cam",
-    "parking_garage":  "modules.parking_garage",
-}
 
 
 def _load_state(state_file):
@@ -56,7 +41,7 @@ def generate(config):
     state_file = cycler_cfg.get("state_file", STATE_FILE)
 
     if not modules:
-        print("[cycler] No modules configured.")
+        logger.warning("No modules configured.")
         return None
 
     state = _load_state(state_file)
@@ -65,13 +50,13 @@ def generate(config):
 
     module_path = MODULE_MAP.get(current_name)
     if not module_path:
-        print(f"[cycler] Unknown module '{current_name}', skipping.")
+        logger.warning("Unknown module '%s', skipping.", current_name)
         # Advance past the unknown module
         state["index"] = (index + 1) % len(modules)
         _save_state(state_file, state)
         return None
 
-    print(f"[cycler] Running module {index + 1}/{len(modules)}: {current_name}")
+    logger.info("Running module %d/%d: %s", index + 1, len(modules), current_name)
     mod = importlib.import_module(module_path)
     output_path = mod.generate(config)
 
@@ -88,4 +73,4 @@ if __name__ == "__main__":
     with open("config.yml") as f:
         cfg = yaml.safe_load(f)
     path = generate(cfg)
-    print(f"Output: {path}")
+    logger.info("Output: %s", path)

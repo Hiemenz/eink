@@ -2,6 +2,7 @@ import time
 import json
 import requests
 import io
+from typing import Any, Dict, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
 from modules.special_weather import get_special_weather_messages, get_alert_headline
@@ -16,6 +17,10 @@ import math
 import platform
 import os
 
+from utils import get_font, get_logger
+
+logger = get_logger("weather")
+
 NWS_KM_PER_PX = 1.533  # km per pixel in original NWS 600×550 radar image
 
 # ---------------------------------------------------------------------------
@@ -25,14 +30,14 @@ _conditions_cache = {"data": None, "ts": 0}
 _CONDITIONS_TTL = 300  # seconds
 
 
-def _deg_to_compass(deg):
+def _deg_to_compass(deg: float) -> str:
     """Convert wind direction degrees (0-360) to 16-point compass string."""
     directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"]
     return directions[round(deg / 22.5) % 16]
 
 
-def _wmo_description(code):
+def _wmo_description(code: int) -> str:
     """WMO weather code → short human label."""
     table = {
         0: "Clear", 1: "Mainly Clear", 2: "Partly Cloudy", 3: "Overcast",
@@ -57,7 +62,7 @@ def _parse_time(iso_str):
         return iso_str
 
 
-def fetch_current_conditions(lat, lon, headers):
+def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[Dict[str, Any]]:
     """
     Fetch current weather conditions from Open-Meteo (no API key required).
     Results are cached for _CONDITIONS_TTL seconds.
@@ -89,7 +94,7 @@ def fetch_current_conditions(lat, lon, headers):
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"[weather] Failed to fetch current conditions: {e}")
+        logger.error("Failed to fetch current conditions: %s", e)
         return None
 
     try:
@@ -140,7 +145,7 @@ def fetch_current_conditions(lat, lon, headers):
             sunrise_delta = _delta_str(_s_td["sunrise"], _s_yd["sunrise"])
             sunset_delta  = _delta_str(_s_td["sunset"],  _s_yd["sunset"])
         except Exception as e:
-            print(f"[weather] astral sunrise/sunset error: {e}")
+            logger.warning("astral sunrise/sunset error: %s", e)
 
         # High / Low today
         high_today = int(round(daily.get("temperature_2m_max", [0])[-1] or 0))
@@ -230,11 +235,11 @@ def fetch_current_conditions(lat, lon, headers):
 
         _conditions_cache["data"] = result
         _conditions_cache["ts"] = now
-        print(f"[weather] Conditions fetched: {result['temp']}°F, {result['weather_desc']}")
+        logger.info("Conditions fetched: %d°F, %s", result['temp'], result['weather_desc'])
         return result
 
     except Exception as e:
-        print(f"[weather] Error parsing conditions response: {e}")
+        logger.exception("Error parsing conditions response")
         return None
 
 
@@ -253,25 +258,35 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
         draw.ellipse(bb, fill=W, outline=B)
         return
     if 0.4375 < fraction < 0.5625:
-        # Full moon: solid black disc
-        draw.ellipse(bb, fill=B)
+        # Full moon: solid white disc with black outline
+        draw.ellipse(bb, fill=W, outline=B)
         return
 
     # Terminator x-radius; 0 = straight vertical (quarter), r = full (crescent)
     tx = int(r * abs(math.cos(fraction * 2 * math.pi)))
 
     if fraction < 0.5:
-        # Waxing: right side lit (black) — fill disc black, erase left half, whiten terminator
+        # Waxing: right side lit (black)
         draw.ellipse(bb, fill=B)
-        draw.rectangle([cx - r, cy - r, cx, cy + r], fill=W)
+        draw.rectangle([cx - r, cy - r, cx, cy + r], fill=W)  # erase shadow (left) half
         if tx > 0:
-            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
+            if fraction <= 0.25:
+                # Crescent: white terminator carves shadow edge, leaving thin right crescent
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
+            else:
+                # Gibbous: black terminator restores lit area, leaving thin left shadow
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
     else:
-        # Waning: left side lit (black) — fill disc black, erase right half, shadow terminator
+        # Waning: left side lit (black)
         draw.ellipse(bb, fill=B)
-        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)
+        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)  # erase shadow (right) half
         if tx > 0:
-            draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
+            if fraction < 0.75:
+                # Gibbous: black terminator restores lit area, leaving thin right shadow
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
+            else:
+                # Crescent: white terminator carves shadow edge, leaving thin left crescent
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
 
     draw.ellipse(bb, outline=B)
 
@@ -385,7 +400,7 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
             qr_y = header_h + 6 + config.get('panel_qr_y_offset', 0)
             canvas.paste(qr_img, (qr_x, qr_y))
         except Exception as e:
-            print(f"[panel] QR code error: {e}")
+            logger.error("QR code error: %s", e)
 
     # Feels like / description
     draw.text((text_x, y), feels_desc, fill=BLACK, font=f_feels)
@@ -607,7 +622,7 @@ def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
                 pixels[x, y] = best_color
 
     original.save(output_path, format="bmp")
-    print(f"Quantized image saved to {output_path}")
+    logger.info("Quantized image saved to %s", output_path)
 
 
 def generate_weather_image(config, special_msg=None):
@@ -642,15 +657,15 @@ def generate_weather_image(config, special_msg=None):
         if response.status_code == 200:
             break
         elif response.status_code == 404 and attempt < 2:
-            print(f"Image not found (404). Retrying... (Attempt {attempt + 1})")
+            logger.warning("Image not found (404). Retrying... (Attempt %d)", attempt + 1)
             time.sleep(2)
         else:
-            print(f"Failed to fetch image. Status code: {response.status_code}")
+            logger.error("Failed to fetch image. Status code: %d", response.status_code)
             return None, False, None
 
     content_type = response.headers.get("Content-Type", "")
     if "image" not in content_type:
-        print(f"Unexpected content type: {content_type}")
+        logger.error("Unexpected content type: %s", content_type)
         return None, False, None
 
     radar_img = Image.open(io.BytesIO(response.content)).convert("RGB")
@@ -775,7 +790,7 @@ def generate_weather_image(config, special_msg=None):
             _banner_h = config.get("alert_banner_height", 40)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:
-            print(f"Error adding special weather QR code: {e}")
+            logger.error("Error adding special weather QR code: %s", e)
 
     draw = ImageDraw.Draw(final_img)
 
@@ -797,13 +812,13 @@ def generate_weather_image(config, special_msg=None):
     # --- End Alert Banner ---
 
     final_img.save(output_path)
-    print(f"Saved final weather image to {output_path}")
+    logger.info("Saved final weather image to %s", output_path)
 
     more_colors = config.get('more_colors', False)
     quantize_to_seven_colors(output_path, quantized_output_path, more_colors, threshold=75)
     new_quant = Image.open(quantized_output_path).convert("RGB")
     if old_quant is not None and images_are_equal(old_quant, new_quant):
-        print(f"Station {station}: Quantized image unchanged.")
+        logger.info("Station %s: Quantized image unchanged.", station)
         return None, False, primary_region
     return quantized_output_path, True, primary_region
 
@@ -837,7 +852,7 @@ def full_station_scan(config, skip_station=None):
             continue
         perc = calculate_non_bw_percentage(config["quantized_path"])
         percentages[station] = perc
-        print(f"Full scan: Station {station} -> {perc:.2f}%")
+        logger.info("Full scan: Station %s -> %.2f%%", station, perc)
     config["radar_mode"] = saved_mode
     return percentages
 
@@ -845,7 +860,7 @@ def full_station_scan(config, skip_station=None):
 def update_top5(percentages):
     sorted_stations = sorted(percentages.items(), key=lambda x: x[1], reverse=True)
     top5 = sorted_stations[:5]
-    print("Top 5 stations from full scan:", top5)
+    logger.info("Top 5 stations from full scan: %s", top5)
     return top5
 
 
@@ -873,7 +888,7 @@ def generate(config):
     if default_image_path is None and not default_updated:
         default_image_path = config["quantized_path"]
     default_percentage = calculate_non_bw_percentage(config["quantized_path"], region=default_region)
-    print(f"Default station ({default_station}) has {default_percentage:.2f}% interesting pixels.")
+    logger.info("Default station (%s) has %.2f%% interesting pixels.", default_station, default_percentage)
     should_update = default_updated
     final_display_image = default_image_path
 
@@ -885,7 +900,7 @@ def generate(config):
     final_percentage = best_percentage if best_station else default_percentage
 
     if config.get('show_forecast_fallback', False) and final_percentage < config.get('interesting_threshold', 15):
-        print(f"No interesting radar found (best: {final_percentage:.2f}%). Falling back to forecast.")
+        logger.info("No interesting radar found (best: %.2f%%). Falling back to forecast.", final_percentage)
         forecast_config = config.get('forecast_location', {})
         lat = forecast_config.get('latitude')
         lon = forecast_config.get('longitude')
@@ -916,9 +931,9 @@ def main():
     if output and platform.system() == "Linux":
         display_color_image(output)
     elif output:
-        print(f"Generated: {output} (display skipped on macOS)")
+        logger.info("Generated: %s (display skipped on macOS)", output)
     else:
-        print("No image changes detected.")
+        logger.info("No image changes detected.")
 
 
 if __name__ == '__main__':
