@@ -4,6 +4,9 @@ discord:
   channel_id: 0          # Numeric channel ID where commands are accepted
   command_prefix: "!"
 
+# ── Hardware ──────────────────────────────────────────────────────────────────
+display_model: epd7in5_V2   # Waveshare driver: epd7in5_V2 | epd7in3f
+
 width: 800
 height: 480
 background_color: white

@@ -49,7 +49,7 @@ def main() -> None:
         logger.info("Generated image: %s", output_path)
         if platform.system() == "Linux":
             from display import display_color_image
-            display_color_image(output_path)
+            display_color_image(output_path, model=config.get("display_model", "epd7in5_V2"))
             logger.info("Displayed on e-ink hardware.")
         else:
             logger.info("macOS — skipping hardware display. Image at: %s", output_path)
