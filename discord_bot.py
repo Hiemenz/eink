@@ -17,17 +17,22 @@ Commands (default prefix: !)
 
 import asyncio
 import io
+import json
 import os
 import sys
-from typing import Optional
+from typing import Any, Optional
 
 import discord
 import yaml
 from discord.ext import commands
+from dotenv import load_dotenv
 from PIL import Image
+
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(ROOT, "config.yml")
+BOT_STATE_PATH = os.path.join(ROOT, "bot_state.json")
 
 # ---------------------------------------------------------------------------
 # Module registry
@@ -100,14 +105,36 @@ MODULE_ARGS: dict = {
 # ---------------------------------------------------------------------------
 
 
+def _deep_merge(base: dict, overrides: dict) -> dict:
+    """Recursively merge overrides into base without modifying either."""
+    result = dict(base)
+    for k, v in overrides.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def load_bot_state() -> dict:
+    if not os.path.exists(BOT_STATE_PATH):
+        return {}
+    with open(BOT_STATE_PATH) as f:
+        return json.load(f)
+
+
+def update_bot_state(key: str, value: Any) -> None:
+    """Write a single dot-notation key into bot_state.json."""
+    state = load_bot_state()
+    set_nested(state, key, value)
+    with open(BOT_STATE_PATH, "w") as f:
+        json.dump(state, f, indent=2)
+
+
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
-        return yaml.safe_load(f)
-
-
-def save_config(cfg: dict) -> None:
-    with open(CONFIG_PATH, "w") as f:
-        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        cfg = yaml.safe_load(f)
+    return _deep_merge(cfg, load_bot_state())
 
 
 def find_station(code: str, cfg: dict) -> Optional[dict]:
@@ -274,9 +301,7 @@ async def cmd_display(ctx: commands.Context, module: str = None):
         await ctx.send(embed=embed)
         return
 
-    cfg = load_config()
-    cfg["active_module"] = module
-    save_config(cfg)
+    update_bot_state("active_module", module)
 
     msg = await ctx.send(f"Switching display to **{module}**...")
 
@@ -317,10 +342,8 @@ async def cmd_text(ctx: commands.Context, *, message: str = None):
         await ctx.send("Usage: `!text <your message here>`")
         return
 
-    cfg = load_config()
-    cfg.setdefault("text", {})["message"] = message
-    cfg["active_module"] = "text"
-    save_config(cfg)
+    update_bot_state("text.message", message)
+    update_bot_state("active_module", "text")
 
     msg = await ctx.send(f"Displaying: **{message[:80]}{'…' if len(message) > 80 else ''}**")
 
@@ -367,8 +390,7 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
                 "Check config.yml `stations:` for valid codes."
             )
             return
-        cfg["station"] = station_dict
-        save_config(cfg)
+        update_bot_state("station", station_dict)
         embed = discord.Embed(
             title="Config updated",
             description=f"**station** → `{station_dict['name']}` ({station_dict.get('location', '')})",
@@ -384,8 +406,7 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
         if unknown:
             await ctx.send(f"Unknown module(s): {', '.join(f'`{m}`' for m in unknown)}\nRun `!modules` for valid names.")
             return
-        set_nested(cfg, "module_cycler.modules", modules_list)
-        save_config(cfg)
+        update_bot_state("module_cycler.modules", modules_list)
         embed = discord.Embed(
             title="Config updated",
             description=f"**module_cycler.modules** → `{', '.join(modules_list)}`",
@@ -396,8 +417,7 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
 
     # General key (dot notation, auto-cast)
     cast = cast_value(value)
-    set_nested(cfg, key, cast)
-    save_config(cfg)
+    update_bot_state(key, cast)
 
     embed = discord.Embed(
         title="Config updated",
@@ -537,12 +557,14 @@ def main():
 
     cfg = load_config()
     discord_cfg = cfg.get("discord", {})
-    token = discord_cfg.get("bot_token", "")
-    channel_id = discord_cfg.get("channel_id", 0)
-    prefix = discord_cfg.get("command_prefix", "!")
+
+    # Env vars take priority over config.yml
+    token = os.environ.get("DISCORD_BOT_TOKEN") or discord_cfg.get("bot_token", "")
+    channel_id = os.environ.get("DISCORD_CHANNEL_ID") or discord_cfg.get("channel_id", 0)
+    prefix = os.environ.get("DISCORD_PREFIX") or discord_cfg.get("command_prefix", "!")
 
     if not token:
-        print("ERROR: discord.bot_token is not set in config.yml")
+        print("ERROR: DISCORD_BOT_TOKEN not set in .env or config.yml discord.bot_token")
         sys.exit(1)
 
     ALLOWED_CHANNEL = int(channel_id) if channel_id else 0
