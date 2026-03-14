@@ -32,8 +32,13 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 # ── Module selector ──────────────────────────────────────────────────────────
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
 #          | sudoku_puzzle | poem_of_day | news_headlines
-#          | franklin_cam | parking_garage | module_cycler
+#          | franklin_cam | parking_garage | module_cycler | brain_status
 active_module: weather
+
+# ── AI Brain Status Display ───────────────────────────────────────────────────
+brain_status:
+  output_path: images/brain_status.bmp
+  db_path: brain.db            # path to brain.db (relative to project root)
 # Seconds between updates (used by cron/systemd and shown in the web UI)
 update_interval: 300
 
