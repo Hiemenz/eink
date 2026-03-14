@@ -17,9 +17,11 @@ spidev = {version = "^3.6", markers = "sys_platform == 'linux'"}
 rpi-gpio = {version = "^0.7.1", markers = "sys_platform == 'linux'"}
 staticmap = "^0.5.7"
 geopy = "^2.4.1"
-pyarrow = "^16.0.0"
+pyarrow = ">=16.0.0"
 pandas = "^2.2.0"
 astral = "^3.2"
+qrcode = "^8.2"
+discord-py = ">=2.3"
 
 # AI Brain dependencies
 duckdb = "^1.1.0"
@@ -34,6 +36,9 @@ openai = ["openai"]
 discord = ["discord.py"]
 all = ["openai", "discord.py"]
 
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
 
 [build-system]
 requires = ["poetry-core>=1.7.1,<2.0.0"]

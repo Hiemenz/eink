@@ -1,3 +1,9 @@
+# ── Discord Bot ───────────────────────────────────────────────────────────────
+discord:
+  bot_token: ""          # Paste your bot token here
+  channel_id: 0          # Numeric channel ID where commands are accepted
+  command_prefix: "!"
+
 width: 800
 height: 480
 background_color: white
@@ -25,6 +31,7 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 
 # ── Module selector ──────────────────────────────────────────────────────────
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
+#          | sudoku_puzzle | poem_of_day | news_headlines
 #          | franklin_cam | parking_garage | module_cycler | brain_status
 active_module: weather
 
@@ -75,6 +82,18 @@ art_of_day:
 # ── Chess Puzzle of the Day (Lichess) ────────────────────────────────────────
 chess_puzzle:
   output_path: images/chess_display.bmp
+
+# ── Sudoku Puzzle (daily, no API needed) ─────────────────────────────────────
+sudoku_puzzle:
+  output_path: images/sudoku_display.bmp
+
+# ── Poem of the Day (PoetryDB) ───────────────────────────────────────────────
+poem_of_day:
+  output_path: images/poem_display.bmp
+
+# ── News Headlines (BBC RSS) ─────────────────────────────────────────────────
+news_headlines:
+  output_path: images/news_display.bmp
 
 # ── Flight Radar (OpenSky Network) ─────────────────────────────────────────
 flight_radar:

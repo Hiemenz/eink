@@ -5,6 +5,10 @@ import hashlib
 from PIL import Image, ImageDraw, ImageFont
 import yaml
 
+from utils import get_logger
+
+logger = get_logger("eink_generator")
+
 def load_config(yaml_path="config.yml"):
     """Load image configuration from YAML."""
     with open(yaml_path, "r") as f:
@@ -128,17 +132,17 @@ def update_eink_display(new_img, output_path="eink_display.bmp"):
         try:
             current_img = Image.open(output_path)
             if images_are_equal(current_img, new_img):
-                print("No update needed; images are identical.")
+                logger.info("No update needed; images are identical.")
                 return False
         except Exception as e:
-            print("Error comparing images:", e)
+            logger.error("Error comparing images: %s", e)
     new_img.save(output_path)
-    print("E‑ink display updated with new image.")
+    logger.info("E-ink display updated with new image.")
     return True
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python eink_image_generator.py 'Your text here'")
+        logger.error("Usage: python eink_image_generator.py 'Your text here'")
         sys.exit(1)
     
     text = sys.argv[1]
