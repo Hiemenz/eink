@@ -223,24 +223,29 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
     active = cfg.get("active_module", "weather")
     station_name = cfg.get("station", {}).get("name", "KOHX") if isinstance(cfg.get("station"), dict) else "KOHX"
 
+    def _p(key: str, default: str) -> str:
+        val = cfg.get(key)
+        sub = val.get("output_path", default) if isinstance(val, dict) else default
+        return os.path.join(ROOT, sub)
+
     path_map = {
         "weather":         os.path.join(ROOT, "radar", f"eink_quantized_display_{station_name}.bmp"),
-        "text":            os.path.join(ROOT, cfg.get("text", {}).get("output_path", "images/text_display.bmp")),
-        "saint_of_day":    os.path.join(ROOT, cfg.get("saint_of_day", {}).get("output_path", "images/saint_display.bmp")),
-        "wiki_image":      os.path.join(ROOT, cfg.get("wiki_image", {}).get("output_path", "images/wiki_display.bmp")),
-        "movie_slideshow": os.path.join(ROOT, cfg.get("movie_slideshow", {}).get("output_path", "images/movie_display.bmp")),
-        "nasa_apod":       os.path.join(ROOT, cfg.get("nasa_apod", {}).get("output_path", "images/nasa_apod.bmp")),
-        "quote_of_day":    os.path.join(ROOT, cfg.get("quote_of_day", {}).get("output_path", "images/quote_display.bmp")),
-        "on_this_day":     os.path.join(ROOT, cfg.get("on_this_day", {}).get("output_path", "images/onthisday_display.bmp")),
-        "moon_phase":      os.path.join(ROOT, cfg.get("moon_phase", {}).get("output_path", "images/moon_display.bmp")),
-        "art_of_day":      os.path.join(ROOT, cfg.get("art_of_day", {}).get("output_path", "images/art_display.bmp")),
-        "chess_puzzle":    os.path.join(ROOT, cfg.get("chess_puzzle", {}).get("output_path", "images/chess_display.bmp")),
-        "sudoku_puzzle":   os.path.join(ROOT, cfg.get("sudoku_puzzle", {}).get("output_path", "images/sudoku_display.bmp")),
-        "poem_of_day":     os.path.join(ROOT, cfg.get("poem_of_day", {}).get("output_path", "images/poem_display.bmp")),
-        "news_headlines":  os.path.join(ROOT, cfg.get("news_headlines", {}).get("output_path", "images/news_display.bmp")),
-        "flight_radar":    os.path.join(ROOT, cfg.get("flight_radar", {}).get("output_path", "images/flight_display.bmp")),
-        "franklin_cam":    os.path.join(ROOT, cfg.get("franklin_cam", {}).get("output_path", "images/franklin_cam.bmp")),
-        "parking_garage":  os.path.join(ROOT, cfg.get("parking_garage", {}).get("output_path", "images/parking_display.bmp")),
+        "text":            _p("text",            "images/text_display.bmp"),
+        "saint_of_day":    _p("saint_of_day",    "images/saint_display.bmp"),
+        "wiki_image":      _p("wiki_image",       "images/wiki_display.bmp"),
+        "movie_slideshow": _p("movie_slideshow",  "images/movie_display.bmp"),
+        "nasa_apod":       _p("nasa_apod",        "images/nasa_apod.bmp"),
+        "quote_of_day":    _p("quote_of_day",     "images/quote_display.bmp"),
+        "on_this_day":     _p("on_this_day",      "images/onthisday_display.bmp"),
+        "moon_phase":      _p("moon_phase",       "images/moon_display.bmp"),
+        "art_of_day":      _p("art_of_day",       "images/art_display.bmp"),
+        "chess_puzzle":    _p("chess_puzzle",     "images/chess_display.bmp"),
+        "sudoku_puzzle":   _p("sudoku_puzzle",    "images/sudoku_display.bmp"),
+        "poem_of_day":     _p("poem_of_day",      "images/poem_display.bmp"),
+        "news_headlines":  _p("news_headlines",   "images/news_display.bmp"),
+        "flight_radar":    _p("flight_radar",     "images/flight_display.bmp"),
+        "franklin_cam":    _p("franklin_cam",     "images/franklin_cam.bmp"),
+        "parking_garage":  _p("parking_garage",   "images/parking_display.bmp"),
     }
 
     # module_cycler delegates to whatever module it last ran
