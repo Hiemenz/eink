@@ -60,6 +60,16 @@ ALL_MODULES = [
     "brain_status",
 ]
 
+# When !set <module_name> <value> is used, map to this primary config key
+MODULE_PRIMARY_ARG: dict[str, str] = {
+    "text":            "text.message",
+    "sudoku_puzzle":   "sudoku_puzzle.num_clues",
+    "flight_radar":    "flight_radar.radius_deg",
+    "movie_slideshow": "movie_slideshow.active_movie",
+    "franklin_cam":    "franklin_cam.label",
+    "nasa_apod":       "nasa_apod.api_key",
+}
+
 # Per-module configurable args shown in !modules / !set hints
 MODULE_ARGS: dict = {
     "text": {
@@ -105,12 +115,18 @@ MODULE_ARGS: dict = {
 # ---------------------------------------------------------------------------
 
 
-def _deep_merge(base: dict, overrides: dict) -> dict:
-    """Recursively merge overrides into base without modifying either."""
+def _deep_merge(base: dict, overrides: dict, safe: bool = False) -> dict:
+    """Recursively merge overrides into base without modifying either.
+
+    When safe=True, a scalar override is dropped if the base value is a dict,
+    preventing stale bot_state entries from corrupting module config dicts.
+    """
     result = dict(base)
     for k, v in overrides.items():
         if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
+            result[k] = _deep_merge(result[k], v, safe=safe)
+        elif safe and k in result and isinstance(result[k], dict) and not isinstance(v, dict):
+            pass  # drop incompatible scalar override
         else:
             result[k] = v
     return result
@@ -134,7 +150,7 @@ def update_bot_state(key: str, value: Any) -> None:
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         cfg = yaml.safe_load(f)
-    return _deep_merge(cfg, load_bot_state())
+    return _deep_merge(cfg, load_bot_state(), safe=True)
 
 
 def find_station(code: str, cfg: dict) -> Optional[dict]:
@@ -167,7 +183,9 @@ def set_nested(cfg: dict, key: str, value) -> None:
     parts = key.split(".")
     target = cfg
     for part in parts[:-1]:
-        target = target.setdefault(part, {})
+        if not isinstance(target.get(part), dict):
+            target[part] = {}
+        target = target[part]
     target[parts[-1]] = value
 
 
@@ -394,11 +412,16 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
         update_bot_state("station", station_dict)
         description = f"**station** → `{station_dict['name']}` ({station_dict.get('location', '')})"
 
-    # Special: "!set text <message>" — alias for !text <message>
-    elif key == "text":
-        update_bot_state("text.message", value)
-        update_bot_state("active_module", "text")
-        description = f"**text.message** → `{value}`\n**active_module** → `text`"
+    # Special: !set <module_name> [value] — switch module + set primary arg if defined
+    elif key in ALL_MODULES:
+        update_bot_state("active_module", key)
+        primary = MODULE_PRIMARY_ARG.get(key)
+        if primary and value:
+            cast = cast_value(value)
+            update_bot_state(primary, cast)
+            description = f"**active_module** → `{key}`\n**{primary}** → `{cast}`"
+        else:
+            description = f"**active_module** → `{key}`"
 
     # Special: module_cycler.modules — split by comma into a list
     elif key == "module_cycler.modules":
@@ -596,11 +619,12 @@ def main():
     @bot.event
     async def on_ready():
         # Seed bot_state.json from config.yml so all module keys are present.
-        # Existing bot_state overrides are preserved on top.
+        # Existing bot_state overrides are preserved on top; safe=True drops any
+        # stale scalar that would overwrite a config dict (e.g. text: "msg").
         with open(CONFIG_PATH) as f:
             base = yaml.safe_load(f) or {}
         existing = load_bot_state()
-        merged = _deep_merge(base, existing)
+        merged = _deep_merge(base, existing, safe=True)
         with open(BOT_STATE_PATH, "w") as f:
             json.dump(merged, f, indent=2)
         print(f"Discord bot ready — logged in as {bot.user} (channel_id={ALLOWED_CHANNEL or 'any'})")
