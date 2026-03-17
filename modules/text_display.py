@@ -1,9 +1,7 @@
 import requests
 import json
-import yaml
 import csv
 import random
-import uuid
 from PIL import Image, ImageDraw, ImageFont
 import platform
 import os
@@ -100,41 +98,18 @@ def generate_content(prompt, api_key=None):
 
 
 def generate(config):
-    """Module interface: generate text/fact image and return output path."""
-    text_cfg = config.get('text', {})
+    """Module interface: generate text image and return output path, or None if no message set."""
+    text_cfg = config.get('text', {}) if isinstance(config.get('text'), dict) else {}
     width = config.get('width', 800)
     height = config.get('height', 480)
     image_path = text_cfg.get('output_path', 'images/text_display.bmp')
 
-    # Message set directly via Discord (!text command) takes priority
-    direct_message = text_cfg.get('message', '').strip()
-    if direct_message:
-        return generate_image(direct_message, width, height, image_path)
+    direct_message = text_cfg.get('message', '').strip() if isinstance(text_cfg.get('message'), str) else ''
+    if not direct_message:
+        print("[text] No message set — skipping.")
+        return None
 
-    # Fall back to display_text_config.yml for AI/CSV-driven content
-    try:
-        text_config_path = config.get('text_config', 'display_text_config.yml')
-        with open(text_config_path, 'r') as f:
-            text_config = yaml.safe_load(f)
-
-        if text_config.get('override_message_trigger', False):
-            text_content = text_config.get('override_message', '')
-        elif text_config.get('csv_question_file'):
-            text_content = get_random_question(text_config['csv_question_file'])
-        else:
-            prompt = str(uuid.uuid4()) + ' ' + text_config['instructions']
-            result = generate_content(prompt, text_config['GEMINI_API_KEY'])
-            text_content = result["candidates"][0]["content"]["parts"][0]["text"]
-
-        print(text_content)
-        width = text_config.get('width', width)
-        height = text_config.get('height', height)
-        image_path = text_config.get('image_path', image_path)
-    except Exception as e:
-        print(f"[text] Fallback config failed: {e}")
-        text_content = "Use !text <message> to display text."
-
-    return generate_image(text_content, width, height, image_path)
+    return generate_image(direct_message, width, height, image_path)
 
 
 def main():
