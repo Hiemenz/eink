@@ -11,7 +11,6 @@ Default CSV: data/questions/eink_facts.csv
 """
 
 import csv
-import math
 import os
 import platform
 import random
@@ -68,13 +67,6 @@ def _pick_question(questions, interval_minutes):
     rng = random.Random(bucket)
     idx = rng.randint(0, len(questions) - 1)
     return questions[idx]
-
-
-def _minutes_until_next(interval_minutes):
-    """Return seconds remaining until the next question change."""
-    interval_s = interval_minutes * 60
-    elapsed = int(time.time()) % interval_s
-    return interval_s - elapsed
 
 
 # ---------------------------------------------------------------------------
@@ -137,10 +129,8 @@ def _render(topic, question, interval_minutes, output_path, width=800, height=48
         tw2 = draw.textbbox((0, 0), topic, font=tf)[2]
         draw.text((width - margin - tw2, 14), topic, fill=(160, 160, 160), font=tf)
 
-    # Footer: next change countdown
-    secs = _minutes_until_next(interval_minutes)
-    mins_left = math.ceil(secs / 60)
-    footer = f"Changes in {mins_left} min  •  every {interval_minutes} min"
+    # Footer
+    footer = f"Rotates every {interval_minutes} min"
     ff = _load_font(13)
     fw = draw.textbbox((0, 0), footer, font=ff)[2]
     draw.text((width - margin - fw, height - 18), footer, fill=(190, 190, 190), font=ff)

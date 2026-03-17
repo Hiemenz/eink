@@ -8,6 +8,7 @@ Usage:
     poetry run python main.py
 """
 
+import hashlib
 import importlib
 import platform
 import sys
@@ -47,6 +48,26 @@ def load_config(path: str = "config.yml") -> Dict[str, Any]:
     return cfg
 
 
+def _image_changed(output_path: str) -> bool:
+    """Return True if the image differs from the last-displayed version."""
+    hash_path = output_path + ".last_hash"
+    try:
+        with open(output_path, "rb") as f:
+            new_hash = hashlib.md5(f.read()).hexdigest()
+    except OSError:
+        return True  # can't read image, assume changed
+
+    if os.path.exists(hash_path):
+        with open(hash_path) as f:
+            if f.read().strip() == new_hash:
+                return False  # unchanged
+
+    # Save new hash
+    with open(hash_path, "w") as f:
+        f.write(new_hash)
+    return True
+
+
 def main() -> None:
     config = load_config()
     validate_config(config)
@@ -63,12 +84,15 @@ def main() -> None:
 
     if output_path:
         logger.info("Generated image: %s", output_path)
-        if platform.system() == "Linux":
-            from display import display_color_image
-            display_color_image(output_path, model=config.get("display_model", "epd7in5_V2"))
-            logger.info("Displayed on e-ink hardware.")
+        if _image_changed(output_path):
+            if platform.system() == "Linux":
+                from display import display_color_image
+                display_color_image(output_path, model=config.get("display_model", "epd7in5_V2"))
+                logger.info("Displayed on e-ink hardware.")
+            else:
+                logger.info("macOS — skipping hardware display. Image at: %s", output_path)
         else:
-            logger.info("macOS — skipping hardware display. Image at: %s", output_path)
+            logger.info("Image unchanged — skipping display push.")
     else:
         logger.info("Module returned no output (no change or error).")
 

@@ -62,6 +62,21 @@ questions:
 claude_news:
   output_path: images/claude_news.bmp
 
+# ── Terminal ─────────────────────────────────────────────────────────────────
+terminal:
+  output_path: images/terminal_display.bmp
+
+# ── QR Code Display ──────────────────────────────────────────────────────────
+qrcode_display:
+  output_path: images/qrcode_display.bmp
+  text: ""            # URL or plain text to encode
+  label: ""           # label shown below QR code
+  sublabel: ""        # smaller secondary label (optional)
+  # WiFi mode (leave text blank and fill these instead):
+  wifi_ssid: ""
+  wifi_password: ""
+  wifi_security: WPA
+
 # ── Text Display ─────────────────────────────────────────────────────────────
 text:
   output_path: images/text_display.bmp
