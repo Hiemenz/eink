@@ -1,8 +1,8 @@
 """
 Claude Code News module.
 
-Fetches the 3 most recent Claude Code feature releases from the official
-changelog and renders them on an 800×480 e-ink display.
+Fetches the 5 most recent Claude Code feature releases from the official
+changelog (features + change notes) and renders them on an 800×480 e-ink display.
 
 Primary source: docs.anthropic.com/en/docs/claude-code/changelog
 Fallback:       registry.npmjs.org/@anthropic-ai/claude-code (version + date only)
@@ -26,7 +26,8 @@ CACHE_TTL = 3600  # 1 hour
 
 CHANGELOG_URL = "https://docs.anthropic.com/en/docs/claude-code/changelog"
 NPM_URL = "https://registry.npmjs.org/@anthropic-ai/claude-code"
-MAX_RELEASES = 3
+MAX_RELEASES = 5
+MAX_ITEMS_PER_RELEASE = 6   # total features+notes captured from the page
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +80,7 @@ def _save_cache(releases):
 # ---------------------------------------------------------------------------
 
 class _ChangelogParser(HTMLParser):
-    """Extract version sections and their bullet-point features."""
+    """Extract version sections, bullet-point features, and prose notes."""
 
     def __init__(self):
         super().__init__()
@@ -87,24 +88,33 @@ class _ChangelogParser(HTMLParser):
         self._current = None      # active release dict
         self._capture = False
         self._in_li = False
+        self._in_p = False
         self._buf = ""
 
     def handle_starttag(self, tag, attrs):
         if tag in ("h1", "h2", "h3"):
             self._capture = True
+            self._in_li = False
+            self._in_p = False
             self._buf = ""
         elif tag == "li":
             self._in_li = True
+            self._in_p = False
+            self._capture = True
+            self._buf = ""
+        elif tag == "p":
+            self._in_p = True
+            self._in_li = False
             self._capture = True
             self._buf = ""
 
     def handle_endtag(self, tag):
         if tag in ("h1", "h2", "h3") and self._capture:
             text = _html.unescape(self._buf.strip())
-            # Match version numbers like "1.2.3", "v1.2.3", or date-like headings
+            # Match version numbers like "1.2.3", "v1.2.3"
             if re.search(r'\d+\.\d+', text):
                 if len(self.releases) < MAX_RELEASES:
-                    self._current = {"version": text, "features": []}
+                    self._current = {"version": text, "items": []}
                     self.releases.append(self._current)
                 else:
                     self._current = None
@@ -113,9 +123,17 @@ class _ChangelogParser(HTMLParser):
 
         elif tag == "li" and self._in_li:
             text = _html.unescape(self._buf.strip())
-            if text and self._current and len(self._current["features"]) < 4:
-                self._current["features"].append(text)
+            if text and self._current and len(self._current["items"]) < MAX_ITEMS_PER_RELEASE:
+                self._current["items"].append(("bullet", text))
             self._in_li = False
+            self._capture = False
+            self._buf = ""
+
+        elif tag == "p" and self._in_p:
+            text = _html.unescape(self._buf.strip())
+            if text and self._current and len(self._current["items"]) < MAX_ITEMS_PER_RELEASE:
+                self._current["items"].append(("note", text))
+            self._in_p = False
             self._capture = False
             self._buf = ""
 
@@ -135,7 +153,7 @@ def _fetch_changelog():
         resp.raise_for_status()
         parser = _ChangelogParser()
         parser.feed(resp.text)
-        releases = [r for r in parser.releases if r.get("features")]
+        releases = [r for r in parser.releases if r.get("items")]
         if releases:
             print(f"[claude_news] Parsed {len(releases)} releases from changelog page")
             return releases[:MAX_RELEASES]
@@ -157,7 +175,7 @@ def _fetch_npm_fallback():
             reverse=True,
         )[:MAX_RELEASES]
         releases = [
-            {"version": f"v{v}", "features": [f"Released {t[:10]}"]}
+            {"version": f"v{v}", "items": [("note", f"Released {t[:10]}")]}
             for v, t in versions
         ]
         print(f"[claude_news] npm fallback: {[r['version'] for r in releases]}")
@@ -174,7 +192,7 @@ def _get_releases():
     releases = _fetch_changelog() or _fetch_npm_fallback() or [
         {
             "version": "Claude Code",
-            "features": ["Visit docs.anthropic.com/en/docs/claude-code/changelog for the latest updates."],
+            "items": [("note", "Visit docs.anthropic.com/en/docs/claude-code/changelog for the latest updates.")],
         }
     ]
     _save_cache(releases)
@@ -182,89 +200,94 @@ def _get_releases():
 
 
 # ---------------------------------------------------------------------------
-# Text wrapping
-# ---------------------------------------------------------------------------
-
-def _wrap(text, font, draw, max_width):
-    words = text.split()
-    if not words:
-        return ""
-    lines, line = [], words[0]
-    for word in words[1:]:
-        test = line + " " + word
-        if draw.textbbox((0, 0), test, font=font)[2] <= max_width:
-            line = test
-        else:
-            lines.append(line)
-            line = word
-    lines.append(line)
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
+
+def _truncate(text, font, draw, max_width):
+    """Truncate text with ellipsis to fit max_width."""
+    if draw.textbbox((0, 0), text, font=font)[2] <= max_width:
+        return text
+    while text:
+        text = text[:-1]
+        if draw.textbbox((0, 0), text + "…", font=font)[2] <= max_width:
+            return text + "…"
+    return "…"
+
 
 def _render(releases, output_path, width=800, height=480):
     img = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(img)
 
-    margin = 22
+    margin = 18
     content_w = width - 2 * margin
-    y = 16
+    y = 10
 
     # ── Header ──────────────────────────────────────────────────────────────
-    hf = _font(36)
+    hf = _font(28)
     draw.text((margin, y), "Claude Code", fill=(20, 20, 20), font=hf)
     header_h = draw.textbbox((0, 0), "Claude Code", font=hf)[3]
 
-    sub_f = _font(17)
+    sub_f = _font(14)
     sub = "What's New"
     sub_w = draw.textbbox((0, 0), sub, font=sub_f)[2]
-    draw.text((width - margin - sub_w, y + header_h - draw.textbbox((0, 0), sub, font=sub_f)[3] - 2),
-              sub, fill=(130, 130, 130), font=sub_f)
+    sub_h = draw.textbbox((0, 0), sub, font=sub_f)[3]
+    draw.text((width - margin - sub_w, y + header_h - sub_h),
+              sub, fill=(140, 140, 140), font=sub_f)
 
-    y += header_h + 8
+    y += header_h + 6
     draw.line([(margin, y), (width - margin, y)], fill=(190, 190, 190), width=1)
-    y += 10
+    y += 7
 
-    # ── Release entries ──────────────────────────────────────────────────────
-    vf = _font(19)
-    ff = _font(15)
-    line_gap = 3
+    # ── Release entries (compact: version + up to 2 items each) ─────────────
+    vf = _font(15)   # version label — bold-ish by size
+    ff = _font(12)   # item text
+    nf = _font(12)   # note text (same size, different color)
+    line_gap = 2
+
+    footer_reserve = 16
+    available = height - footer_reserve
 
     for idx, release in enumerate(releases[:MAX_RELEASES]):
-        if y > height - 36:
+        if y > available - 20:
             break
 
         version = release.get("version", "").strip()
-        features = [f.strip() for f in release.get("features", []) if f.strip()]
+        items = release.get("items", [])
 
         # Version label
-        draw.text((margin, y), version, fill=(25, 25, 25), font=vf)
-        y += draw.textbbox((0, 0), version, font=vf)[3] + 4
+        draw.text((margin, y), version, fill=(20, 20, 20), font=vf)
+        y += draw.textbbox((0, 0), version, font=vf)[3] + 2
 
-        for feat in features[:3]:
-            if y > height - 28:
+        shown = 0
+        for kind, text in items:
+            if shown >= 2 or y > available - 14:
                 break
-            wrapped = _wrap(f"• {feat}", ff, draw, content_w - 8)
-            for line in wrapped.split("\n"):
-                if y > height - 28:
-                    break
-                draw.text((margin + 8, y), line, fill=(55, 55, 55), font=ff)
-                y += draw.textbbox((0, 0), line, font=ff)[3] + line_gap
-            y += 2
+            text = text.strip()
+            if not text:
+                continue
+            if kind == "bullet":
+                prefix = "• "
+                color = (55, 55, 55)
+                font = ff
+            else:
+                prefix = "  "
+                color = (100, 100, 100)
+                font = nf
+            line = _truncate(prefix + text, font, draw, content_w - 6)
+            draw.text((margin + 4, y), line, fill=color, font=font)
+            y += draw.textbbox((0, 0), line, font=font)[3] + line_gap
+            shown += 1
 
-        y += 6
-        if idx < len(releases) - 1 and y < height - 36:
-            draw.line([(margin, y), (width - margin, y)], fill=(215, 215, 215), width=1)
-            y += 8
+        y += 4
+        if idx < len(releases) - 1 and y < available - 20:
+            draw.line([(margin, y), (width - margin, y)], fill=(220, 220, 220), width=1)
+            y += 5
 
     # ── Footer ───────────────────────────────────────────────────────────────
-    af = _font(11)
+    af = _font(10)
     attr = "docs.anthropic.com/en/docs/claude-code/changelog"
     aw = draw.textbbox((0, 0), attr, font=af)[2]
-    draw.text((width - margin - aw, height - 14), attr, fill=(185, 185, 185), font=af)
+    draw.text((width - margin - aw, height - 13), attr, fill=(190, 190, 190), font=af)
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     img.save(output_path)

@@ -59,8 +59,10 @@ ALL_MODULES = [
     "module_cycler",
     "brain_status",
     "interesting_fact",
+    "qrcode_display",
     "claude_news",
     "questions",
+    "terminal",
 ]
 
 # Pre-flight config checks per module
@@ -120,6 +122,7 @@ MODULE_PRIMARY_ARG: dict[str, str] = {
     "movie_slideshow": "movie_slideshow.active_movie",
     "nasa_apod":       "nasa_apod.api_key",
     "questions":       "questions.interval_minutes",
+    "qrcode_display":  "qrcode_display.text",
 }
 
 # Per-module configurable args shown in !modules / !set hints
@@ -159,9 +162,20 @@ MODULE_ARGS: dict = {
         "interesting_fact.interval_minutes": "Minutes between fact rotations (default 60)",
         "interesting_fact.csv_file": "Path to CSV with topic,question columns",
     },
+    "qrcode_display": {
+        "qrcode_display.text":          "Text or URL to encode as QR code",
+        "qrcode_display.label":         "Label shown below the QR code",
+        "qrcode_display.sublabel":      "Smaller secondary label (optional)",
+        "qrcode_display.wifi_ssid":     "WiFi network name (auto-formats as WiFi QR)",
+        "qrcode_display.wifi_password": "WiFi password",
+        "qrcode_display.wifi_security": "WPA | WEP | nopass (default WPA)",
+    },
     "questions": {
         "questions.interval_minutes": "Minutes between question changes (default 15)",
         "questions.csv_file":         "Path to CSV with topic,question columns",
+    },
+    "terminal": {
+        "terminal.output_path": "Output BMP path (default images/terminal_display.bmp)",
     },
     "forecast_location": {
         "forecast_location.latitude":  "Latitude for weather/flight forecast",
@@ -311,7 +325,9 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "parking_garage":  _p("parking_garage",   "images/parking_display.bmp"),
         "claude_news":     _p("claude_news",       "images/claude_news.bmp"),
         "interesting_fact": _p("interesting_fact", "images/interesting_fact.bmp"),
+        "qrcode_display":  _p("qrcode_display",   "images/qrcode_display.bmp"),
         "questions":       _p("questions",         "images/questions_display.bmp"),
+        "terminal":        _p("terminal",          "images/terminal_display.bmp"),
     }
 
     # module_cycler delegates to whatever module it last ran
@@ -348,6 +364,21 @@ async def send_display_image(channel: discord.abc.Messageable, cfg: dict) -> Non
 # ---------------------------------------------------------------------------
 # Bot setup
 # ---------------------------------------------------------------------------
+
+
+def _next_update_str(module: str, cfg: dict, module_intervals: dict, global_fallback: int) -> str:
+    """Return a human-readable 'next update in X min' string for the given module."""
+    module_cfg = cfg.get(module, {})
+    if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
+        interval = int(module_cfg["update_interval"])
+    else:
+        interval = module_intervals.get(module, global_fallback)
+    mins = interval // 60
+    if mins >= 1440:
+        return f"next update in ~{mins // 1440}d"
+    if mins >= 60:
+        return f"next update in ~{mins // 60}h"
+    return f"next update in ~{mins}min"
 
 
 def make_bot(prefix: str) -> commands.Bot:
@@ -438,8 +469,10 @@ async def cmd_display(ctx: commands.Context, module: str = None):
     success, output = await run_main()
 
     if success:
+        next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
         embed = discord.Embed(
             title=f"Display updated — {module}",
+            description=next_upd,
             color=discord.Color.green(),
         )
         embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
@@ -539,6 +572,70 @@ async def cmd_questions(ctx: commands.Context, minutes: str = None):
         await send_display_image(ctx.channel, load_config())
 
 
+# Commands blocked from remote execution
+_RUN_BLOCKLIST = [
+    "rm -rf /", "rm -rf ~", ":(){:|:&};:", "mkfs", "dd if=",
+    "> /dev/sda", "chmod -R 777 /", "shutdown", "reboot",
+    "halt", "poweroff", "init 0", "init 6",
+]
+
+@channel_guard()
+async def cmd_run(ctx: commands.Context, *, command: str = None):
+    """Execute a shell command on the Pi and display the output on the e-ink screen."""
+    if not command:
+        await ctx.send("Usage: `!run <command>`\nExample: `!run df -h`")
+        return
+
+    # Basic safety check
+    cmd_lower = command.lower()
+    for blocked in _RUN_BLOCKLIST:
+        if blocked in cmd_lower:
+            await ctx.send(f"❌ Command blocked: `{blocked}`")
+            return
+
+    msg = await ctx.send(f"Running: `{command}`...")
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=ROOT,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await msg.edit(content=f"❌ `{command}` — timed out after 30 seconds.")
+            return
+
+        output   = stdout.decode(errors="replace").strip()
+        exit_code = proc.returncode
+    except Exception as e:
+        await msg.edit(content=f"❌ Failed to run command: {e}")
+        return
+
+    # Store result in terminal state and switch display to terminal module
+    from modules.terminal import save_entry
+    save_entry(command, output, exit_code)
+    update_bot_state("active_module", "terminal")
+
+    # Discord embed with output
+    status = "✅" if exit_code == 0 else f"❌ exit {exit_code}"
+    embed = discord.Embed(
+        title=f"{status}  `{command[:60]}`",
+        color=discord.Color.green() if exit_code == 0 else discord.Color.red(),
+    )
+    display_output = output[:1800] if output else "(no output)"
+    embed.add_field(name="Output", value=f"```\n{display_output}\n```", inline=False)
+    await msg.edit(content=None, embed=embed)
+
+    # Refresh display
+    success, _ = await run_main()
+    if success:
+        await send_display_image(ctx.channel, load_config())
+
+
 @channel_guard()
 async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
     """Update a config value and refresh the display."""
@@ -603,15 +700,17 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
         update_bot_state(key, cast)
         description = f"**{key}** → `{cast}`"
 
-    active = load_config().get("active_module", "?")
+    live_cfg = load_config()
+    active = live_cfg.get("active_module", "?")
     msg = await ctx.send(f"Config updated — refreshing display ({active})...")
 
     success, output = await run_main()
 
     if success:
+        next_upd = _next_update_str(active, live_cfg, MODULE_INTERVALS, 21600)
         embed = discord.Embed(
             title=f"Display refreshed — {active}",
-            description=description,
+            description=f"{description}\n{next_upd}",
             color=discord.Color.green(),
         )
         embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
@@ -702,22 +801,54 @@ async def cmd_status(ctx: commands.Context):
 
 @channel_guard()
 async def cmd_modules(ctx: commands.Context):
-    """List all available modules and their configurable args."""
-    embed = discord.Embed(
-        title="Available Modules",
-        description="Use `!display <module>` to switch, `!set <key> <value>` to configure.",
-        color=discord.Color.og_blurple(),
+    """List all available modules with numbers; type a number to switch."""
+    numbered = "\n".join(f"{i+1:2}. {m}" for i, m in enumerate(ALL_MODULES))
+    prompt = await ctx.send(
+        f"**Available Modules** — reply with a number to switch, or ignore to browse:\n```\n{numbered}\n```"
     )
 
-    for module in ALL_MODULES:
-        args = MODULE_ARGS.get(module)
-        if args:
-            lines = [f"`{k}` — {v}" for k, v in args.items()]
-            embed.add_field(name=module, value="\n".join(lines), inline=False)
-        else:
-            embed.add_field(name=module, value="_no configurable args_", inline=False)
+    def _check(m):
+        return m.author == ctx.author and m.channel == ctx.channel and m.content.strip().isdigit()
 
-    await ctx.send(embed=embed)
+    try:
+        reply = await bot.wait_for("message", check=_check, timeout=30)
+        choice = int(reply.content.strip())
+        if 1 <= choice <= len(ALL_MODULES):
+            module = ALL_MODULES[choice - 1]
+        else:
+            await ctx.send(f"Number must be 1–{len(ALL_MODULES)}.")
+            return
+    except asyncio.TimeoutError:
+        # No selection — just show the list, already posted
+        return
+
+    # Switch to chosen module (reuse display logic)
+    cfg = load_config()
+    missing_required, _ = _check_module_config(module, cfg)
+    if missing_required:
+        lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_required]
+        await ctx.send(embed=discord.Embed(
+            title=f"Cannot display `{module}` — required config missing",
+            description="\n".join(lines),
+            color=discord.Color.red(),
+        ))
+        return
+
+    update_bot_state("active_module", module)
+    msg = await ctx.send(f"Switching display to **{module}**...")
+    success, output = await run_main()
+
+    if success:
+        next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
+        embed = discord.Embed(title=f"Display updated — {module}", description=next_upd, color=discord.Color.green())
+        embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
+    else:
+        embed = discord.Embed(title="Display update failed", color=discord.Color.red())
+        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+
+    await msg.edit(content=None, embed=embed)
+    if success:
+        await send_display_image(ctx.channel, load_config())
 
 
 @channel_guard()
@@ -728,6 +859,7 @@ async def cmd_help_display(ctx: commands.Context):
     embed.add_field(name=f"{prefix}display <module>", value="Switch active module and refresh. Shows configurable options after switching.", inline=False)
     embed.add_field(name=f"{prefix}text <message>", value="Display a custom text message on the screen", inline=False)
     embed.add_field(name=f"{prefix}questions [minutes]", value="Show rotating questions — asks for interval if not provided", inline=False)
+    embed.add_field(name=f"{prefix}run <command>", value="Execute a shell command on the Pi and show output on the display", inline=False)
     embed.add_field(name=f"{prefix}display interesting_fact", value="Show rotating facts — updates every hour by default", inline=False)
     embed.add_field(name=f"{prefix}set <key> <value>", value="Update a config value (dot notation). Does not auto-refresh.", inline=False)
     embed.add_field(name=f"{prefix}refresh", value="Force display refresh with current module", inline=False)
@@ -755,6 +887,32 @@ async def cmd_help_display(ctx: commands.Context):
 # ---------------------------------------------------------------------------
 
 
+# Default intervals per module (seconds). Config can override via
+# <module>.update_interval or the top-level update_interval fallback.
+MODULE_INTERVALS: dict[str, int] = {
+    "weather":          1800,   # 30 min — radar updates frequently
+    "franklin_cam":     300,    # 5 min  — live camera
+    "parking_garage":   600,    # 10 min
+    "flight_radar":     900,    # 15 min
+    "news_headlines":   3600,   # 1 hour
+    "interesting_fact": 3600,   # 1 hour
+    "questions":        900,    # 15 min (overridden by questions.interval_minutes)
+    "moon_phase":       3600,   # 1 hour
+    "quote_of_day":     86400,  # 24 hours
+    "on_this_day":      86400,  # 24 hours
+    "saint_of_day":     86400,  # 24 hours
+    "chess_puzzle":     86400,  # 24 hours — daily puzzle
+    "sudoku_puzzle":    86400,  # 24 hours
+    "poem_of_day":      86400,  # 24 hours
+    "nasa_apod":        86400,  # 24 hours
+    "art_of_day":       86400,  # 24 hours
+    "wiki_image":       86400,  # 24 hours
+    "claude_news":      3600,   # 1 hour
+    "brain_status":     1800,   # 30 min
+    "module_cycler":    1800,   # 30 min
+}
+
+
 def main():
     global bot, ALLOWED_CHANNEL
 
@@ -773,35 +931,11 @@ def main():
     ALLOWED_CHANNEL = int(channel_id) if channel_id else 0
     bot = make_bot(prefix)
 
+    GLOBAL_FALLBACK = int(cfg.get("update_interval", 21600))
+
     # ---------------------------------------------------------------------------
     # Scheduled auto-refresh loop
     # ---------------------------------------------------------------------------
-
-    # Default intervals per module (seconds). Config can override via
-    # <module>.update_interval or the top-level update_interval fallback.
-    MODULE_INTERVALS: dict[str, int] = {
-        "weather":          1800,   # 30 min — radar updates frequently
-        "franklin_cam":     300,    # 5 min  — live camera
-        "parking_garage":   600,    # 10 min
-        "flight_radar":     900,    # 15 min
-        "news_headlines":   3600,   # 1 hour
-        "interesting_fact": 3600,   # 1 hour
-        "questions":        900,    # 15 min (overridden by questions.interval_minutes)
-        "moon_phase":       3600,   # 1 hour
-        "quote_of_day":     86400,  # 24 hours
-        "on_this_day":      86400,  # 24 hours
-        "saint_of_day":     86400,  # 24 hours
-        "chess_puzzle":     86400,  # 24 hours — daily puzzle
-        "sudoku_puzzle":    86400,  # 24 hours
-        "poem_of_day":      86400,  # 24 hours
-        "nasa_apod":        86400,  # 24 hours
-        "art_of_day":       86400,  # 24 hours
-        "wiki_image":       86400,  # 24 hours
-        "claude_news":      3600,   # 1 hour
-        "brain_status":     1800,   # 30 min
-        "module_cycler":    1800,   # 30 min
-    }
-    GLOBAL_FALLBACK = int(cfg.get("update_interval", 21600))
 
     def _module_interval(active: str) -> int:
         """Return refresh interval (seconds) for the active module."""
@@ -828,20 +962,31 @@ def main():
         _last_refresh[0] = time.time()
         success, output = await run_main()
 
-        if ALLOWED_CHANNEL:
+        # Skip Discord notification if nothing actually changed
+        display_updated = success and (
+            "unchanged" not in output.lower() and
+            "no output" not in output.lower()
+        )
+
+        if display_updated and ALLOWED_CHANNEL:
             channel = bot.get_channel(ALLOWED_CHANNEL)
             if channel:
-                status = "✅" if success else "❌"
                 embed = discord.Embed(
-                    title=f"{status} Scheduled refresh — {active}",
+                    title=f"✅ Scheduled refresh — {active}",
                     description=f"Interval: every {interval // 60} min",
-                    color=discord.Color.green() if success else discord.Color.red(),
+                    color=discord.Color.green(),
                 )
-                if not success:
-                    embed.add_field(name="Error", value=f"```{output[:800]}```", inline=False)
                 await channel.send(embed=embed)
-                if success:
-                    await send_display_image(channel, load_config())
+                await send_display_image(channel, load_config())
+        elif not success and ALLOWED_CHANNEL:
+            channel = bot.get_channel(ALLOWED_CHANNEL)
+            if channel:
+                embed = discord.Embed(
+                    title=f"❌ Scheduled refresh failed — {active}",
+                    color=discord.Color.red(),
+                )
+                embed.add_field(name="Error", value=f"```{output[:800]}```", inline=False)
+                await channel.send(embed=embed)
 
     @auto_refresh.before_loop
     async def before_auto_refresh():
@@ -851,6 +996,7 @@ def main():
     bot.command(name="display")(cmd_display)
     bot.command(name="text")(cmd_text)
     bot.command(name="questions")(cmd_questions)
+    bot.command(name="run")(cmd_run)
     bot.command(name="set")(cmd_set)
     bot.command(name="refresh")(cmd_refresh)
     bot.command(name="status")(cmd_status)
