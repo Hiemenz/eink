@@ -33,6 +33,9 @@ MODULE_MAP: Dict[str, str] = {
     "parking_garage":  "modules.parking_garage",
     "module_cycler":   "modules.module_cycler",
     "brain_status":    "modules.brain_status",
+    "claude_news":     "modules.claude_news",
+    "questions":       "modules.questions",
+    "interesting_fact": "modules.interesting_fact",
 }
 
 # Platform-aware font search chains

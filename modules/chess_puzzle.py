@@ -55,7 +55,7 @@ BOARD_TOP  = (480 - BOARD_PX - LABEL_PX) // 2
 
 
 # ---------------------------------------------------------------------------
-# Font helper
+# Font helpers
 # ---------------------------------------------------------------------------
 
 def _font_path():
@@ -67,6 +67,32 @@ def _font_path():
 def _font(size):
     try:
         return ImageFont.truetype(_font_path(), size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+PIECE_FONT_CANDIDATES_LINUX = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
+    "/usr/share/fonts/truetype/unifont/unifont.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+]
+
+
+def _piece_font_path():
+    if platform.system() == "Darwin":
+        return "/Library/Fonts/Arial Unicode.ttf"
+    for path in PIECE_FONT_CANDIDATES_LINUX:
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _piece_font(size):
+    path = _piece_font_path()
+    print(f"[chess] piece font: {path}")
+    try:
+        return ImageFont.truetype(path, size)
     except Exception:
         return ImageFont.load_default()
 
@@ -356,7 +382,7 @@ def _fen_to_grid(fen):
 def _draw_board(draw, board):
     """Draw the 8x8 board with alternating squares, pieces, border, and labels."""
     lbl_font   = _font(14)
-    piece_font = _font(32)
+    piece_font = _piece_font(32)
 
     for row in range(8):
         for col in range(8):

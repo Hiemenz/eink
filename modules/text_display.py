@@ -28,20 +28,34 @@ def wrap_text(text, font, draw, max_width):
     return "\n".join(lines)
 
 
+_FONT_CANDIDATES = [
+    "/Library/Fonts/Arial.ttf",                                                # macOS
+    "/Library/Fonts/Arial Unicode.ttf",                                        # macOS alt
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",        # Pi default
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                        # Pi fallback
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",                        # Pi fallback 2
+]
+
+
+def _load_font(size):
+    for path in _FONT_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
 def generate_image(text, width, height, image_path):
-    if platform.system() == "Darwin":
-        font_path = "/Library/Fonts/Arial.ttf"
-    elif platform.system() == "Linux":
-        font_path = '/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf'
-    else:
-        raise RuntimeError("Unsupported operating system")
+    os.makedirs(os.path.dirname(image_path) or ".", exist_ok=True)
 
     font_size = 60
     img = Image.new("RGB", (width, height), color=(255, 255, 255))
     draw = ImageDraw.Draw(img)
 
     while True:
-        font = ImageFont.truetype(font_path, font_size)
+        font = _load_font(font_size)
         wrapped_text = wrap_text(text, font, draw, width)
         bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font)
         text_width = bbox[2] - bbox[0]
@@ -98,23 +112,28 @@ def generate(config):
         return generate_image(direct_message, width, height, image_path)
 
     # Fall back to display_text_config.yml for AI/CSV-driven content
-    text_config_path = config.get('text_config', 'display_text_config.yml')
-    with open(text_config_path, 'r') as f:
-        text_config = yaml.safe_load(f)
+    try:
+        text_config_path = config.get('text_config', 'display_text_config.yml')
+        with open(text_config_path, 'r') as f:
+            text_config = yaml.safe_load(f)
 
-    if text_config.get('override_message_trigger', False):
-        text_content = text_config.get('override_message', '')
-    elif text_config.get('csv_question_file'):
-        text_content = get_random_question(text_config['csv_question_file'])
-    else:
-        prompt = str(uuid.uuid4()) + ' ' + text_config['instructions']
-        result = generate_content(prompt, text_config['GEMINI_API_KEY'])
-        text_content = result["candidates"][0]["content"]["parts"][0]["text"]
+        if text_config.get('override_message_trigger', False):
+            text_content = text_config.get('override_message', '')
+        elif text_config.get('csv_question_file'):
+            text_content = get_random_question(text_config['csv_question_file'])
+        else:
+            prompt = str(uuid.uuid4()) + ' ' + text_config['instructions']
+            result = generate_content(prompt, text_config['GEMINI_API_KEY'])
+            text_content = result["candidates"][0]["content"]["parts"][0]["text"]
 
-    print(text_content)
-    width = text_config.get('width', width)
-    height = text_config.get('height', height)
-    image_path = text_config.get('image_path', image_path)
+        print(text_content)
+        width = text_config.get('width', width)
+        height = text_config.get('height', height)
+        image_path = text_config.get('image_path', image_path)
+    except Exception as e:
+        print(f"[text] Fallback config failed: {e}")
+        text_content = "Use !text <message> to display text."
+
     return generate_image(text_content, width, height, image_path)
 
 
