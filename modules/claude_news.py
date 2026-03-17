@@ -20,7 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; EinkDisplay/1.0)"}
 CACHE_DIR = "data"
-CACHE_TTL = 3600  # 1 hour
+CACHE_TTL = 18000  # 5 hours
 
 CHANGELOG_URL = "https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md"
 NPM_URL = "https://registry.npmjs.org/@anthropic-ai/claude-code"
