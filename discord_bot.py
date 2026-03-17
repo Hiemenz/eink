@@ -366,8 +366,13 @@ async def send_display_image(channel: discord.abc.Messageable, cfg: dict) -> Non
 # ---------------------------------------------------------------------------
 
 
+_STATIC_MODULES = {"text", "qrcode_display", "terminal"}
+
+
 def _next_update_str(module: str, cfg: dict, module_intervals: dict, global_fallback: int) -> str:
     """Return a human-readable 'next update in X min' string for the given module."""
+    if module in _STATIC_MODULES:
+        return "static — no auto-refresh"
     module_cfg = cfg.get(module, {})
     if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
         interval = int(module_cfg["update_interval"])
@@ -947,12 +952,17 @@ def main():
 
     _last_refresh: list[float] = [0.0]   # mutable container so the closure can write it
 
+    # Modules that are purely static — never auto-refresh them
+    NO_AUTO_REFRESH = {"text", "qrcode_display", "terminal"}
+
     @tasks.loop(seconds=60)
     async def auto_refresh():
         """Poll every minute; fire when the active module's interval has elapsed."""
         import time
         cfg_now = load_config()
         active = cfg_now.get("active_module", "?")
+        if active in NO_AUTO_REFRESH:
+            return
         interval = _module_interval(active)
         elapsed = time.time() - _last_refresh[0]
         if elapsed < interval:
