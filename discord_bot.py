@@ -987,7 +987,6 @@ def main():
                     color=discord.Color.green(),
                 )
                 await channel.send(embed=embed)
-                await send_display_image(channel, load_config())
         elif not success and ALLOWED_CHANNEL:
             channel = bot.get_channel(ALLOWED_CHANNEL)
             if channel:
