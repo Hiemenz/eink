@@ -912,7 +912,7 @@ MODULE_INTERVALS: dict[str, int] = {
     "nasa_apod":        86400,  # 24 hours
     "art_of_day":       86400,  # 24 hours
     "wiki_image":       86400,  # 24 hours
-    "claude_news":      3600,   # 1 hour
+    "claude_news":      18000,  # 5 hours
     "brain_status":     1800,   # 30 min
     "module_cycler":    1800,   # 30 min
 }
