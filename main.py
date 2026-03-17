@@ -48,24 +48,28 @@ def load_config(path: str = "config.yml") -> Dict[str, Any]:
     return cfg
 
 
-def _image_changed(output_path: str) -> bool:
-    """Return True if the image differs from the last-displayed version."""
-    hash_path = output_path + ".last_hash"
+def _compute_hash(output_path: str) -> str | None:
+    """Return MD5 hex digest of the image file, or None on error."""
     try:
         with open(output_path, "rb") as f:
-            new_hash = hashlib.md5(f.read()).hexdigest()
+            return hashlib.md5(f.read()).hexdigest()
     except OSError:
-        return True  # can't read image, assume changed
+        return None
 
+
+def _is_unchanged(output_path: str, new_hash: str) -> bool:
+    """Return True if new_hash matches the last-pushed hash."""
+    hash_path = output_path + ".last_hash"
     if os.path.exists(hash_path):
         with open(hash_path) as f:
-            if f.read().strip() == new_hash:
-                return False  # unchanged
+            return f.read().strip() == new_hash
+    return False
 
-    # Save new hash
-    with open(hash_path, "w") as f:
+
+def _save_hash(output_path: str, new_hash: str) -> None:
+    """Persist hash after a successful display push."""
+    with open(output_path + ".last_hash", "w") as f:
         f.write(new_hash)
-    return True
 
 
 def main() -> None:
@@ -84,15 +88,18 @@ def main() -> None:
 
     if output_path:
         logger.info("Generated image: %s", output_path)
-        if _image_changed(output_path):
+        new_hash = _compute_hash(output_path)
+        if new_hash and _is_unchanged(output_path, new_hash):
+            logger.info("Image unchanged — skipping display push.")
+        else:
             if platform.system() == "Linux":
                 from display import display_color_image
                 display_color_image(output_path, model=config.get("display_model", "epd7in5_V2"))
                 logger.info("Displayed on e-ink hardware.")
+                if new_hash:
+                    _save_hash(output_path, new_hash)
             else:
                 logger.info("macOS — skipping hardware display. Image at: %s", output_path)
-        else:
-            logger.info("Image unchanged — skipping display push.")
     else:
         logger.info("Module returned no output (no change or error).")
 
