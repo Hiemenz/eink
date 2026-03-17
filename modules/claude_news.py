@@ -1,20 +1,18 @@
 """
 Claude Code News module.
 
-Fetches the 5 most recent Claude Code feature releases from the official
-changelog (features + change notes) and renders them on an 800×480 e-ink display.
+Fetches the 5 most recent Claude Code releases from the official GitHub
+CHANGELOG.md and renders them on an 800×480 e-ink display.
 
-Primary source: docs.anthropic.com/en/docs/claude-code/changelog
+Primary source: raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md
 Fallback:       registry.npmjs.org/@anthropic-ai/claude-code (version + date only)
 """
 
-import html as _html
 import json
 import os
 import platform
 import re
 import time
-from html.parser import HTMLParser
 
 import requests
 from PIL import Image, ImageDraw, ImageFont
@@ -24,10 +22,10 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; EinkDisplay/1.0)"}
 CACHE_DIR = "data"
 CACHE_TTL = 3600  # 1 hour
 
-CHANGELOG_URL = "https://docs.anthropic.com/en/docs/claude-code/changelog"
+CHANGELOG_URL = "https://raw.githubusercontent.com/anthropics/claude-code/refs/heads/main/CHANGELOG.md"
 NPM_URL = "https://registry.npmjs.org/@anthropic-ai/claude-code"
 MAX_RELEASES = 5
-MAX_ITEMS_PER_RELEASE = 6   # total features+notes captured from the page
+MAX_ITEMS = 3   # bullet points shown per release
 
 
 # ---------------------------------------------------------------------------
@@ -76,70 +74,37 @@ def _save_cache(releases):
 
 
 # ---------------------------------------------------------------------------
-# Changelog HTML parser
+# Markdown parser
 # ---------------------------------------------------------------------------
 
-class _ChangelogParser(HTMLParser):
-    """Extract version sections, bullet-point features, and prose notes."""
+def _parse_changelog(text: str) -> list:
+    """Parse CHANGELOG.md into a list of {version, items} dicts."""
+    releases = []
+    current = None
 
-    def __init__(self):
-        super().__init__()
-        self.releases = []
-        self._current = None      # active release dict
-        self._capture = False
-        self._in_li = False
-        self._in_p = False
-        self._buf = ""
+    for line in text.splitlines():
+        # Version heading: ## 2.1.77  or  ## [2.1.77]
+        m = re.match(r'^##\s+\[?(\d+\.\d+[\d.]*)\]?', line)
+        if m:
+            if len(releases) >= MAX_RELEASES:
+                break
+            current = {"version": f"v{m.group(1)}", "items": []}
+            releases.append(current)
+            continue
 
-    def handle_starttag(self, tag, attrs):
-        if tag in ("h1", "h2", "h3"):
-            self._capture = True
-            self._in_li = False
-            self._in_p = False
-            self._buf = ""
-        elif tag == "li":
-            self._in_li = True
-            self._in_p = False
-            self._capture = True
-            self._buf = ""
-        elif tag == "p":
-            self._in_p = True
-            self._in_li = False
-            self._capture = True
-            self._buf = ""
+        if current is None:
+            continue
 
-    def handle_endtag(self, tag):
-        if tag in ("h1", "h2", "h3") and self._capture:
-            text = _html.unescape(self._buf.strip())
-            # Match version numbers like "1.2.3", "v1.2.3"
-            if re.search(r'\d+\.\d+', text):
-                if len(self.releases) < MAX_RELEASES:
-                    self._current = {"version": text, "items": []}
-                    self.releases.append(self._current)
-                else:
-                    self._current = None
-            self._capture = False
-            self._buf = ""
+        # Bullet: "- Some feature text"
+        m = re.match(r'^[-*]\s+(.*)', line)
+        if m and len(current["items"]) < MAX_ITEMS:
+            text_content = m.group(1).strip()
+            # Strip markdown bold/italic/backticks for cleaner display
+            text_content = re.sub(r'[`*_]', '', text_content)
+            if text_content:
+                current["items"].append(text_content)
 
-        elif tag == "li" and self._in_li:
-            text = _html.unescape(self._buf.strip())
-            if text and self._current and len(self._current["items"]) < MAX_ITEMS_PER_RELEASE:
-                self._current["items"].append(("bullet", text))
-            self._in_li = False
-            self._capture = False
-            self._buf = ""
-
-        elif tag == "p" and self._in_p:
-            text = _html.unescape(self._buf.strip())
-            if text and self._current and len(self._current["items"]) < MAX_ITEMS_PER_RELEASE:
-                self._current["items"].append(("note", text))
-            self._in_p = False
-            self._capture = False
-            self._buf = ""
-
-    def handle_data(self, data):
-        if self._capture:
-            self._buf += data
+    return releases
 
 
 # ---------------------------------------------------------------------------
@@ -147,18 +112,17 @@ class _ChangelogParser(HTMLParser):
 # ---------------------------------------------------------------------------
 
 def _fetch_changelog():
-    """Fetch releases from the Anthropic docs changelog page."""
+    """Fetch and parse the raw CHANGELOG.md from GitHub."""
     try:
         resp = requests.get(CHANGELOG_URL, headers=HEADERS, timeout=15)
         resp.raise_for_status()
-        parser = _ChangelogParser()
-        parser.feed(resp.text)
-        releases = [r for r in parser.releases if r.get("items")]
+        releases = _parse_changelog(resp.text)
+        releases = [r for r in releases if r.get("items")]
         if releases:
-            print(f"[claude_news] Parsed {len(releases)} releases from changelog page")
-            return releases[:MAX_RELEASES]
+            print(f"[claude_news] Parsed {len(releases)} releases from CHANGELOG.md")
+            return releases
     except Exception as e:
-        print(f"[claude_news] Changelog fetch failed: {e}")
+        print(f"[claude_news] CHANGELOG.md fetch failed: {e}")
     return None
 
 
@@ -175,7 +139,7 @@ def _fetch_npm_fallback():
             reverse=True,
         )[:MAX_RELEASES]
         releases = [
-            {"version": f"v{v}", "items": [("note", f"Released {t[:10]}")]}
+            {"version": f"v{v}", "items": [f"Released {t[:10]}"]}
             for v, t in versions
         ]
         print(f"[claude_news] npm fallback: {[r['version'] for r in releases]}")
@@ -192,7 +156,7 @@ def _get_releases():
     releases = _fetch_changelog() or _fetch_npm_fallback() or [
         {
             "version": "Claude Code",
-            "items": [("note", "Visit docs.anthropic.com/en/docs/claude-code/changelog for the latest updates.")],
+            "items": ["Visit docs.anthropic.com/en/docs/claude-code/changelog"],
         }
     ]
     _save_cache(releases)
@@ -238,12 +202,10 @@ def _render(releases, output_path, width=800, height=480):
     draw.line([(margin, y), (width - margin, y)], fill=(190, 190, 190), width=1)
     y += 7
 
-    # ── Release entries (compact: version + up to 2 items each) ─────────────
-    vf = _font(15)   # version label — bold-ish by size
-    ff = _font(12)   # item text
-    nf = _font(12)   # note text (same size, different color)
+    # ── Release entries ──────────────────────────────────────────────────────
+    vf = _font(15)
+    ff = _font(12)
     line_gap = 2
-
     footer_reserve = 16
     available = height - footer_reserve
 
@@ -258,25 +220,15 @@ def _render(releases, output_path, width=800, height=480):
         draw.text((margin, y), version, fill=(20, 20, 20), font=vf)
         y += draw.textbbox((0, 0), version, font=vf)[3] + 2
 
-        shown = 0
-        for kind, text in items:
-            if shown >= 2 or y > available - 14:
+        for item in items[:MAX_ITEMS]:
+            if y > available - 14:
                 break
-            text = text.strip()
-            if not text:
+            item = item.strip()
+            if not item:
                 continue
-            if kind == "bullet":
-                prefix = "• "
-                color = (55, 55, 55)
-                font = ff
-            else:
-                prefix = "  "
-                color = (100, 100, 100)
-                font = nf
-            line = _truncate(prefix + text, font, draw, content_w - 6)
-            draw.text((margin + 4, y), line, fill=color, font=font)
-            y += draw.textbbox((0, 0), line, font=font)[3] + line_gap
-            shown += 1
+            line = _truncate("• " + item, ff, draw, content_w - 6)
+            draw.text((margin + 4, y), line, fill=(60, 60, 60), font=ff)
+            y += draw.textbbox((0, 0), line, font=ff)[3] + line_gap
 
         y += 4
         if idx < len(releases) - 1 and y < available - 20:
