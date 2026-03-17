@@ -2,6 +2,7 @@ import os
 import json
 import time
 import sys
+import fcntl
 sys.path.append('lib')  # Ensure the library path is correct
 from waveshare_epd import epd7in5_V2, epd7in3f  # Adjust the import based on your specific model
 from PIL import Image
@@ -58,6 +59,9 @@ def display_single_image(image_file):
     print('display is sleeping...' )
 
 
+DISPLAY_LOCK_FILE = "/tmp/eink_display.lock"
+
+
 def display_color_image(image_file, model='epd7in5_V2'):
     """Display an image on the e-ink screen using the configured driver model."""
     from waveshare_epd import epd7in5_V2, epd7in3f
@@ -65,17 +69,35 @@ def display_color_image(image_file, model='epd7in5_V2'):
         'epd7in5_V2': epd7in5_V2,
         'epd7in3f':   epd7in3f,
     }
-    driver = driver_map.get(model, epd7in5_V2)
 
-    epd = driver.EPD()
-    epd.init()
-    epd.Clear()
+    lock_fd = open(DISPLAY_LOCK_FILE, 'w')
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        print("[display] Another display operation in progress, skipping.")
+        lock_fd.close()
+        return
 
-    image = Image.open(f'{image_file}')
-    epd.display(epd.getbuffer(image))
-
-    epd.sleep()
-    print(f'display is sleeping... (model: {model})')
+    epd = None
+    try:
+        driver = driver_map.get(model, epd7in5_V2)
+        epd = driver.EPD()
+        epd.init()
+        epd.Clear()
+        image = Image.open(image_file)
+        epd.display(epd.getbuffer(image))
+        epd.sleep()
+        print(f'display is sleeping... (model: {model})')
+    except Exception as e:
+        print(f"[display] Error during display: {e}")
+        if epd:
+            try:
+                epd.sleep()
+            except Exception:
+                pass
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
 
 
 

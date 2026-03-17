@@ -42,8 +42,25 @@ active_module: weather
 brain_status:
   output_path: images/brain_status.bmp
   db_path: brain.db            # path to brain.db (relative to project root)
-# Seconds between updates (used by cron/systemd and shown in the web UI)
-update_interval: 300
+# Fallback refresh interval for modules not listed in MODULE_INTERVALS.
+# Each module can also define its own update_interval in its config section below.
+update_interval: 21600   # 6 hours fallback
+
+# ── Interesting Fact ─────────────────────────────────────────────────────────
+interesting_fact:
+  output_path: images/interesting_fact.bmp
+  interval_minutes: 60          # how often the fact rotates (default 1 hour)
+  csv_file: data/questions/eink_facts.csv
+
+# ── Questions / Facts ────────────────────────────────────────────────────────
+questions:
+  output_path: images/questions_display.bmp
+  interval_minutes: 15          # how often the question rotates
+  csv_file: data/questions/eink_facts.csv   # CSV with topic,question columns
+
+# ── Claude Code News ─────────────────────────────────────────────────────────
+claude_news:
+  output_path: images/claude_news.bmp
 
 # ── Text Display ─────────────────────────────────────────────────────────────
 text:

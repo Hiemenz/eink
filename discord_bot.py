@@ -24,7 +24,7 @@ from typing import Any, Optional
 
 import discord
 import yaml
-from discord.ext import commands
+from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -58,7 +58,59 @@ ALL_MODULES = [
     "parking_garage",
     "module_cycler",
     "brain_status",
+    "interesting_fact",
+    "claude_news",
+    "questions",
 ]
+
+# Pre-flight config checks per module
+MODULE_CONFIG_CHECKS: dict = {
+    "movie_slideshow": {
+        "required": {
+            "movie_slideshow.active_movie": "Name of the movie folder inside data/movies/ (e.g. `interstellar`)"
+        }
+    },
+    "flight_radar": {
+        "recommended": {
+            "flight_radar.opensky_username": "OpenSky Network username — increases API rate limits",
+            "flight_radar.opensky_password": "OpenSky Network password",
+        }
+    },
+    "nasa_apod": {
+        "recommended": {
+            "nasa_apod.api_key": "NASA API key from api.nasa.gov — DEMO_KEY works but is rate-limited"
+        }
+    },
+}
+
+
+def _check_module_config(module: str, cfg: dict) -> tuple[list, list]:
+    """Return (missing_required, missing_recommended) as lists of (key, description) tuples."""
+    checks = MODULE_CONFIG_CHECKS.get(module, {})
+    missing_required = []
+    missing_recommended = []
+
+    def _get_nested(d: dict, dotkey: str):
+        parts = dotkey.split(".")
+        val = d
+        for part in parts:
+            if not isinstance(val, dict):
+                return None
+            val = val.get(part)
+        return val
+
+    for key, desc in checks.get("required", {}).items():
+        val = _get_nested(cfg, key)
+        if val is None or val == "":
+            missing_required.append((key, desc))
+
+    for key, desc in checks.get("recommended", {}).items():
+        val = _get_nested(cfg, key)
+        if val is None or val == "":
+            missing_recommended.append((key, desc))
+
+    return missing_required, missing_recommended
+
 
 # When !set <module_name> <value> is used, map to this primary config key
 MODULE_PRIMARY_ARG: dict[str, str] = {
@@ -66,8 +118,8 @@ MODULE_PRIMARY_ARG: dict[str, str] = {
     "sudoku_puzzle":   "sudoku_puzzle.num_clues",
     "flight_radar":    "flight_radar.radius_deg",
     "movie_slideshow": "movie_slideshow.active_movie",
-    "franklin_cam":    "franklin_cam.label",
     "nasa_apod":       "nasa_apod.api_key",
+    "questions":       "questions.interval_minutes",
 }
 
 # Per-module configurable args shown in !modules / !set hints
@@ -99,6 +151,17 @@ MODULE_ARGS: dict = {
     },
     "module_cycler": {
         "module_cycler.modules": "Comma-separated module list (e.g. weather,nasa_apod,moon_phase)",
+    },
+    "claude_news": {
+        "claude_news.output_path": "Output BMP path (default images/claude_news.bmp)",
+    },
+    "interesting_fact": {
+        "interesting_fact.interval_minutes": "Minutes between fact rotations (default 60)",
+        "interesting_fact.csv_file": "Path to CSV with topic,question columns",
+    },
+    "questions": {
+        "questions.interval_minutes": "Minutes between question changes (default 15)",
+        "questions.csv_file":         "Path to CSV with topic,question columns",
     },
     "forecast_location": {
         "forecast_location.latitude":  "Latitude for weather/flight forecast",
@@ -246,6 +309,9 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "flight_radar":    _p("flight_radar",     "images/flight_display.bmp"),
         "franklin_cam":    _p("franklin_cam",     "images/franklin_cam.bmp"),
         "parking_garage":  _p("parking_garage",   "images/parking_display.bmp"),
+        "claude_news":     _p("claude_news",       "images/claude_news.bmp"),
+        "interesting_fact": _p("interesting_fact", "images/interesting_fact.bmp"),
+        "questions":       _p("questions",         "images/questions_display.bmp"),
     }
 
     # module_cycler delegates to whatever module it last ran
@@ -312,8 +378,27 @@ def channel_guard():
 async def cmd_display(ctx: commands.Context, module: str = None):
     """Switch the active module and refresh the display."""
     if module is None:
-        await ctx.send("Usage: `!display <module>`  — try `!modules` for the full list.")
-        return
+        numbered = "\n".join(f"{i+1}. {m}" for i, m in enumerate(ALL_MODULES))
+        prompt = await ctx.send(
+            f"**Which module?** Reply with a number:\n```\n{numbered}\n```"
+        )
+
+        def _check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+
+        try:
+            reply = await bot.wait_for("message", check=_check, timeout=60)
+            choice = reply.content.strip()
+            if choice.isdigit() and 1 <= int(choice) <= len(ALL_MODULES):
+                module = ALL_MODULES[int(choice) - 1]
+            elif choice in ALL_MODULES:
+                module = choice
+            else:
+                await ctx.send(f"Invalid choice `{choice}`. Type a number 1–{len(ALL_MODULES)}.")
+                return
+        except asyncio.TimeoutError:
+            await prompt.edit(content="Timed out — no module selected.")
+            return
 
     if module not in ALL_MODULES:
         embed = discord.Embed(
@@ -323,6 +408,28 @@ async def cmd_display(ctx: commands.Context, module: str = None):
         )
         await ctx.send(embed=embed)
         return
+
+    cfg = load_config()
+    missing_required, missing_recommended = _check_module_config(module, cfg)
+
+    if missing_required:
+        lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_required]
+        embed = discord.Embed(
+            title=f"Cannot display `{module}` — required config missing",
+            description="\n".join(lines),
+            color=discord.Color.red(),
+        )
+        await ctx.send(embed=embed)
+        return
+
+    if missing_recommended:
+        lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_recommended]
+        warn_embed = discord.Embed(
+            title=f"Optional config for `{module}`",
+            description="These settings are recommended but not required:\n" + "\n".join(lines),
+            color=discord.Color.yellow(),
+        )
+        await ctx.send(embed=warn_embed)
 
     update_bot_state("active_module", module)
 
@@ -386,17 +493,65 @@ async def cmd_text(ctx: commands.Context, *, message: str = None):
 
 
 @channel_guard()
+async def cmd_questions(ctx: commands.Context, minutes: str = None):
+    """Switch to the questions module, asking for the interval if not provided."""
+    interval = None
+
+    if minutes is not None:
+        try:
+            interval = int(minutes)
+        except ValueError:
+            await ctx.send(f"`{minutes}` isn't a valid number. How many minutes between questions?")
+
+    if interval is None:
+        prompt = await ctx.send("How many minutes between questions? (e.g. `15`)")
+
+        def _check(m):
+            return m.author == ctx.author and m.channel == ctx.channel
+
+        try:
+            reply = await bot.wait_for("message", check=_check, timeout=60)
+            interval = int(reply.content.strip())
+        except asyncio.TimeoutError:
+            await prompt.edit(content="Timed out — using 15 minutes.")
+            interval = 15
+        except ValueError:
+            await ctx.send(f"`{reply.content.strip()}` isn't a valid number — using 15 minutes.")
+            interval = 15
+
+    update_bot_state("questions.interval_minutes", interval)
+    update_bot_state("active_module", "questions")
+
+    msg = await ctx.send(f"Switching to **questions** — rotating every **{interval} min**...")
+    success, output = await run_main()
+
+    if success:
+        embed = discord.Embed(title="Display updated — questions", color=discord.Color.green())
+        embed.add_field(name="Interval", value=f"{interval} minutes", inline=True)
+        embed.add_field(name="Output", value=f"```{output[:800]}```", inline=False)
+    else:
+        embed = discord.Embed(title="Display update failed", color=discord.Color.red())
+        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+
+    await msg.edit(content=None, embed=embed)
+
+    if success:
+        await send_display_image(ctx.channel, load_config())
+
+
+@channel_guard()
 async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
     """Update a config value and refresh the display."""
-    if key is None or value is None:
+    if key is None:
         await ctx.send(
-            "Usage: `!set <key> <value>`\n"
+            "Usage: `!set <key> [value]`\n"
             "Examples:\n"
             "```\n"
             "!set station KOHX\n"
             "!set radar_mode panel\n"
             "!set flight_radar.map_zoom 10\n"
             "!set module_cycler.modules weather,nasa_apod,moon_phase\n"
+            "!set franklin_cam\n"
             "```\n"
             "Run `!modules` to see all configurable args."
         )
@@ -415,7 +570,8 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
             )
             return
         update_bot_state("station", station_dict)
-        description = f"**station** → `{station_dict['name']}` ({station_dict.get('location', '')})"
+        update_bot_state("active_module", "weather")
+        description = f"**active_module** → `weather`\n**station** → `{station_dict['name']}` ({station_dict.get('location', '')})"
 
     # Special: !set <module_name> [value] — switch module + set primary arg if defined
     elif key in ALL_MODULES:
@@ -440,6 +596,9 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
 
     # General key (dot notation, auto-cast)
     else:
+        if value is None:
+            await ctx.send(f"Usage: `!set {key} <value>`")
+            return
         cast = cast_value(value)
         update_bot_state(key, cast)
         description = f"**{key}** → `{cast}`"
@@ -568,6 +727,8 @@ async def cmd_help_display(ctx: commands.Context):
     embed = discord.Embed(title="E-Ink Display Bot — Commands", color=discord.Color.og_blurple())
     embed.add_field(name=f"{prefix}display <module>", value="Switch active module and refresh. Shows configurable options after switching.", inline=False)
     embed.add_field(name=f"{prefix}text <message>", value="Display a custom text message on the screen", inline=False)
+    embed.add_field(name=f"{prefix}questions [minutes]", value="Show rotating questions — asks for interval if not provided", inline=False)
+    embed.add_field(name=f"{prefix}display interesting_fact", value="Show rotating facts — updates every hour by default", inline=False)
     embed.add_field(name=f"{prefix}set <key> <value>", value="Update a config value (dot notation). Does not auto-refresh.", inline=False)
     embed.add_field(name=f"{prefix}refresh", value="Force display refresh with current module", inline=False)
     embed.add_field(name=f"{prefix}status", value="Show current display state", inline=False)
@@ -612,14 +773,90 @@ def main():
     ALLOWED_CHANNEL = int(channel_id) if channel_id else 0
     bot = make_bot(prefix)
 
+    # ---------------------------------------------------------------------------
+    # Scheduled auto-refresh loop
+    # ---------------------------------------------------------------------------
+
+    # Default intervals per module (seconds). Config can override via
+    # <module>.update_interval or the top-level update_interval fallback.
+    MODULE_INTERVALS: dict[str, int] = {
+        "weather":          1800,   # 30 min — radar updates frequently
+        "franklin_cam":     300,    # 5 min  — live camera
+        "parking_garage":   600,    # 10 min
+        "flight_radar":     900,    # 15 min
+        "news_headlines":   3600,   # 1 hour
+        "interesting_fact": 3600,   # 1 hour
+        "questions":        900,    # 15 min (overridden by questions.interval_minutes)
+        "moon_phase":       3600,   # 1 hour
+        "quote_of_day":     86400,  # 24 hours
+        "on_this_day":      86400,  # 24 hours
+        "saint_of_day":     86400,  # 24 hours
+        "chess_puzzle":     86400,  # 24 hours — daily puzzle
+        "sudoku_puzzle":    86400,  # 24 hours
+        "poem_of_day":      86400,  # 24 hours
+        "nasa_apod":        86400,  # 24 hours
+        "art_of_day":       86400,  # 24 hours
+        "wiki_image":       86400,  # 24 hours
+        "claude_news":      3600,   # 1 hour
+        "brain_status":     1800,   # 30 min
+        "module_cycler":    1800,   # 30 min
+    }
+    GLOBAL_FALLBACK = int(cfg.get("update_interval", 21600))
+
+    def _module_interval(active: str) -> int:
+        """Return refresh interval (seconds) for the active module."""
+        live_cfg = load_config()
+        module_cfg = live_cfg.get(active, {})
+        if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
+            return int(module_cfg["update_interval"])
+        return MODULE_INTERVALS.get(active, GLOBAL_FALLBACK)
+
+    _last_refresh: list[float] = [0.0]   # mutable container so the closure can write it
+
+    @tasks.loop(seconds=60)
+    async def auto_refresh():
+        """Poll every minute; fire when the active module's interval has elapsed."""
+        import time
+        cfg_now = load_config()
+        active = cfg_now.get("active_module", "?")
+        interval = _module_interval(active)
+        elapsed = time.time() - _last_refresh[0]
+        if elapsed < interval:
+            return
+
+        print(f"[auto_refresh] {active} — {elapsed:.0f}s elapsed >= {interval}s interval")
+        _last_refresh[0] = time.time()
+        success, output = await run_main()
+
+        if ALLOWED_CHANNEL:
+            channel = bot.get_channel(ALLOWED_CHANNEL)
+            if channel:
+                status = "✅" if success else "❌"
+                embed = discord.Embed(
+                    title=f"{status} Scheduled refresh — {active}",
+                    description=f"Interval: every {interval // 60} min",
+                    color=discord.Color.green() if success else discord.Color.red(),
+                )
+                if not success:
+                    embed.add_field(name="Error", value=f"```{output[:800]}```", inline=False)
+                await channel.send(embed=embed)
+                if success:
+                    await send_display_image(channel, load_config())
+
+    @auto_refresh.before_loop
+    async def before_auto_refresh():
+        await bot.wait_until_ready()
+
     # Register commands
     bot.command(name="display")(cmd_display)
     bot.command(name="text")(cmd_text)
+    bot.command(name="questions")(cmd_questions)
     bot.command(name="set")(cmd_set)
     bot.command(name="refresh")(cmd_refresh)
     bot.command(name="status")(cmd_status)
     bot.command(name="modules")(cmd_modules)
     bot.command(name="help_display")(cmd_help_display)
+    bot.command(name="help")(cmd_help_display)
 
     @bot.event
     async def on_ready():
@@ -632,7 +869,8 @@ def main():
         merged = _deep_merge(base, existing, safe=True)
         with open(BOT_STATE_PATH, "w") as f:
             json.dump(merged, f, indent=2)
-        print(f"Discord bot ready — logged in as {bot.user} (channel_id={ALLOWED_CHANNEL or 'any'})")
+        auto_refresh.start()
+        print(f"Discord bot ready — logged in as {bot.user} (channel_id={ALLOWED_CHANNEL or 'any'}, per-module auto-refresh active)")
 
     @bot.event
     async def on_command_error(ctx, error):
@@ -641,6 +879,18 @@ def main():
         if isinstance(error, commands.CommandNotFound):
             return
         await ctx.send(f"Error: {error}")
+
+    @bot.event
+    async def on_message(message):
+        if message.author.bot:
+            return
+        if ALLOWED_CHANNEL and message.channel.id != ALLOWED_CHANNEL:
+            return
+        if message.content.strip().lower() == "help":
+            ctx = await bot.get_context(message)
+            await cmd_help_display(ctx)
+            return
+        await bot.process_commands(message)
 
     bot.run(token)
 
