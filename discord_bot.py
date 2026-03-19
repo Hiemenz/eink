@@ -1026,6 +1026,16 @@ def main():
             json.dump(merged, f, indent=2)
         auto_refresh.start()
         print(f"Discord bot ready — logged in as {bot.user} (channel_id={ALLOWED_CHANNEL or 'any'}, per-module auto-refresh active)")
+        if ALLOWED_CHANNEL:
+            channel = bot.get_channel(ALLOWED_CHANNEL)
+            if channel:
+                active_module = merged.get("active_module", "?")
+                embed = discord.Embed(
+                    title="🟢 E-ink Bot Online",
+                    description=f"Active module: **{active_module}**\nAuto-refresh active.",
+                    color=discord.Color.green(),
+                )
+                await channel.send(embed=embed)
 
     @bot.event
     async def on_command_error(ctx, error):
