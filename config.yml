@@ -62,6 +62,11 @@ questions:
 claude_news:
   output_path: images/claude_news.bmp
 
+# ── Crypto Market ──────────────────────────────────────────────────────────
+crypto_market:
+  output_path: images/crypto_market.bmp
+  num_coins: 10
+
 # ── Terminal ─────────────────────────────────────────────────────────────────
 terminal:
   output_path: images/terminal_display.bmp
