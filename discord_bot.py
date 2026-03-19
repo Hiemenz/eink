@@ -63,6 +63,7 @@ ALL_MODULES = [
     "claude_news",
     "questions",
     "terminal",
+    "crypto_market",
 ]
 
 # Pre-flight config checks per module
@@ -328,6 +329,7 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "qrcode_display":  _p("qrcode_display",   "images/qrcode_display.bmp"),
         "questions":       _p("questions",         "images/questions_display.bmp"),
         "terminal":        _p("terminal",          "images/terminal_display.bmp"),
+        "crypto_market":   _p("crypto_market",     "images/crypto_market.bmp"),
     }
 
     # module_cycler delegates to whatever module it last ran
@@ -806,54 +808,55 @@ async def cmd_status(ctx: commands.Context):
 
 @channel_guard()
 async def cmd_modules(ctx: commands.Context):
-    """List all available modules with numbers; type a number to switch."""
+    """List all available modules with numbers; keep typing numbers to switch."""
     numbered = "\n".join(f"{i+1:2}. {m}" for i, m in enumerate(ALL_MODULES))
-    prompt = await ctx.send(
-        f"**Available Modules** — reply with a number to switch, or ignore to browse:\n```\n{numbered}\n```"
+    await ctx.send(
+        f"**Available Modules** — type a number to switch. Session times out after 60s of inactivity.\n```\n{numbered}\n```"
     )
 
     def _check(m):
         return m.author == ctx.author and m.channel == ctx.channel and m.content.strip().isdigit()
 
-    try:
-        reply = await bot.wait_for("message", check=_check, timeout=30)
-        choice = int(reply.content.strip())
-        if 1 <= choice <= len(ALL_MODULES):
-            module = ALL_MODULES[choice - 1]
-        else:
-            await ctx.send(f"Number must be 1–{len(ALL_MODULES)}.")
+    while True:
+        try:
+            reply = await bot.wait_for("message", check=_check, timeout=60)
+        except asyncio.TimeoutError:
+            await ctx.send("Module selection session ended.")
             return
-    except asyncio.TimeoutError:
-        # No selection — just show the list, already posted
-        return
 
-    # Switch to chosen module (reuse display logic)
-    cfg = load_config()
-    missing_required, _ = _check_module_config(module, cfg)
-    if missing_required:
-        lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_required]
-        await ctx.send(embed=discord.Embed(
-            title=f"Cannot display `{module}` — required config missing",
-            description="\n".join(lines),
-            color=discord.Color.red(),
-        ))
-        return
+        choice = int(reply.content.strip())
+        if not (1 <= choice <= len(ALL_MODULES)):
+            await ctx.send(f"Number must be 1–{len(ALL_MODULES)}. Try again.")
+            continue
 
-    update_bot_state("active_module", module)
-    msg = await ctx.send(f"Switching display to **{module}**...")
-    success, output = await run_main()
+        module = ALL_MODULES[choice - 1]
 
-    if success:
-        next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
-        embed = discord.Embed(title=f"Display updated — {module}", description=next_upd, color=discord.Color.green())
-        embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
-    else:
-        embed = discord.Embed(title="Display update failed", color=discord.Color.red())
-        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+        cfg = load_config()
+        missing_required, _ = _check_module_config(module, cfg)
+        if missing_required:
+            lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_required]
+            await ctx.send(embed=discord.Embed(
+                title=f"Cannot display `{module}` — required config missing",
+                description="\n".join(lines),
+                color=discord.Color.red(),
+            ))
+            continue
 
-    await msg.edit(content=None, embed=embed)
-    if success:
-        await send_display_image(ctx.channel, load_config())
+        update_bot_state("active_module", module)
+        msg = await ctx.send(f"Switching display to **{module}**...")
+        success, output = await run_main()
+
+        if success:
+            next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
+            embed = discord.Embed(title=f"Display updated — {module}", description=next_upd, color=discord.Color.green())
+            embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
+        else:
+            embed = discord.Embed(title="Display update failed", color=discord.Color.red())
+            embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+
+        await msg.edit(content=None, embed=embed)
+        if success:
+            await send_display_image(ctx.channel, load_config())
 
 
 @channel_guard()
@@ -915,6 +918,7 @@ MODULE_INTERVALS: dict[str, int] = {
     "claude_news":      18000,  # 5 hours
     "brain_status":     1800,   # 30 min
     "module_cycler":    1800,   # 30 min
+    "crypto_market":    21600,  # 6 hours
 }
 
 
