@@ -39,6 +39,7 @@ MODULE_MAP: Dict[str, str] = {
     "qrcode_display":  "modules.qrcode_display",
     "terminal":        "modules.terminal",
     "crypto_market":   "modules.crypto_market",
+    "game_of_life":    "modules.game_of_life",
 }
 
 # Platform-aware font search chains

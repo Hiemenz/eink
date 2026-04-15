@@ -64,6 +64,7 @@ ALL_MODULES = [
     "questions",
     "terminal",
     "crypto_market",
+    "game_of_life",
 ]
 
 # Pre-flight config checks per module
@@ -154,7 +155,8 @@ MODULE_ARGS: dict = {
         "franklin_cam.label": "Label shown on the camera display",
     },
     "module_cycler": {
-        "module_cycler.modules": "Comma-separated module list (e.g. weather,nasa_apod,moon_phase)",
+        "module_cycler.modules":          "Comma-separated module list (e.g. weather,nasa_apod,moon_phase)",
+        "module_cycler.interval_minutes": "Minutes to stay on each module before rotating (default 60)",
     },
     "claude_news": {
         "claude_news.output_path": "Output BMP path (default images/claude_news.bmp)",
@@ -174,6 +176,15 @@ MODULE_ARGS: dict = {
     "questions": {
         "questions.interval_minutes": "Minutes between question changes (default 15)",
         "questions.csv_file":         "Path to CSV with topic,question columns",
+        "questions.force_new":        "Set true to immediately pick a new random question",
+    },
+    "game_of_life": {
+        "game_of_life.cell_size":       "Pixels per cell (default 10 → 80x48 grid)",
+        "game_of_life.initial_density": "Fraction of cells alive on new game (0.0–1.0)",
+        "game_of_life.start_new":       "Set true to discard saved state and restart",
+        "game_of_life.wrap":            "true/false — toroidal (wrap-around) edges",
+        "game_of_life.show_generation": "true/false — show generation counter overlay",
+        "game_of_life.show_population": "true/false — show live cell count overlay",
     },
     "terminal": {
         "terminal.output_path": "Output BMP path (default images/terminal_display.bmp)",
