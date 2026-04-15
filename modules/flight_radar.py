@@ -31,8 +31,9 @@ PANEL_W = 200
 IMG_W, IMG_H = 800, 480
 
 OPENSKY_STATES_URL = "https://opensky-network.org/api/states/all"
-OPENSKY_FLIGHTS_URL = "https://opensky-network.org/api/flights/aircraft"
-OPENSKY_TRACKS_URL = "https://opensky-network.org/api/tracks/all"
+# NOTE: /flights/aircraft and /tracks/all endpoints were removed from the
+# free OpenSky API. Route and track data are no longer available without
+# a paid/institutional account.
 
 # Squawk code priority tiers
 SQUAWK_EMERGENCY = {"7700"}          # general emergency
@@ -146,57 +147,8 @@ def _fetch_aircraft(lat, lon, radius_deg, username="", password=""):
     return aircraft
 
 
-def _fetch_track(icao24, username="", password=""):
-    """
-    Fetch the live flight trajectory from OpenSky /tracks endpoint.
-    Returns list of (lat, lon) tuples, or None on failure.
-    """
-    params = {"icao24": icao24, "time": 0}
-    auth = (username, password) if username and password else None
-    try:
-        resp = requests.get(OPENSKY_TRACKS_URL, params=params, auth=auth,
-                            headers=HEADERS, timeout=5)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        print(f"[flight] Failed to fetch track for {icao24}: {e}")
-        return None
-
-    path = data.get("path")
-    if not path:
-        return None
-
-    # Each waypoint: [time, lat, lon, baro_altitude, true_track, on_ground]
-    return [(wp[1], wp[2]) for wp in path if wp[1] is not None and wp[2] is not None]
-
-
-def _fetch_flight_details(icao24, username="", password=""):
-    """
-    Fetch origin/destination for an aircraft from OpenSky flights endpoint.
-    Returns dict with estDepartureAirport and estArrivalAirport, or None.
-    """
-    now = int(time.time())
-    params = {
-        "icao24": icao24,
-        "begin": now - 7200,  # last 2 hours
-        "end": now,
-    }
-    auth = (username, password) if username and password else None
-    try:
-        resp = requests.get(OPENSKY_FLIGHTS_URL, params=params, auth=auth,
-                            headers=HEADERS, timeout=10)
-        resp.raise_for_status()
-        flights = resp.json()
-        if flights:
-            f = flights[-1]  # most recent flight
-            return {
-                "origin": f.get("estDepartureAirport") or "?",
-                "destination": f.get("estArrivalAirport") or "?",
-                "first_seen": f.get("firstSeen"),
-            }
-    except Exception as e:
-        print(f"[flight] Failed to fetch flight details for {icao24}: {e}")
-    return None
+# Track and flight-detail fetching removed — those OpenSky endpoints
+# were taken down from the free tier. Stubs kept for compatibility.
 
 
 # ---------------------------------------------------------------------------
@@ -240,12 +192,10 @@ def _draw_flight_trail(draw, track, center_lat, center_lon, zoom, is_emergency):
             draw.ellipse([px - 2, py - 2, px + 2, py + 2], fill=color)
 
 
-def _render_map(aircraft_list, center_lat, center_lon, zoom, emergencies,
-                display_tracks=None):
+def _render_map(aircraft_list, center_lat, center_lon, zoom, emergencies):
     """Render the map portion using staticmap with CartoDB Positron tiles."""
-    display_tracks = display_tracks or {}
     m = StaticMap(MAP_W, MAP_H,
-                  url_template="https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/{z}/{x}/{y}.png")
+                  url_template="https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png")
 
     # Add a transparent center marker so staticmap centers correctly
     m.add_marker(CircleMarker((center_lon, center_lat), (180, 180, 180), 4))
@@ -257,11 +207,6 @@ def _render_map(aircraft_list, center_lat, center_lon, zoom, emergencies,
         img = Image.new("RGB", (MAP_W, MAP_H), (240, 240, 240))
 
     draw = ImageDraw.Draw(img)
-
-    # Draw flight trails BEFORE aircraft icons so icons render on top
-    for icao24, track in display_tracks.items():
-        is_emergency = icao24 in emergencies
-        _draw_flight_trail(draw, track, center_lat, center_lon, zoom, is_emergency)
 
     # Plot aircraft icons
     for ac in aircraft_list:
@@ -465,8 +410,7 @@ def _draw_aircraft_icon(draw, x, y, heading, category, is_emergency, is_high):
 # Info panel rendering
 # ---------------------------------------------------------------------------
 
-def _render_info_panel(draw, display_aircraft, panel_x, width, height,
-                       username="", password=""):
+def _render_info_panel(draw, display_aircraft, panel_x, width, height):
     """Render the right info panel with up to 3 aircraft sections."""
     section_h = height // 3
     small = _font(12)
@@ -507,33 +451,26 @@ def _render_info_panel(draw, display_aircraft, panel_x, width, height,
                   fill=(60, 60, 60), font=small)
         y += 16
 
-        # Origin → Destination (fetch details)
-        details = _fetch_flight_details(ac["icao24"], username, password)
-        if details:
-            origin = details.get("origin", "?")
-            dest = details.get("destination", "?")
-            draw.text((panel_x + 8, y), f"{origin} → {dest}",
-                      fill=(60, 60, 60), font=medium)
-            y += 20
-
-            # Time airborne
-            first_seen = details.get("first_seen")
-            if first_seen:
-                elapsed = int(time.time()) - first_seen
-                hours = elapsed // 3600
-                mins = (elapsed % 3600) // 60
-                draw.text((panel_x + 8, y), f"{hours}h {mins:02d}m",
-                          fill=(100, 100, 100), font=small)
-                y += 16
-        else:
-            draw.text((panel_x + 8, y), "Route: N/A",
-                      fill=(120, 120, 120), font=small)
-            y += 18
+        # Heading
+        heading = ac.get("heading")
+        if heading is not None:
+            dirs = ["N","NE","E","SE","S","SW","W","NW"]
+            dir_label = dirs[int((heading + 22.5) / 45) % 8]
+            draw.text((panel_x + 8, y), f"Hdg: {int(heading)}\u00b0 {dir_label}",
+                      fill=(80, 80, 80), font=small)
+            y += 16
 
         # Distance
         dist = ac.get("distance_nm", 0)
         draw.text((panel_x + 8, y), f"{dist:.0f} nm away",
                   fill=(100, 100, 100), font=small)
+        y += 16
+
+        # Country
+        country = ac.get("country", "")
+        if country:
+            draw.text((panel_x + 8, y), country,
+                      fill=(140, 140, 140), font=small)
 
         # Section divider
         if i < 2:
@@ -604,16 +541,8 @@ def generate(config):
     emergencies = {ac["icao24"] for ac in display
                    if ac.get("squawk") in SQUAWK_EMERGENCY | SQUAWK_HIGH}
 
-    # Fetch flight tracks for display aircraft only (avoids rate limiting)
-    display_tracks = {}
-    for ac in display:
-        track = _fetch_track(ac["icao24"], username, password)
-        if track:
-            display_tracks[ac["icao24"]] = track
-
-    # Render map
-    map_img = _render_map(all_aircraft, center_lat, center_lon, zoom, emergencies,
-                          display_tracks)
+    # Render map (no tracks — OpenSky free tier removed that endpoint)
+    map_img = _render_map(all_aircraft, center_lat, center_lon, zoom, emergencies)
 
     # Composite final image
     img = Image.new("RGB", (IMG_W, IMG_H), "white")
@@ -624,7 +553,7 @@ def generate(config):
     draw.line([(MAP_W, 0), (MAP_W, IMG_H)], fill=(180, 180, 180), width=1)
 
     # Info panel
-    _render_info_panel(draw, display, MAP_W, PANEL_W, IMG_H, username, password)
+    _render_info_panel(draw, display, MAP_W, PANEL_W, IMG_H)
 
     img.save(output_path)
     print(f"[flight] Saved to {output_path}")

@@ -34,8 +34,9 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 
 # ── Module selector ──────────────────────────────────────────────────────────
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
-#          | sudoku_puzzle | poem_of_day | news_headlines
+#          | sudoku_puzzle | poem_of_day | news_headlines | crypto_market
 #          | franklin_cam | parking_garage | module_cycler | brain_status
+#          | game_of_life
 active_module: weather
 
 # ── AI Brain Status Display ───────────────────────────────────────────────────
@@ -55,8 +56,10 @@ interesting_fact:
 # ── Questions / Facts ────────────────────────────────────────────────────────
 questions:
   output_path: images/questions_display.bmp
-  interval_minutes: 15          # how often the question rotates
+  state_file: data/questions_state.json  # persists current question + recency history
+  interval_minutes: 15          # how long to show each question before rotating
   csv_file: data/questions/eink_facts.csv   # CSV with topic,question columns
+  force_new: false              # set true via !set questions.force_new true to skip now
 
 # ── Claude Code News ─────────────────────────────────────────────────────────
 claude_news:
@@ -167,12 +170,28 @@ parking_garage:
 # ── Module Cycler ────────────────────────────────────────────────────────────
 module_cycler:
   state_file: data/cycler_state.json
+  interval_minutes: 60   # how long to stay on each module before rotating
   modules:
     - weather
     - franklin_cam
     - parking_garage
     - nasa_apod
     - flight_radar
+
+# ── Conway's Game of Life ─────────────────────────────────────────────────────
+game_of_life:
+  output_path: images/game_of_life.bmp
+  state_file: data/game_of_life_state.json
+  cell_size: 10              # pixels per cell (800/10=80 cols, 480/10=48 rows)
+  alive_color: [0, 0, 0]    # RGB for live cells
+  dead_color: [255, 255, 255]  # RGB for dead cells
+  grid_color: [200, 200, 200]  # RGB for cell borders; set to null to disable
+  initial_density: 0.3      # fraction of cells alive on a fresh start (0.0–1.0)
+  random_seed: null          # integer for reproducible starts, null for random
+  start_new: false           # set true to discard saved state and restart
+  wrap: true                 # toroidal (wrap-around) edges
+  show_generation: true      # overlay generation counter
+  show_population: true      # overlay live-cell count
 
 show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"

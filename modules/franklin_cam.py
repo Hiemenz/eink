@@ -23,16 +23,28 @@ def _font_path():
     return "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
 
 
-def _fetch_snapshot(stream_host, stream_id):
-    """Fetch a JPEG snapshot from the ipcamlive stream. Returns PIL Image or None."""
-    url = f"http://{stream_host}/streams/{stream_id}/snapshot.jpg"
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        return Image.open(BytesIO(resp.content)).convert("RGB")
-    except Exception as e:
-        print(f"[franklin_cam] Failed to fetch snapshot: {e}")
-        return None
+def _fetch_snapshot(camera_alias, stream_host, stream_id):
+    """Fetch a JPEG snapshot from ipcamlive. Tries alias URL first, then stream URL."""
+    urls = []
+    if camera_alias:
+        urls.append(f"https://ipcamlive.com/player/snapshot.php?alias={camera_alias}")
+    if stream_host and stream_id:
+        urls.append(f"https://{stream_host}/streams/{stream_id}/snapshot.jpg")
+        urls.append(f"http://{stream_host}/streams/{stream_id}/snapshot.jpg")
+
+    for url in urls:
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            ct = resp.headers.get("Content-Type", "")
+            if "image" not in ct:
+                print(f"[franklin_cam] {url} returned non-image: {ct}")
+                continue
+            return Image.open(BytesIO(resp.content)).convert("RGB")
+        except Exception as e:
+            print(f"[franklin_cam] Failed ({url}): {e}")
+
+    return None
 
 
 def _render(img, label, output_path, width=800, height=480):
@@ -99,14 +111,15 @@ def generate(config):
     """Generate Five Points camera snapshot. Return output path."""
     cam_cfg = config.get("franklin_cam", {})
     output_path = cam_cfg.get("output_path", "images/franklin_cam.bmp")
+    camera_alias = cam_cfg.get("camera_alias", "603e9a4490992")
     stream_id = cam_cfg.get("stream_id", "604atz1hdklyiqukb")
     stream_host = cam_cfg.get("stream_host", "s96.ipcamlive.com")
     label = cam_cfg.get("label", "Five Points \u2014 Downtown Franklin")
     width = config.get("width", 800)
     height = config.get("height", 480)
 
-    print(f"[franklin_cam] Fetching snapshot from {stream_host}...")
-    img = _fetch_snapshot(stream_host, stream_id)
+    print(f"[franklin_cam] Fetching snapshot (alias={camera_alias})...")
+    img = _fetch_snapshot(camera_alias, stream_host, stream_id)
     if img is None:
         return _error_image(output_path, width, height)
 

@@ -71,18 +71,24 @@ def _font(size):
         return ImageFont.load_default()
 
 
-PIECE_FONT_CANDIDATES_LINUX = [
+# Fonts that are known to carry chess Unicode glyphs (U+2654–U+265F)
+_GLYPH_FONT_CANDIDATES = [
+    "/Library/Fonts/Arial Unicode.ttf",                                         # macOS
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",              # Pi (fonts-noto-core)
+    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",                         # Pi (fonts-freefont-ttf)
+    "/usr/share/fonts/truetype/unifont/unifont.ttf",                            # Pi (unifont)
+]
+
+# Non-glyph fallbacks used for UI text only — NOT suitable for chess pieces
+_TEXT_FONT_CANDIDATES_LINUX = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/freefont/FreeSerif.ttf",
-    "/usr/share/fonts/truetype/unifont/unifont.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
 ]
 
 
 def _piece_font_path():
-    if platform.system() == "Darwin":
-        return "/Library/Fonts/Arial Unicode.ttf"
-    for path in PIECE_FONT_CANDIDATES_LINUX:
+    """Return path to first available font that has chess glyphs, or None."""
+    for path in _GLYPH_FONT_CANDIDATES:
         if os.path.exists(path):
             return path
     return None
@@ -90,11 +96,45 @@ def _piece_font_path():
 
 def _piece_font(size):
     path = _piece_font_path()
-    print(f"[chess] piece font: {path}")
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        return ImageFont.load_default()
+    print(f"[chess] piece font: {path or 'none — using letter fallback'}")
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return None   # signals caller to use letter-based rendering
+
+
+def _draw_piece_as_letter(draw, piece, x0, y0, sq_px):
+    """
+    Render a chess piece as a styled letter badge.
+    Used when no font with chess Unicode glyphs is available.
+    White pieces: light badge with dark letter.
+    Black pieces: dark badge with light letter.
+    """
+    s = sq_px
+    pad = max(3, s // 9)
+    letter = piece.upper()
+    is_white_piece = piece.isupper()
+
+    if is_white_piece:
+        bg = (245, 222, 185)
+        fg = (20, 20, 20)
+        border = (60, 40, 20)
+    else:
+        bg = (55, 35, 15)
+        fg = (230, 205, 165)
+        border = (120, 90, 50)
+
+    bx0, by0 = x0 + pad, y0 + pad
+    bx1, by1 = x0 + s - pad, y0 + s - pad
+    draw.rectangle([bx0, by0, bx1, by1], fill=bg, outline=border, width=2)
+
+    font = _font(s // 2 + 2)
+    bb = draw.textbbox((0, 0), letter, font=font)
+    cx = x0 + s // 2 - (bb[2] - bb[0]) // 2 - bb[0]
+    cy = y0 + s // 2 - (bb[3] - bb[1]) // 2 - bb[1]
+    draw.text((cx, cy), letter, fill=fg, font=font)
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +422,7 @@ def _fen_to_grid(fen):
 def _draw_board(draw, board):
     """Draw the 8x8 board with alternating squares, pieces, border, and labels."""
     lbl_font   = _font(14)
-    piece_font = _piece_font(32)
+    piece_font = _piece_font(32)   # None if no glyph font available
 
     for row in range(8):
         for col in range(8):
@@ -394,7 +434,13 @@ def _draw_board(draw, board):
             draw.rectangle([x0, y0, x1, y1], fill=LIGHT_SQ if light else DARK_SQ)
 
             piece = board[row][col] if row < len(board) and col < len(board[row]) else None
-            if piece and piece in PIECE_GLYPH:
+            if not piece or piece not in PIECE_GLYPH:
+                continue
+
+            if piece_font is None:
+                # No glyph font available — draw piece as a letter badge
+                _draw_piece_as_letter(draw, piece, x0, y0, SQ_PX)
+            else:
                 glyph = PIECE_GLYPH[piece]
                 ink   = PIECE_INK[piece]
                 bb    = draw.textbbox((0, 0), glyph, font=piece_font)
