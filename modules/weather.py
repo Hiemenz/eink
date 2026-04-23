@@ -266,27 +266,27 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     tx = int(r * abs(math.cos(fraction * 2 * math.pi)))
 
     if fraction < 0.5:
-        # Waxing: right side lit (black)
-        draw.ellipse(bb, fill=B)
-        draw.rectangle([cx - r, cy - r, cx, cy + r], fill=W)  # erase shadow (left) half
+        # Waxing: right side lit (white), left side shadow (black)
+        draw.ellipse(bb, fill=B)                  # full disc black
+        draw.chord(bb, -90, 90, fill=W)           # right half-disc white (chord stays within circle)
         if tx > 0:
             if fraction <= 0.25:
-                # Crescent: white terminator carves shadow edge, leaving thin right crescent
-                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
-            else:
-                # Gibbous: black terminator restores lit area, leaving thin left shadow
+                # Crescent: black terminator narrows the lit crescent on the right
                 draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
+            else:
+                # Gibbous: white terminator extends lit area into left, leaving thin shadow sliver
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
     else:
-        # Waning: left side lit (black)
-        draw.ellipse(bb, fill=B)
-        draw.rectangle([cx, cy - r, cx + r, cy + r], fill=W)  # erase shadow (right) half
+        # Waning: left side lit (white), right side shadow (black)
+        draw.ellipse(bb, fill=B)                  # full disc black
+        draw.chord(bb, 90, 270, fill=W)           # left half-disc white (chord stays within circle)
         if tx > 0:
             if fraction < 0.75:
-                # Gibbous: black terminator restores lit area, leaving thin right shadow
-                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
-            else:
-                # Crescent: white terminator carves shadow edge, leaving thin left crescent
+                # Gibbous: white terminator extends lit area into right, leaving thin shadow sliver
                 draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=W)
+            else:
+                # Crescent: black terminator narrows the lit crescent on the left
+                draw.ellipse([cx - tx, cy - r, cx + tx, cy + r], fill=B)
 
     draw.ellipse(bb, outline=B)
 
