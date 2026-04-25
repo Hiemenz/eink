@@ -437,7 +437,7 @@ def main():
 
     if should_update:  # Check if an update occurred
         if platform.system() == "Linux":  # Only display on Raspberry Pi
-            display_color_image(final_display_image)
+            display_color_image(final_display_image, model=config.get('display_model', 'epd7in5_V2'))
             print(f"Displayed image: {final_display_image}")
         else:
             print(f"Skipping display update on non-Raspberry Pi system: {platform.system()}")

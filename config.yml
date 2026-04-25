@@ -5,7 +5,7 @@ discord:
   command_prefix: "!"
 
 # ── Hardware ──────────────────────────────────────────────────────────────────
-display_model: epd7in5_V2   # Waveshare driver: epd7in5_V2 | epd7in3f
+display_model: epd7in3f   # Waveshare driver: epd7in5_V2 | epd7in3f
 
 width: 800
 height: 480
