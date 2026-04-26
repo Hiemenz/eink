@@ -590,6 +590,292 @@ async def cmd_questions(ctx: commands.Context, minutes: str = None):
         await send_display_image(ctx.channel, load_config())
 
 
+
+# ---------------------------------------------------------------------------
+# Video download command
+# ---------------------------------------------------------------------------
+
+@channel_guard()
+async def cmd_video(ctx: commands.Context, url: str = None):
+    """Download a YouTube (or any yt-dlp-supported) video and extract frames for the movie slideshow.
+
+    Usage: !video <url>
+    The bot prompts for: movie name, frame interval, start offset, and fill mode.
+    The video is deleted after frame extraction; frames are kept in data/movies/<name>/.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+    import re
+
+    def _ask(prompt_text, default=None, validate=None):
+        """Return a coroutine that sends a prompt and waits for a reply."""
+        async def _inner():
+            hint = f" (default: {default})" if default is not None else ""
+            msg = await ctx.send(f"{prompt_text}{hint}")
+
+            def _check(m):
+                return m.author == ctx.author and m.channel == ctx.channel
+
+            try:
+                reply = await bot.wait_for("message", check=_check, timeout=90)
+                val = reply.content.strip()
+                if not val and default is not None:
+                    return default
+                if validate:
+                    return validate(val)
+                return val
+            except asyncio.TimeoutError:
+                await msg.edit(content=f"{prompt_text} — timed out, using default: {default}")
+                return default
+        return _inner()
+
+    if url is None:
+        url = await _ask("What is the YouTube (or video) URL?")
+        if not url:
+            await ctx.send("No URL provided — cancelled.")
+            return
+
+    # Sanitise URL
+    url = url.strip("<>")
+
+    # Ask for movie name
+    def _slug(v):
+        return re.sub(r"[^\w\-]", "_", v.strip())[:40] or "movie"
+
+    movie_name = await _ask(
+        "Movie/folder name? (letters, numbers, underscores)",
+        default="movie",
+        validate=_slug,
+    )
+
+    # Frame interval in video-minutes
+    def _pos_float(v):
+        try:
+            f = float(v)
+            return max(0.1, f)
+        except ValueError:
+            return 1.0
+
+    interval_min = await _ask(
+        "Every how many **minutes** of video to grab one frame?",
+        default=1.0,
+        validate=_pos_float,
+    )
+
+    # Start offset in seconds
+    def _nonneg_int(v):
+        try:
+            return max(0, int(v))
+        except ValueError:
+            return 0
+
+    start_sec = await _ask(
+        "Start at what second? (0 = beginning)",
+        default=0,
+        validate=_nonneg_int,
+    )
+
+    # Fill mode
+    def _fill_mode(v):
+        v = v.strip().lower()
+        return "crop" if v in ("crop", "fill", "c") else "fit"
+
+    fill_mode = await _ask(
+        "Frame scaling: `crop` (fill frame, may clip edges) or `fit` (letterbox, black bars)?",
+        default="crop",
+        validate=_fill_mode,
+    )
+
+    movies_root = os.path.join(ROOT, "data", "movies")
+    movie_dir = os.path.join(movies_root, movie_name)
+    os.makedirs(movie_dir, exist_ok=True)
+
+    status_msg = await ctx.send(f"⬇️ Downloading video to a temp directory...")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        video_path = os.path.join(tmpdir, "video.%(ext)s")
+        ydl_opts = {
+            "outtmpl": video_path,
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        try:
+            import yt_dlp
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                title = info.get("title", movie_name)
+                duration = info.get("duration", 0)
+        except Exception as e:
+            await status_msg.edit(content=f"❌ Download failed: {e}")
+            return
+
+        # Find the downloaded file
+        video_file = None
+        for fname in os.listdir(tmpdir):
+            if not fname.endswith(".json"):
+                video_file = os.path.join(tmpdir, fname)
+                break
+
+        if not video_file or not os.path.exists(video_file):
+            await status_msg.edit(content="❌ Could not find downloaded video file.")
+            return
+
+        await status_msg.edit(content=f"🎞️ **{title}** ({duration}s) — extracting frames every {interval_min}min from {start_sec}s…")
+
+        # Clear existing frames in the movie_dir
+        for fname in os.listdir(movie_dir):
+            if os.path.splitext(fname)[1].lower() in {".jpg", ".jpeg", ".png", ".bmp"}:
+                os.remove(os.path.join(movie_dir, fname))
+
+        # ffmpeg: extract one frame every N seconds, starting at start_sec
+        interval_sec = interval_min * 60.0
+        frame_pattern = os.path.join(movie_dir, "frame_%05d.jpg")
+
+        # Compute scale/crop filter for 800x480
+        if fill_mode == "crop":
+            vf = r"scale=iw*max(800/iw\,480/ih):ih*max(800/iw\,480/ih),crop=800:480"
+        else:
+            vf = "scale=800:480:force_original_aspect_ratio=decrease,pad=800:480:(ow-iw)/2:(oh-ih)/2:black"
+
+        ffmpeg_cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start_sec),
+            "-i", video_file,
+            "-vf", f"fps=1/{interval_sec:.2f},{vf}",
+            "-q:v", "3",
+            frame_pattern,
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *ffmpeg_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+            if proc.returncode != 0:
+                err = stderr.decode(errors="replace")[-400:]
+                await status_msg.edit(content=f"❌ ffmpeg failed:\n```{err}```")
+                return
+        except asyncio.TimeoutError:
+            await status_msg.edit(content="❌ ffmpeg timed out (>5 min).")
+            return
+        except FileNotFoundError:
+            await status_msg.edit(content="❌ `ffmpeg` not found — install it on the Pi with `sudo apt install ffmpeg`.")
+            return
+
+    # Video temp dir is cleaned up automatically; frames are in movie_dir
+    frame_count = len([f for f in os.listdir(movie_dir) if f.endswith(".jpg")])
+    if frame_count == 0:
+        await status_msg.edit(content="❌ No frames extracted — check the URL and interval.")
+        return
+
+    # Update bot state
+    update_bot_state("movie_slideshow.active_movie", movie_name)
+    update_bot_state("movie_slideshow.fill_mode", fill_mode)
+    update_bot_state("active_module", "movie_slideshow")
+
+    # Reset frame index
+    from modules.movie_slideshow import _save_state
+    _save_state(movie_dir, {"frame_index": 0})
+
+    await status_msg.edit(
+        content=(
+            f"✅ **{title}**\n"
+            f"`{frame_count}` frames extracted into `data/movies/{movie_name}/`\n"
+            f"Interval: {interval_min}min | Start: {start_sec}s | Mode: {fill_mode}\n"
+            f"Switching display to **movie_slideshow**…"
+        )
+    )
+
+    success, output = await run_main()
+    if success:
+        await send_display_image(ctx.channel, load_config())
+        embed = discord.Embed(
+            title=f"🎬 Movie slideshow ready — {movie_name}",
+            description=(
+                f"{frame_count} frames • every {interval_min}min • {fill_mode} mode\n"
+                f"Use `!movie skip [N]` to jump frames, `!movie back [N]` to go back."
+            ),
+            color=discord.Color.green(),
+        )
+        await ctx.send(embed=embed)
+    else:
+        await ctx.send(embed=discord.Embed(
+            title="Display switch failed",
+            description=f"```{output[:900]}```",
+            color=discord.Color.red(),
+        ))
+
+
+@channel_guard()
+async def cmd_movie(ctx: commands.Context, action: str = None, amount: str = "1"):
+    """Control the movie slideshow — skip, back, goto, or reset.
+
+    !movie skip [N]   — advance N frames forward (default 1)
+    !movie back [N]   — go back N frames (default 1)
+    !movie goto <N>   — jump to frame N (1-based)
+    !movie reset      — restart from frame 1
+    !movie status     — show current frame info
+    """
+    cfg = load_config()
+    movies_root = os.path.join(ROOT, cfg.get("movie_slideshow", {}).get("movies_dir", "data/movies"))
+    active_movie = cfg.get("movie_slideshow", {}).get("active_movie", "")
+
+    if not active_movie:
+        await ctx.send("No active movie. Use `!video <url>` to set one up.")
+        return
+
+    from modules.movie_slideshow import _load_state, _save_state, _list_frames
+    movie_dir = os.path.join(movies_root, active_movie)
+    frames = _list_frames(movie_dir)
+    total = len(frames)
+    if total == 0:
+        await ctx.send(f"No frames found in `data/movies/{active_movie}/`.")
+        return
+
+    state = _load_state(movie_dir)
+    idx = state.get("frame_index", 0) % total
+
+    try:
+        n = int(amount)
+    except ValueError:
+        n = 1
+
+    if action in ("skip", "next", "forward"):
+        new_idx = (idx + n) % total
+        _save_state(movie_dir, {"frame_index": new_idx})
+        await ctx.send(f"⏭️ Skipped {n} frame(s) → frame {new_idx + 1}/{total}")
+    elif action in ("back", "prev", "previous"):
+        new_idx = (idx - n) % total
+        _save_state(movie_dir, {"frame_index": new_idx})
+        await ctx.send(f"⏮️ Went back {n} frame(s) → frame {new_idx + 1}/{total}")
+    elif action == "goto":
+        new_idx = max(0, min(n - 1, total - 1))
+        _save_state(movie_dir, {"frame_index": new_idx})
+        await ctx.send(f"➡️ Jumped to frame {new_idx + 1}/{total}")
+    elif action == "reset":
+        _save_state(movie_dir, {"frame_index": 0})
+        await ctx.send(f"🔄 Reset to frame 1/{total}")
+    elif action in ("status", "info", None):
+        await ctx.send(
+            f"🎬 **{active_movie}** — frame {idx + 1}/{total}\n"
+            f"Use `!movie skip N`, `!movie back N`, `!movie goto N`, or `!movie reset`."
+        )
+        return
+    else:
+        await ctx.send(f"Unknown action `{action}`. Use: skip, back, goto, reset, status.")
+        return
+
+    # Refresh display to show new frame
+    success, output = await run_main()
+    if success:
+        await send_display_image(ctx.channel, load_config())
+
+
 # Commands blocked from remote execution
 _RUN_BLOCKLIST = [
     "rm -rf /", "rm -rf ~", ":(){:|:&};:", "mkfs", "dd if=",
@@ -884,6 +1170,8 @@ async def cmd_help_display(ctx: commands.Context):
     embed.add_field(name=f"{prefix}refresh", value="Force display refresh with current module", inline=False)
     embed.add_field(name=f"{prefix}status", value="Show current display state", inline=False)
     embed.add_field(name=f"{prefix}modules", value="List all modules and their configurable args", inline=False)
+    embed.add_field(name=f"{prefix}video <url>", value="Download a YouTube video, extract frames, and display as movie slideshow. Prompts for name, interval, start offset, and fill mode.", inline=False)
+    embed.add_field(name=f"{prefix}movie skip/back/goto/reset/status", value="Control the movie slideshow — skip frames, jump to a frame, or restart", inline=False)
     embed.add_field(
         name="Examples",
         value=(
@@ -893,6 +1181,8 @@ async def cmd_help_display(ctx: commands.Context):
             f"{prefix}set radar_mode panel\n"
             f"{prefix}set flight_radar.map_zoom 10\n"
             f"{prefix}set module_cycler.modules weather,nasa_apod,moon_phase\n"
+            f"{prefix}video https://youtube.com/watch?v=...\n"
+            f"{prefix}movie skip 5\n"
             f"{prefix}refresh\n"
             f"```"
         ),
@@ -1027,6 +1317,8 @@ def main():
     bot.command(name="modules")(cmd_modules)
     bot.command(name="help_display")(cmd_help_display)
     bot.command(name="help")(cmd_help_display)
+    bot.command(name="video")(cmd_video)
+    bot.command(name="movie")(cmd_movie)
 
     @bot.event
     async def on_ready():

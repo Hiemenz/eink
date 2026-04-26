@@ -42,17 +42,17 @@ def _phase_fraction(age: float) -> float:
 def _phase_name(fraction: float) -> str:
     if fraction < 0.0625:
         return "New Moon"
-    elif fraction < 0.25:
+    elif fraction < 0.21875:
         return "Waxing Crescent"
-    elif fraction < 0.3125:
+    elif fraction < 0.28125:
         return "First Quarter"
-    elif fraction < 0.5:
+    elif fraction < 0.46875:
         return "Waxing Gibbous"
-    elif fraction < 0.5625:
+    elif fraction < 0.53125:
         return "Full Moon"
-    elif fraction < 0.75:
+    elif fraction < 0.71875:
         return "Waning Gibbous"
-    elif fraction < 0.8125:
+    elif fraction < 0.78125:
         return "Last Quarter"
     else:
         return "Waning Crescent"
