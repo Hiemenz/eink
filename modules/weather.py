@@ -79,7 +79,7 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
         f"weather_code,surface_pressure,"
         f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability"
+        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability,uv_index"
         f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
         f"&wind_speed_unit=mph"
         f"&temperature_unit=fahrenheit"
@@ -182,12 +182,13 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
         weather_code = current.get("weather_code", 0)
         weather_desc = _wmo_description(weather_code)
 
-        # Next 3 hourly slots after current hour
+        # Next 5 hourly slots after current hour
         hourly_temps  = hourly.get("temperature_2m", [])
         hourly_codes  = hourly.get("weather_code", [])
         hourly_precip = hourly.get("precipitation_probability", [])
+        hourly_uv     = hourly.get("uv_index", [])
         hourly_forecast = []
-        for i in range(1, 4):
+        for i in range(1, 6):
             idx = cur_idx + i
             if 0 <= idx < len(hourly_times):
                 try:
@@ -195,14 +196,16 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
                     label = slot_dt.strftime("%-I %p")
                 except Exception:
                     label = hourly_times[idx][-5:]
-                temp_h  = int(round(hourly_temps[idx]))  if idx < len(hourly_temps)  else None
-                code_h  = hourly_codes[idx]               if idx < len(hourly_codes)  else 0
-                precip_h = hourly_precip[idx]             if idx < len(hourly_precip) else 0
+                temp_h   = int(round(hourly_temps[idx]))  if idx < len(hourly_temps)  else None
+                code_h   = hourly_codes[idx]               if idx < len(hourly_codes)  else 0
+                precip_h = hourly_precip[idx]              if idx < len(hourly_precip) else 0
+                uv_h     = hourly_uv[idx]                  if idx < len(hourly_uv)     else 0
                 hourly_forecast.append({
                     "time":   label,
                     "temp":   temp_h,
                     "desc":   _wmo_description(code_h),
                     "precip": int(precip_h) if precip_h is not None else 0,
+                    "uv":     round(float(uv_h), 1) if uv_h is not None else 0.0,
                 })
 
         result = {
@@ -486,76 +489,132 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     frac_val = _phase_fraction(age_val)
     _draw_panel_moon(draw, moon_cx, moon_cy, moon_r, frac_val)
 
-    # Hourly forecast grid (next 3 hours)
+    return y
+
+
+def _uv_color(uv: float):
+    """Return e-ink-safe RGB color for UV index level. None = no indicator (UV=0)."""
+    if uv <= 0:
+        return None
+    elif uv <= 2:
+        return (0, 200, 0)    # Green - Low
+    elif uv <= 5:
+        return (255, 220, 0)  # Yellow - Moderate
+    elif uv <= 7:
+        return (255, 128, 0)  # Orange - High
+    else:
+        return (220, 0, 0)    # Red - Very High/Extreme
+
+
+def _draw_hourly_uv_boxes(canvas, conditions, config, panel_x, panel_w, start_y):
+    """Draw 5-hour forecast boxes with UV color coding. Call AFTER the B/W panel snap."""
+    draw = ImageDraw.Draw(canvas)
+    height = canvas.size[1]
+    margin = 8
+    text_x = panel_x + margin
+    right_x = panel_x + panel_w - margin
+    text_w = right_x - text_x
+    BLACK = (0, 0, 0)
+
+    def _font(size):
+        font_path = config.get("font_path", "")
+        for path in [
+            config.get("bold_font_path", ""),
+            "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf",
+            "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            font_path,
+        ]:
+            if path:
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
+
     hourly = conditions.get("hourly_forecast", [])
-    if hourly:
-        y = _separator(y)
-        box_count = min(3, len(hourly))
-        if box_count > 0 and y < height - 20:
-            box_h = height - y - 2
-            box_w = text_w // box_count
-            inner_w = box_w - 8   # horizontal padding inside box
-            inner_h = box_h - 6   # vertical padding inside box
-            gap = 2               # px between lines
+    if not hourly:
+        return
 
-            # Collect the actual strings that will appear in the boxes
-            actual_times = [s["time"] for s in hourly[:box_count]]
-            actual_descs = [s["desc"] for s in hourly[:box_count]]
-            longest_time = max(actual_times, key=len) if actual_times else "12 AM"
-            longest_desc = max(actual_descs, key=len) if actual_descs else ""
+    # Separator line
+    draw.line([(text_x, start_y), (right_x, start_y)], fill=BLACK, width=1)
+    y = start_y + 5
 
-            # Find the largest base font where all lines fit inside the box.
-            # Temp uses base*1.8; time/desc use base. Precip sits in corner, not a content line.
-            best_base = 8
-            for base_sz in range(24, 7, -1):
-                temp_sz = max(base_sz, int(base_sz * 1.8))
-                bf = _font(base_sz)
-                tf = _font(temp_sz)
-                lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
-                lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
-                # Need room for: corner row (time/precip) + temp (centered) + desc (bottom)
-                total_h = lh_temp + 2 * lh_base + 8
-                max_w = max(
-                    draw.textbbox((0, 0), "100°", font=tf)[2],
-                    draw.textbbox((0, 0), longest_desc, font=bf)[2],
-                )
-                if total_h <= inner_h and max_w <= inner_w:
-                    best_base = base_sz
-                    break
+    box_count = min(5, len(hourly))
+    if box_count <= 0 or y >= height - 20:
+        return
 
-            bf = _font(best_base)
-            tf = _font(max(best_base, int(best_base * 1.8)))
-            lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
-            lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+    UV_STRIPE_H = 4
+    box_h = height - y - 2
+    box_w = text_w // box_count
+    inner_w = box_w - 8
+    inner_h = box_h - 6
 
-            for i, slot in enumerate(hourly[:box_count]):
-                bx = text_x + i * box_w
-                by = y
-                draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)],
-                                outline=BLACK, width=1)
+    actual_times = [s["time"] for s in hourly[:box_count]]
+    actual_descs = [s["desc"] for s in hourly[:box_count]]
+    longest_time = max(actual_times, key=len) if actual_times else "12 AM"
+    longest_desc = max(actual_descs, key=len) if actual_descs else ""
 
-                def _center_text(text, font, top_y):
-                    w = draw.textbbox((0, 0), text, font=font)[2]
-                    draw.text((bx + (box_w - w) // 2, top_y), text, fill=BLACK, font=font)
+    best_base = 8
+    for base_sz in range(24, 7, -1):
+        temp_sz = max(base_sz, int(base_sz * 1.8))
+        bf = _font(base_sz)
+        tf = _font(temp_sz)
+        lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+        lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
+        total_h = lh_temp + 2 * lh_base + 8 + UV_STRIPE_H
+        max_w = max(
+            draw.textbbox((0, 0), "100°", font=tf)[2],
+            draw.textbbox((0, 0), longest_desc, font=bf)[2],
+        )
+        if total_h <= inner_h and max_w <= inner_w:
+            best_base = base_sz
+            break
 
-                # Temp — vertically centered in the box
-                cy_temp = by + (box_h - lh_temp) // 2
-                _center_text(f"{slot['temp']}\u00b0", tf, cy_temp)
+    bf = _font(best_base)
+    tf = _font(max(best_base, int(best_base * 1.8)))
+    lh_base = draw.textbbox((0, 0), "Ag", font=bf)[3]
+    lh_temp = draw.textbbox((0, 0), "Ag", font=tf)[3]
 
-                # Time — top-left corner
-                draw.text((bx + 3, by + 2), slot["time"], fill=BLACK, font=bf)
+    for i, slot in enumerate(hourly[:box_count]):
+        bx = text_x + i * box_w
+        by = y
+        uv_val = slot.get("uv", 0) or 0
+        uv_col = _uv_color(uv_val)
 
-                # Precip % — top-right corner
-                if slot["precip"]:
-                    prec_str = f"{slot['precip']}%"
-                    prec_w = draw.textbbox((0, 0), prec_str, font=bf)[2]
-                    draw.text((bx + box_w - 2 - prec_w - 2, by + 2), prec_str, fill=BLACK, font=bf)
+        draw.rectangle([(bx, by), (bx + box_w - 2, by + box_h - 1)], outline=BLACK, width=1)
 
-                # Description — pinned to bottom, centered
-                desc = slot["desc"]
-                while desc and draw.textbbox((0, 0), desc, font=bf)[2] > inner_w:
-                    desc = desc[:-1]
-                _center_text(desc, bf, by + box_h - lh_base - 3)
+        def _center_text(text, font, top_y, bx=bx):
+            w = draw.textbbox((0, 0), text, font=font)[2]
+            draw.text((bx + (box_w - w) // 2, top_y), text, fill=BLACK, font=font)
+
+        # Temp centered vertically
+        cy_temp = by + (box_h - lh_temp) // 2
+        _center_text(f"{slot['temp']}°", tf, cy_temp)
+
+        # Time top-left
+        draw.text((bx + 3, by + 2), slot["time"], fill=BLACK, font=bf)
+
+        # Precip % top-right
+        if slot["precip"]:
+            prec_str = f"{slot['precip']}%"
+            prec_w = draw.textbbox((0, 0), prec_str, font=bf)[2]
+            draw.text((bx + box_w - 2 - prec_w - 2, by + 2), prec_str, fill=BLACK, font=bf)
+
+        # Description pinned to bottom (above UV stripe)
+        desc = slot["desc"]
+        while desc and draw.textbbox((0, 0), desc, font=bf)[2] > inner_w:
+            desc = desc[:-1]
+        _center_text(desc, bf, by + box_h - lh_base - UV_STRIPE_H - 3)
+
+        # UV color stripe at very bottom of box
+        if uv_col:
+            stripe_y = by + box_h - UV_STRIPE_H
+            draw.rectangle(
+                [(bx + 1, stripe_y), (bx + box_w - 2, by + box_h - 1)],
+                fill=uv_col,
+            )
 
 
 if platform.system() == "Linux":
@@ -721,13 +780,17 @@ def generate_weather_image(config, special_msg=None):
             panel_qr = radar_url_qr
         else:
             panel_qr = None
-        draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr)
+        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
         panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
             lambda px: 255 if px > 128 else 0
         ).convert("RGB")
         final_img.paste(panel_bw, (radar_w, header_h))
+
+        # Draw colored hourly UV boxes AFTER snap so colors survive quantize
+        if conditions and hourly_start_y is not None:
+            _draw_hourly_uv_boxes(final_img, conditions, config, radar_w, panel_w, hourly_start_y)
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
         # Red when an alert is active, black otherwise

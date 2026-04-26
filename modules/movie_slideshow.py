@@ -49,6 +49,31 @@ def _list_frames(movie_dir):
     return frames
 
 
+def _fit_image(img, width, height):
+    """Letterbox: fit entirely within frame, black bars on sides/top."""
+    ratio = min(width / img.width, height / img.height)
+    new_w = int(img.width * ratio)
+    new_h = int(img.height * ratio)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    canvas = Image.new("RGB", (width, height), "black")
+    canvas.paste(img, ((width - new_w) // 2, (height - new_h) // 2))
+    return canvas
+
+
+def _crop_image(img, width, height):
+    """Crop-fill: scale to fill frame, center-crop any overflow."""
+    ratio = max(width / img.width, height / img.height)
+    new_w = int(img.width * ratio)
+    new_h = int(img.height * ratio)
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    left = (new_w - width) // 2
+    top = (new_h - height) // 2
+    img = img.crop((left, top, left + width, top + height))
+    canvas = Image.new("RGB", (width, height), "black")
+    canvas.paste(img, (0, 0))
+    return canvas
+
+
 def generate(config):
     """
     Load the next frame from the active movie directory,
@@ -59,6 +84,7 @@ def generate(config):
     movies_root = slideshow_cfg.get("movies_dir", "data/movies")
     active_movie = slideshow_cfg.get("active_movie", "")
     output_path = slideshow_cfg.get("output_path", "movie_display.bmp")
+    fill_mode = slideshow_cfg.get("fill_mode", "fit")   # "fit" or "crop"
     width = config.get("width", 800)
     height = config.get("height", 480)
 
@@ -79,16 +105,10 @@ def generate(config):
 
     img = Image.open(frame_path).convert("RGB")
 
-    # Letterbox: fit within 800x480 preserving aspect ratio
-    ratio = min(width / img.width, height / img.height)
-    new_w = int(img.width * ratio)
-    new_h = int(img.height * ratio)
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-
-    canvas = Image.new("RGB", (width, height), "black")
-    x_off = (width - new_w) // 2
-    y_off = (height - new_h) // 2
-    canvas.paste(img, (x_off, y_off))
+    if fill_mode == "crop":
+        canvas = _crop_image(img, width, height)
+    else:
+        canvas = _fit_image(img, width, height)
 
     canvas.save(output_path)
 
