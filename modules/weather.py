@@ -846,10 +846,11 @@ def generate_weather_image(config, special_msg=None):
     if os.path.exists(quantized_output_path):
         old_quant = Image.open(quantized_output_path).convert("RGB")
 
-    if config.get("check_special_weather", True) and special_msg:
+    # In panel mode the conditions panel has its own QR; top-right QR is for crop/fit only.
+    if config.get("check_special_weather", True) and special_msg and radar_mode != "panel":
         try:
             special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            qr_topright = qrcode.make(special_url).resize((138, 138), Image.LANCZOS)
+            qr_topright = qrcode.make(special_url).convert("RGB").resize((138, 138), Image.LANCZOS)
             _banner_h = config.get("alert_banner_height", 40)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:
@@ -862,7 +863,10 @@ def generate_weather_image(config, special_msg=None):
         alert_banner_height = config.get("alert_banner_height", 40)
         headline = get_alert_headline(special_msg)
         if headline:
-            draw.rectangle([(0, 0), (width - 1, alert_banner_height - 1)], fill=(0, 0, 0))
+            # In panel mode restrict the banner to the radar side so it doesn't overwrite the
+            # conditions panel QR code (the panel header already turns red for alerts).
+            _banner_right = (width - config.get("panel_width", 280) - 1) if radar_mode == "panel" else (width - 1)
+            draw.rectangle([(0, 0), (_banner_right, alert_banner_height - 1)], fill=(0, 0, 0))
             font_path = config.get("font_path", "")
             try:
                 banner_font = ImageFont.truetype(font_path, 20)
