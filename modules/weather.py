@@ -29,6 +29,11 @@ NWS_KM_PER_PX = 1.533  # km per pixel in original NWS 600×550 radar image
 _conditions_cache = {"data": None, "ts": 0}
 _CONDITIONS_TTL = 300  # seconds
 
+# Last-known-good conditions (survives TTL expiry; used as stale fallback)
+_last_good_conditions: Dict[str, Any] = {"data": None}
+
+_RETRY_WAIT = 60  # seconds to wait before a retry on failure
+
 
 def _deg_to_compass(deg: float) -> str:
     """Convert wind direction degrees (0-360) to 16-point compass string."""
@@ -62,33 +67,8 @@ def _parse_time(iso_str):
         return iso_str
 
 
-def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[Dict[str, Any]]:
-    """
-    Fetch current weather conditions from Open-Meteo (no API key required).
-    Results are cached for _CONDITIONS_TTL seconds.
-    Returns a dict of weather data or None on failure.
-    """
-    global _conditions_cache
-    now = time.time()
-    if _conditions_cache["data"] is not None and now - _conditions_cache["ts"] < _CONDITIONS_TTL:
-        return _conditions_cache["data"]
-
-    url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
-        f"weather_code,surface_pressure,"
-        f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability,uv_index"
-        f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
-        f"&wind_speed_unit=mph"
-        f"&temperature_unit=fahrenheit"
-        f"&precipitation_unit=inch"
-        f"&timezone=auto"
-        f"&past_days=7"
-        f"&forecast_days=2"
-    )
-
+def _do_fetch_conditions(url: str, lat: float, lon: float, headers: dict) -> Optional[Dict[str, Any]]:
+    """Single HTTP attempt: fetch *url*, parse the JSON, return the conditions dict or None."""
     try:
         resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
@@ -208,7 +188,7 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
                     "uv":     round(float(uv_h), 1) if uv_h is not None else 0.0,
                 })
 
-        result = {
+        return {
             "temp":         int(round(current.get("temperature_2m", 0))),
             "feels_like":   int(round(current.get("apparent_temperature", 0))),
             "humidity":     int(current.get("relative_humidity_2m", 0)),
@@ -236,14 +216,59 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
             "hourly_forecast": hourly_forecast,
         }
 
-        _conditions_cache["data"] = result
-        _conditions_cache["ts"] = now
-        logger.info("Conditions fetched: %d°F, %s", result['temp'], result['weather_desc'])
-        return result
-
     except Exception as e:
         logger.exception("Error parsing conditions response")
         return None
+
+
+def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[Dict[str, Any]]:
+    """
+    Fetch current weather conditions from Open-Meteo (no API key required).
+    Results are cached for _CONDITIONS_TTL seconds.
+
+    On failure: immediately returns the last known-good result (stale) so that
+    a transient conditions outage never delays the radar image.  The radar and
+    conditions data can legitimately be different ages — that is fine.
+    """
+    global _conditions_cache, _last_good_conditions
+    now = time.time()
+    if _conditions_cache["data"] is not None and now - _conditions_cache["ts"] < _CONDITIONS_TTL:
+        return _conditions_cache["data"]
+
+    url = (
+        f"https://api.open-meteo.com/v1/forecast"
+        f"?latitude={lat}&longitude={lon}"
+        f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+        f"weather_code,surface_pressure,"
+        f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
+        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability,uv_index"
+        f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
+        f"&wind_speed_unit=mph"
+        f"&temperature_unit=fahrenheit"
+        f"&precipitation_unit=inch"
+        f"&timezone=auto"
+        f"&past_days=7"
+        f"&forecast_days=2"
+    )
+
+    result = _do_fetch_conditions(url, lat, lon, headers)
+
+    if result is None:
+        stale = _last_good_conditions.get("data")
+        if stale is not None:
+            logger.warning(
+                "Conditions fetch failed — displaying last known-good data alongside fresh radar."
+            )
+        else:
+            logger.error("Conditions unavailable and no cached data to fall back on.")
+        return stale
+
+    # Success — update both the TTL cache and the persistent last-good store
+    _conditions_cache["data"] = result
+    _conditions_cache["ts"] = now
+    _last_good_conditions["data"] = result
+    logger.info("Conditions fetched: %d°F, %s", result["temp"], result["weather_desc"])
+    return result
 
 
 def _draw_panel_moon(draw, cx, cy, r, fraction):
@@ -684,6 +709,50 @@ def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
     logger.info("Quantized image saved to %s", output_path)
 
 
+def _fetch_radar_image(radar_url: str, headers: dict):
+    """
+    Fetch a radar GIF from *radar_url* with up to 3 quick retries (2 s apart).
+    If all quick retries fail, waits _RETRY_WAIT seconds and makes one final attempt.
+    Returns the successful requests.Response, or None on total failure.
+    """
+    def _try_once():
+        for attempt in range(3):
+            try:
+                resp = requests.get(radar_url, headers=headers, timeout=10)
+            except Exception as e:
+                logger.warning("Radar request error (attempt %d): %s", attempt + 1, e)
+                if attempt < 2:
+                    time.sleep(2)
+                continue
+            if resp.status_code == 200:
+                return resp
+            if resp.status_code == 404 and attempt < 2:
+                logger.warning("Radar 404 (attempt %d), retrying in 2s...", attempt + 1)
+                time.sleep(2)
+            else:
+                logger.warning("Radar HTTP %d on attempt %d", resp.status_code, attempt + 1)
+                return None  # non-retriable error
+        return None
+
+    response = _try_once()
+    if response is not None:
+        return response
+
+    # First pass failed — wait and try once more before giving up
+    logger.warning(
+        "Radar fetch failed on all quick retries. Waiting %ds before final attempt...",
+        _RETRY_WAIT,
+    )
+    time.sleep(_RETRY_WAIT)
+    response = _try_once()
+    if response is not None:
+        logger.info("Radar fetch succeeded after %ds wait.", _RETRY_WAIT)
+        return response
+
+    logger.error("Radar fetch failed entirely after retry wait.")
+    return None
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -711,16 +780,10 @@ def generate_weather_image(config, special_msg=None):
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    for attempt in range(3):
-        response = requests.get(radar_url, headers=headers)
-        if response.status_code == 200:
-            break
-        elif response.status_code == 404 and attempt < 2:
-            logger.warning("Image not found (404). Retrying... (Attempt %d)", attempt + 1)
-            time.sleep(2)
-        else:
-            logger.error("Failed to fetch image. Status code: %d", response.status_code)
-            return None, False, None
+    response = _fetch_radar_image(radar_url, headers)
+    if response is None:
+        logger.error("Radar image could not be fetched — using last cached result.")
+        return None, False, None
 
     content_type = response.headers.get("Content-Type", "")
     if "image" not in content_type:
