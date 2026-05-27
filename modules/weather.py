@@ -254,10 +254,14 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
     result = _do_fetch_conditions(url, lat, lon, headers)
 
     if result is None:
+        logger.warning("Conditions fetch failed — retrying once...")
+        result = _do_fetch_conditions(url, lat, lon, headers)
+
+    if result is None:
         stale = _last_good_conditions.get("data")
         if stale is not None:
             logger.warning(
-                "Conditions fetch failed — displaying last known-good data alongside fresh radar."
+                "Conditions still unavailable — displaying last known-good data alongside fresh radar."
             )
         else:
             logger.error("Conditions unavailable and no cached data to fall back on.")
