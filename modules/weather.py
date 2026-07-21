@@ -30,7 +30,7 @@ _conditions_cache = {"data": None, "ts": 0}
 _CONDITIONS_TTL = 300  # seconds
 
 # Last-known-good conditions (survives TTL expiry; used as stale fallback)
-_last_good_conditions: Dict[str, Any] = {"data": None}
+_last_good_conditions: Dict[str, Any] = {"data": None, "ts": 0}
 
 _RETRY_WAIT = 60  # seconds to wait before a retry on failure
 
@@ -260,9 +260,13 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
     if result is None:
         stale = _last_good_conditions.get("data")
         if stale is not None:
+            stale_ts = _last_good_conditions.get("ts", 0)
+            stale_label = _dt.fromtimestamp(stale_ts).strftime("%-I:%M %p") if stale_ts else "unknown"
             logger.warning(
-                "Conditions still unavailable — displaying last known-good data alongside fresh radar."
+                "Conditions still unavailable — displaying last known-good data from %s.", stale_label
             )
+            stale = dict(stale)
+            stale["stale_as_of"] = stale_label
         else:
             logger.error("Conditions unavailable and no cached data to fall back on.")
         return stale
@@ -271,6 +275,7 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
     _conditions_cache["data"] = result
     _conditions_cache["ts"] = now
     _last_good_conditions["data"] = result
+    _last_good_conditions["ts"] = now
     logger.info("Conditions fetched: %d°F, %s", result["temp"], result["weather_desc"])
     return result
 
@@ -437,6 +442,14 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     # Feels like / description
     draw.text((text_x, y), feels_desc, fill=BLACK, font=f_feels)
     y += draw.textbbox((0, 0), feels_desc, font=f_feels)[3] + 4
+
+    # Stale data notice
+    stale_as_of = conditions.get("stale_as_of")
+    if stale_as_of:
+        stale_str = f"Stale data as of {stale_as_of}"
+        stale_font = _font(11)
+        draw.text((text_x, y), stale_str, fill=BLACK, font=stale_font)
+        y += draw.textbbox((0, 0), stale_str, font=stale_font)[3] + 2
 
     # Separator
     y = _separator(y)
