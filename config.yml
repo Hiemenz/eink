@@ -198,6 +198,14 @@ game_of_life:
   show_generation: true      # overlay generation counter
   show_population: true      # overlay live-cell count
 
+# ── Radar source ─────────────────────────────────────────────────────────────
+# radar_source: "ridge"        # default — NWS RIDGE single-station GIF
+# radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution)
+radar_source: ridge
+rainviewer_zoom: 8             # zoom level: 7=regional (~1.2km/px) 8=metro (~600m/px) 9=city (~300m/px)
+rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Universal Blue, 8=Dark
+# rainviewer_lat / rainviewer_lon override forecast_location if set
+
 show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
 show_last_ten: False
