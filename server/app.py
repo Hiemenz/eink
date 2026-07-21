@@ -91,46 +91,49 @@ def generate_now():
 
 
 @app.route("/preview")
-def preview():
-    """Serve the current active module's output BMP as a PNG for the browser."""
+@app.route("/preview/<module_name>")
+def preview(module_name=None):
+    """Serve any module's output BMP as a PNG for the browser.
+
+    /preview          — shows the currently active module
+    /preview/<name>   — shows a specific module by name
+    """
     cfg = load_config()
-    active = cfg.get("active_module", "weather")
+    active = module_name or cfg.get("active_module", "weather")
 
-    path_map = {
-        "weather":         os.path.join(ROOT, "radar", f"eink_quantized_display_{cfg.get('station', {}).get('name', 'KOHX')}.bmp"),
-        "text":            os.path.join(ROOT, cfg.get("text", {}).get("output_path", "test_image.bmp")),
-        "saint_of_day":    os.path.join(ROOT, cfg.get("saint_of_day", {}).get("output_path", "saint_display.bmp")),
-        "wiki_image":      os.path.join(ROOT, cfg.get("wiki_image", {}).get("output_path", "wiki_display.bmp")),
-        "movie_slideshow": os.path.join(ROOT, cfg.get("movie_slideshow", {}).get("output_path", "movie_display.bmp")),
-        "nasa_apod":       os.path.join(ROOT, cfg.get("nasa_apod", {}).get("output_path", "nasa_apod.bmp")),
-        "quote_of_day":    os.path.join(ROOT, cfg.get("quote_of_day", {}).get("output_path", "quote_display.bmp")),
-        "on_this_day":     os.path.join(ROOT, cfg.get("on_this_day", {}).get("output_path", "onthisday_display.bmp")),
-        "moon_phase":      os.path.join(ROOT, cfg.get("moon_phase", {}).get("output_path", "moon_display.bmp")),
-        "art_of_day":      os.path.join(ROOT, cfg.get("art_of_day", {}).get("output_path", "art_display.bmp")),
-    }
+    bmp_path = _resolve_module_image(active, cfg)
 
-    bmp_path = path_map.get(active, "")
-
-    if not bmp_path or not os.path.exists(bmp_path):
-        # Return a placeholder grey image
-        img = Image.new("RGB", (800, 480), (200, 200, 200))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return send_file(buf, mimetype="image/png")
-
+    buf = io.BytesIO()
     try:
-        img = Image.open(bmp_path).convert("RGB")
-        buf = io.BytesIO()
+        if bmp_path and os.path.exists(bmp_path):
+            img = Image.open(bmp_path).convert("RGB")
+        else:
+            img = Image.new("RGB", (800, 480), (180, 180, 180))
         img.save(buf, format="PNG")
-        buf.seek(0)
-        return send_file(buf, mimetype="image/png")
     except Exception:
-        img = Image.new("RGB", (800, 480), (200, 200, 200))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        return send_file(buf, mimetype="image/png")
+        Image.new("RGB", (800, 480), (180, 180, 180)).save(buf, format="PNG")
+    buf.seek(0)
+    return send_file(buf, mimetype="image/png")
+
+
+@app.route("/preview-all")
+def preview_all():
+    """JSON list of all modules with their last-modified time and whether the image exists."""
+    cfg = load_config()
+    import time
+    result = []
+    from utils import MODULE_MAP
+    for name in MODULE_MAP:
+        path = _resolve_module_image(name, cfg)
+        exists = bool(path and os.path.exists(path))
+        mtime = os.path.getmtime(path) if exists else None
+        result.append({
+            "module": name,
+            "path": path,
+            "exists": exists,
+            "age_seconds": round(time.time() - mtime) if mtime else None,
+        })
+    return jsonify(result)
 
 
 @app.route("/config", methods=["GET"])
@@ -238,6 +241,23 @@ def movie_preview(movie_name):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _resolve_module_image(module_name: str, cfg: dict) -> str:
+    """Return the absolute path to a module's most recent output BMP, or '' if unknown."""
+    # Weather is special: path includes the station name
+    if module_name == "weather":
+        station = cfg.get("station", {}).get("name", "KOHX")
+        return os.path.join(ROOT, "radar", f"eink_quantized_display_{station}.bmp")
+
+    # All other modules declare their output_path in their config section
+    section = cfg.get(module_name, {})
+    rel = section.get("output_path", "")
+    if rel:
+        return os.path.join(ROOT, rel)
+
+    # Fallback: images/<module_name>.bmp convention
+    return os.path.join(ROOT, "images", f"{module_name.replace('_', '_')}.bmp")
+
 
 def _list_movies():
     if not os.path.isdir(MOVIES_ROOT):

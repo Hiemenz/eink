@@ -2,7 +2,8 @@ import time
 import json
 import requests
 import io
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
 from modules.special_weather import get_special_weather_messages, get_alert_headline
@@ -729,11 +730,11 @@ def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
 def _fetch_rainviewer_image(
     lat: float, lon: float, zoom: int, width: int, height: int,
     color_scheme: int, headers: dict
-) -> Optional[Image.Image]:
+) -> Tuple[Optional[Image.Image], Optional[int]]:
     """
     Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
     Tiles are transparent PNGs composited onto a white background.
-    Returns an RGB PIL Image sized exactly width×height, or None on failure.
+    Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp), or (None, None).
     """
     _TILE_SIZE = 512
 
@@ -746,13 +747,15 @@ def _fetch_rainviewer_image(
         data = api_resp.json()
     except Exception as e:
         logger.error("RainViewer API request failed: %s", e)
-        return None
+        return None, None
 
     radar_frames = data.get("radar", {}).get("past", [])
     if not radar_frames:
         logger.error("No radar frames in RainViewer API response")
-        return None
-    latest_path = radar_frames[-1]["path"]  # e.g. "/v2/radar/1721234567"
+        return None, None
+    latest_frame = radar_frames[-1]
+    latest_path = latest_frame["path"]  # e.g. "/v2/radar/1721234567"
+    frame_ts = latest_frame.get("time")  # Unix timestamp int
     logger.info("RainViewer: using frame %s", latest_path)
 
     # World-pixel coordinates of the center point at this zoom level
@@ -799,7 +802,7 @@ def _fetch_rainviewer_image(
     crop_x = int(left_px - tx_min * _TILE_SIZE)
     crop_y = int(top_px - ty_min * _TILE_SIZE)
     result = canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
-    return result.convert("RGB")
+    return result.convert("RGB"), frame_ts
 
 
 def _fetch_radar_image(radar_url: str, headers: dict):
@@ -846,6 +849,163 @@ def _fetch_radar_image(radar_url: str, headers: dict):
     return None
 
 
+_EINK_WHITE  = [255, 255, 255]
+_EINK_BLACK  = [  0,   0,   0]
+_EINK_BLUE   = [  0,   0, 255]
+_EINK_GREEN  = [  0, 255,   0]
+_EINK_YELLOW = [255, 255,   0]
+_EINK_ORANGE = [255, 128,   0]
+_EINK_RED    = [255,   0,   0]
+
+_SEVEN_COLOR_LEGEND = [
+    # (swatch RGB,          label,       text RGB for readability)
+    ((255, 255, 255), "None",    (0,   0,   0)),
+    ((0,   0,   255), "~5-25",   (255, 255, 255)),
+    ((0,   255,   0), "~25-35",  (0,   0,   0)),
+    ((255, 255,   0), "~35-45",  (0,   0,   0)),
+    ((255, 128,   0), "~45-50",  (255, 255, 255)),
+    ((255,   0,   0), "~50-60",  (255, 255, 255)),
+    ((0,   0,     0), ">60dBZ",  (255, 255, 255)),
+]
+
+_LEGEND_H = 36  # height of the bottom legend strip in pixels
+
+
+def _remap_radar_seven_color(image: Image.Image) -> Image.Image:
+    """
+    Remap radar pixels to exactly the 7 Waveshare e-ink display colors via
+    HSV-based precipitation-intensity classification.
+
+    dBZ tiers (approximate, using RainViewer NWS Reflectivity scheme):
+      White  = background / no precipitation
+      Blue   = ~5-25 dBZ  (trace / scattered)
+      Green  = ~25-35 dBZ (light rain)
+      Yellow = ~35-45 dBZ (moderate rain)
+      Orange = ~45-50 dBZ (heavy rain)
+      Red    = ~50-60 dBZ (severe)
+      Black  = >60 dBZ    (extreme / potential hail)
+    """
+    arr = np.array(image.convert("RGB")).astype(np.float32)
+    r = arr[:, :, 0] / 255.0
+    g = arr[:, :, 1] / 255.0
+    b = arr[:, :, 2] / 255.0
+
+    cmax = np.maximum(np.maximum(r, g), b)
+    cmin = np.minimum(np.minimum(r, g), b)
+    delta = cmax - cmin
+
+    v = cmax
+    s = np.where(cmax > 1e-6, delta / cmax, 0.0)
+
+    # Hue in [0, 1): 0/1=red, 1/6=yellow, 2/6=green, 3/6=cyan, 4/6=blue, 5/6=magenta
+    h = np.zeros_like(r)
+    m_r = (cmax == r) & (delta > 1e-6)
+    m_g = (cmax == g) & (delta > 1e-6)
+    m_b = (cmax == b) & (delta > 1e-6)
+    h[m_r] = (((g[m_r] - b[m_r]) / delta[m_r]) % 6) / 6.0
+    h[m_g] = ((b[m_g] - r[m_g]) / delta[m_g] + 2.0) / 6.0
+    h[m_b] = ((r[m_b] - g[m_b]) / delta[m_b] + 4.0) / 6.0
+
+    # Start all white (background)
+    out = np.full(arr.shape, 255, dtype=np.uint8)
+
+    # Blue: hue 160°-300° (0.444-0.833) — cyans and blues (light precip)
+    m = (h >= 0.444) & (h < 0.833) & (s > 0.25) & (v > 0.35)
+    out[m] = _EINK_BLUE
+
+    # Green: hue 80°-160° (0.222-0.444) — greens (light-moderate)
+    m = (h >= 0.222) & (h < 0.444) & (s > 0.25) & (v > 0.35)
+    out[m] = _EINK_GREEN
+
+    # Yellow: hue 60°-80° (0.167-0.222) — yellows (moderate)
+    m = (h >= 0.167) & (h < 0.222) & (s > 0.25) & (v > 0.35)
+    out[m] = _EINK_YELLOW
+
+    # Orange: hue 30°-60° (0.083-0.167) — oranges (heavy)
+    m = (h >= 0.083) & (h < 0.167) & (s > 0.25) & (v > 0.35)
+    out[m] = _EINK_ORANGE
+
+    # Red: hue 0°-30° or 300°-360° (0-0.083 or 0.833-1.0) — reds and magentas (severe)
+    m = ((h < 0.083) | (h >= 0.833)) & (s > 0.25) & (v > 0.35)
+    out[m] = _EINK_RED
+
+    # Black: very dark pixels OR dark-but-saturated (extreme / hail markers).
+    # Written last so it overrides any prior color assignment for dark pixels.
+    m = (v < 0.18) | ((s > 0.20) & (v <= 0.35))
+    out[m] = _EINK_BLACK
+
+    return Image.fromarray(out, "RGB")
+
+
+def _draw_seven_color_legend(
+    canvas: Image.Image,
+    frame_ts: Optional[int],
+    station: str,
+    config: dict,
+) -> None:
+    """Draw the bottom legend strip showing all 7 e-ink colors with dBZ labels."""
+    W, H = canvas.size
+    y0 = H - _LEGEND_H
+
+    draw = ImageDraw.Draw(canvas)
+    draw.rectangle([(0, y0), (W - 1, H - 1)], fill=(255, 255, 255))
+    draw.line([(0, y0), (W - 1, y0)], fill=(0, 0, 0), width=1)
+
+    def _lfont(size):
+        for path in [
+            config.get("bold_font_path", ""),
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            config.get("font_path", ""),
+        ]:
+            if path:
+                try:
+                    return ImageFont.truetype(path, size)
+                except Exception:
+                    continue
+        return ImageFont.load_default()
+
+    font = _lfont(11)
+    swatch_side = 20
+    pad = 6
+    text_pad = 3
+    swatch_y = y0 + (_LEGEND_H - swatch_side) // 2
+
+    x = 8
+    for swatch_rgb, label, text_rgb in _SEVEN_COLOR_LEGEND:
+        # Color swatch with black outline
+        draw.rectangle(
+            [(x, swatch_y), (x + swatch_side - 1, swatch_y + swatch_side - 1)],
+            fill=swatch_rgb, outline=(0, 0, 0),
+        )
+        # Label to the right of swatch
+        bb = draw.textbbox((0, 0), label, font=font)
+        lh = bb[3] - bb[1]
+        draw.text(
+            (x + swatch_side + text_pad, swatch_y + (swatch_side - lh) // 2),
+            label, fill=(0, 0, 0), font=font,
+        )
+        x += swatch_side + text_pad + (bb[2] - bb[0]) + pad
+
+    # Right side: station + frame timestamp
+    if frame_ts:
+        try:
+            from datetime import timezone as _tz_mod
+            ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
+        except Exception:
+            ts_str = ""
+    else:
+        ts_str = ""
+
+    right_str = f"{station}  {ts_str}" if ts_str else station
+    rb = draw.textbbox((0, 0), right_str, font=font)
+    rw, rh = rb[2] - rb[0], rb[3] - rb[1]
+    draw.text(
+        (W - rw - 8, y0 + (_LEGEND_H - rh) // 2),
+        right_str, fill=(0, 0, 0), font=font,
+    )
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -868,6 +1028,7 @@ def generate_weather_image(config, special_msg=None):
 
     radar_source = config.get("radar_source", "ridge").lower()
     radar_url_qr = None
+    rv_frame_ts = None  # Unix timestamp of the radar frame (RainViewer only)
 
     if radar_source == "rainviewer":
         forecast_loc = config.get("forecast_location", {})
@@ -880,7 +1041,7 @@ def generate_weather_image(config, special_msg=None):
         rv_color = config.get("rainviewer_color_scheme", 4)
         # Pre-size to the exact radar canvas so mode scaling is a no-op
         rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-        radar_img = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers)
+        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers)
         if radar_img is None:
             logger.error("RainViewer fetch failed — cannot generate radar image.")
             return None, False, None
@@ -1008,10 +1169,47 @@ def generate_weather_image(config, special_msg=None):
         # Thin vertical separator (full height)
         draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
 
+        # RainViewer frame timestamp — bottom-left corner of the radar side
+        if rv_frame_ts:
+            try:
+                from datetime import timezone as _tz_mod2
+                _ts_label = _dt.fromtimestamp(int(rv_frame_ts), tz=_tz_mod2.utc).astimezone().strftime("%-I:%M %p")
+                _ts_font = hdr_font or ImageFont.load_default()
+                _ts_bb = draw_tmp.textbbox((0, 0), _ts_label, font=_ts_font)
+                _ts_h = _ts_bb[3] - _ts_bb[1]
+                draw_tmp.text((6, height - _ts_h - 4), _ts_label, fill=(255, 255, 255), font=_ts_font)
+            except Exception:
+                pass
+
         primary_region = (0, 0, radar_w, height)
         processed_radar = None
+    elif radar_mode == "seven_color":
+        # Full-screen 7-color radar: uses all Waveshare e-ink ink channels.
+        # Pixels are classified by precipitation intensity via HSV hue, then
+        # remapped to the 7 display colors. A legend strip at the bottom labels
+        # each color with its approximate dBZ tier.
+        forecast_loc = config.get("forecast_location", {})
+        rv_lat = config.get("rainviewer_lat") or forecast_loc.get("latitude")
+        rv_lon = config.get("rainviewer_lon") or forecast_loc.get("longitude")
+        if not rv_lat or not rv_lon:
+            logger.error("seven_color mode requires lat/lon — set forecast_location or rainviewer_lat/lon")
+            return None, False, None
+        rv_zoom = config.get("rainviewer_zoom", 8)
+        rv_color = config.get("rainviewer_color_scheme", 4)
+        radar_h = height - _LEGEND_H
+        radar_img_7c, frame_ts = _fetch_rainviewer_image(
+            rv_lat, rv_lon, rv_zoom, width, radar_h, rv_color, headers
+        )
+        if radar_img_7c is None:
+            logger.error("RainViewer fetch failed for seven_color mode")
+            return None, False, None
+        remapped = _remap_radar_seven_color(radar_img_7c)
+        final_img.paste(remapped, (0, 0))
+        _draw_seven_color_legend(final_img, frame_ts, station, config)
+        primary_region = (0, 0, width, radar_h)
+        processed_radar = None
     else:
-        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', or 'panel'.")
+        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', 'panel', or 'seven_color'.")
 
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
