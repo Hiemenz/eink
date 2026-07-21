@@ -23,7 +23,7 @@ interesting_threshold: 12  # % colored pixels below which the default is conside
 alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
-radar_mode: panel # "crop" | "fit" | "panel"
+radar_mode: panel # "crop" | "fit" | "panel" | "seven_color"
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
@@ -183,6 +183,37 @@ module_cycler:
     - nasa_apod
     - flight_radar
 
+# ── Air Quality Index (AirNow) ───────────────────────────────────────────────
+air_quality:
+  output_path: images/aqi_display.bmp
+  zip_code: "37064"          # your zip code
+  api_key: ""                # free key from airnow.gov
+  cache_dir: data/
+
+# ── Countdown Timer ───────────────────────────────────────────────────────────
+countdown:
+  output_path: images/countdown_display.bmp
+  events:
+    - name: "New Year"
+      date: "2027-01-01"
+      start_date: "2026-01-01"   # enables progress bar
+      color: [0, 0, 255]
+
+# ── Sports Scores (ESPN) ──────────────────────────────────────────────────────
+sports_scores:
+  output_path: images/sports_display.bmp
+  sport: football              # football | basketball | baseball | hockey
+  league: nfl                  # nfl | nba | mlb | nhl | college-football
+  max_games: 6
+  cache_ttl_seconds: 300
+  cache_dir: data/
+
+# ── Word of the Day (Merriam-Webster) ────────────────────────────────────────
+word_of_day:
+  output_path: images/wotd_display.bmp
+  api_key: ""                  # free key from dictionaryapi.com (optional)
+  cache_dir: data/
+
 # ── Conway's Game of Life ─────────────────────────────────────────────────────
 game_of_life:
   output_path: images/game_of_life.bmp
@@ -204,6 +235,8 @@ game_of_life:
 radar_source: ridge
 rainviewer_zoom: 8             # zoom level: 7=regional (~1.2km/px) 8=metro (~600m/px) 9=city (~300m/px)
 rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Universal Blue, 8=Dark
+# seven_color mode (radar_mode: seven_color) always uses RainViewer. Color → dBZ:
+#   White=none  Blue=5-25  Green=25-35  Yellow=35-45  Orange=45-50  Red=50-60  Black=>60
 # rainviewer_lat / rainviewer_lon override forecast_location if set
 
 show_top_5: False

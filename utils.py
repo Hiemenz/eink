@@ -13,6 +13,37 @@ from typing import Dict, List, Optional
 
 from PIL import ImageFont
 
+MODULE_INTERVALS: Dict[str, int] = {
+    # Seconds between refreshes for each module.
+    # Modules not listed fall back to config["update_interval"].
+    "weather":          300,    # 5 min — radar + conditions
+    "flight_radar":     300,    # 5 min — OpenSky data
+    "sports_scores":    300,    # 5 min — live scores
+    "air_quality":     3600,    # 1 hour — AQI changes slowly
+    "parking_garage":   600,    # 10 min
+    "crypto_market":    600,    # 10 min
+    "franklin_cam":     120,    # 2 min — live camera
+    "game_of_life":     300,    # 5 min per generation step
+    "moon_phase":      3600,    # 1 hour
+    "countdown":       3600,    # 1 hour — date math, no API
+    "word_of_day":    86400,    # 24 hours — changes daily
+    "poem_of_day":    86400,
+    "on_this_day":    86400,
+    "art_of_day":     86400,
+    "nasa_apod":      86400,
+    "chess_puzzle":   86400,
+    "sudoku_puzzle":  86400,
+    "quote_of_day":   86400,
+    "saint_of_day":   86400,
+    "wiki_image":     86400,
+    "news_headlines":  1800,    # 30 min
+    "claude_news":     1800,
+    "interesting_fact": 3600,
+    "questions":        900,
+    "brain_status":     300,
+    "movie_slideshow":   60,    # advances each cycle
+}
+
 MODULE_MAP: Dict[str, str] = {
     "weather":         "modules.weather",
     "text":            "modules.text_display",
@@ -40,6 +71,10 @@ MODULE_MAP: Dict[str, str] = {
     "terminal":        "modules.terminal",
     "crypto_market":   "modules.crypto_market",
     "game_of_life":    "modules.game_of_life",
+    "air_quality":     "modules.air_quality",
+    "countdown":       "modules.countdown",
+    "sports_scores":   "modules.sports_scores",
+    "word_of_day":     "modules.word_of_day",
 }
 
 # Platform-aware font search chains
