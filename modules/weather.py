@@ -726,6 +726,82 @@ def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
     logger.info("Quantized image saved to %s", output_path)
 
 
+def _fetch_rainviewer_image(
+    lat: float, lon: float, zoom: int, width: int, height: int,
+    color_scheme: int, headers: dict
+) -> Optional[Image.Image]:
+    """
+    Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
+    Tiles are transparent PNGs composited onto a white background.
+    Returns an RGB PIL Image sized exactly width×height, or None on failure.
+    """
+    _TILE_SIZE = 512
+
+    try:
+        api_resp = requests.get(
+            "https://api.rainviewer.com/public/weather-maps.json",
+            headers=headers, timeout=10,
+        )
+        api_resp.raise_for_status()
+        data = api_resp.json()
+    except Exception as e:
+        logger.error("RainViewer API request failed: %s", e)
+        return None
+
+    radar_frames = data.get("radar", {}).get("past", [])
+    if not radar_frames:
+        logger.error("No radar frames in RainViewer API response")
+        return None
+    latest_path = radar_frames[-1]["path"]  # e.g. "/v2/radar/1721234567"
+    logger.info("RainViewer: using frame %s", latest_path)
+
+    # World-pixel coordinates of the center point at this zoom level
+    n = 2 ** zoom
+    cx_px = (lon + 180.0) / 360.0 * n * _TILE_SIZE
+    lat_rad = math.radians(lat)
+    cy_px = (
+        (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi)
+        / 2.0 * n * _TILE_SIZE
+    )
+
+    # Display bounds in world-pixel space
+    left_px = cx_px - width / 2.0
+    top_px = cy_px - height / 2.0
+
+    # Tile index range needed to cover the display area
+    tx_min = int(left_px // _TILE_SIZE)
+    ty_min = int(top_px // _TILE_SIZE)
+    tx_max = int((left_px + width - 1) // _TILE_SIZE)
+    ty_max = int((top_px + height - 1) // _TILE_SIZE)
+
+    canvas_w = (tx_max - tx_min + 1) * _TILE_SIZE
+    canvas_h = (ty_max - ty_min + 1) * _TILE_SIZE
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 255))
+
+    for tx in range(tx_min, tx_max + 1):
+        for ty in range(ty_min, ty_max + 1):
+            url = (
+                f"https://tilecache.rainviewer.com{latest_path}"
+                f"/{_TILE_SIZE}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png"
+            )
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+                    px = (tx - tx_min) * _TILE_SIZE
+                    py = (ty - ty_min) * _TILE_SIZE
+                    canvas.paste(tile, (px, py), tile)
+                else:
+                    logger.warning("RainViewer tile %d/%d HTTP %d", tx, ty, resp.status_code)
+            except Exception as e:
+                logger.warning("RainViewer tile %d/%d fetch failed: %s", tx, ty, e)
+
+    crop_x = int(left_px - tx_min * _TILE_SIZE)
+    crop_y = int(top_px - ty_min * _TILE_SIZE)
+    result = canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
+    return result.convert("RGB")
+
+
 def _fetch_radar_image(radar_url: str, headers: dict):
     """
     Fetch a radar GIF from *radar_url* with up to 3 quick retries (2 s apart).
@@ -786,28 +862,46 @@ def generate_weather_image(config, special_msg=None):
     radar_mode = config.get("radar_mode", "crop").lower()
     final_img = Image.new("RGB", (width, height), color=background_color)
 
-    radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
-
-    if config.get("url_qr_loop", True):
-        radar_url_qr = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
-    else:
-        radar_url_qr = f'https://radar.weather.gov/station/{station.lower()}/standard'
-
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
-    response = _fetch_radar_image(radar_url, headers)
-    if response is None:
-        logger.error("Radar image could not be fetched — using last cached result.")
-        return None, False, None
+    radar_source = config.get("radar_source", "ridge").lower()
+    radar_url_qr = None
 
-    content_type = response.headers.get("Content-Type", "")
-    if "image" not in content_type:
-        logger.error("Unexpected content type: %s", content_type)
-        return None, False, None
+    if radar_source == "rainviewer":
+        forecast_loc = config.get("forecast_location", {})
+        rv_lat = config.get("rainviewer_lat") or forecast_loc.get("latitude")
+        rv_lon = config.get("rainviewer_lon") or forecast_loc.get("longitude")
+        if not rv_lat or not rv_lon:
+            logger.error("RainViewer requires lat/lon — set forecast_location or rainviewer_lat/lon")
+            return None, False, None
+        rv_zoom = config.get("rainviewer_zoom", 8)
+        rv_color = config.get("rainviewer_color_scheme", 4)
+        # Pre-size to the exact radar canvas so mode scaling is a no-op
+        rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
+        radar_img = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers)
+        if radar_img is None:
+            logger.error("RainViewer fetch failed — cannot generate radar image.")
+            return None, False, None
+    else:
+        radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
+        if config.get("url_qr_loop", True):
+            radar_url_qr = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
+        else:
+            radar_url_qr = f'https://radar.weather.gov/station/{station.lower()}/standard'
 
-    radar_img = Image.open(io.BytesIO(response.content)).convert("RGB")
+        response = _fetch_radar_image(radar_url, headers)
+        if response is None:
+            logger.error("Radar image could not be fetched — using last cached result.")
+            return None, False, None
+
+        content_type = response.headers.get("Content-Type", "")
+        if "image" not in content_type:
+            logger.error("Unexpected content type: %s", content_type)
+            return None, False, None
+
+        radar_img = Image.open(io.BytesIO(response.content)).convert("RGB")
     primary_region = None
 
     if radar_mode == "crop":
@@ -982,6 +1076,10 @@ def calculate_non_bw_percentage(image_path, region=None):
 
 
 def full_station_scan(config, skip_station=None):
+    if config.get("radar_source", "ridge").lower() == "rainviewer":
+        # RainViewer is a CONUS composite — per-station scanning doesn't apply
+        return {}
+
     # Force "fit" mode during scans — no panel/API calls per station
     saved_mode = config.get("radar_mode")
     config["radar_mode"] = "fit"
