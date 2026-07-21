@@ -1006,6 +1006,107 @@ def _draw_seven_color_legend(
     )
 
 
+def _fetch_nws_alerts(lat: float, lon: float, headers: dict) -> List[Dict[str, Any]]:
+    """
+    Fetch active NWS alerts affecting a point from api.weather.gov.
+
+    Returns a list of {"event", "severity", "polygon"} dicts, where polygon is a
+    list of (lon, lat) vertices (or None if the alert has no storm-based geometry).
+    Returns [] on any failure — the overlay is best-effort and never blocks radar.
+    """
+    url = f"https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
+    nws_headers = dict(headers)
+    nws_headers["Accept"] = "application/geo+json"
+    try:
+        resp = requests.get(url, headers=nws_headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning("NWS alerts fetch failed: %s", e)
+        return []
+
+    alerts = []
+    for feature in data.get("features", []):
+        props = feature.get("properties", {}) or {}
+        geom = feature.get("geometry") or {}
+        polygon = None
+        if geom.get("type") == "Polygon":
+            rings = geom.get("coordinates") or []
+            if rings and rings[0]:
+                polygon = [(pt[0], pt[1]) for pt in rings[0]]
+        alerts.append({
+            "event": props.get("event", "Alert"),
+            "severity": props.get("severity", ""),
+            "polygon": polygon,
+        })
+    if alerts:
+        logger.info("NWS: %d active alert(s) at point", len(alerts))
+    return alerts
+
+
+def _overlay_severe_alerts(
+    canvas: Image.Image, center_lat: float, center_lon: float, zoom: int,
+    region_w: int, region_h: int, headers: dict,
+    x_off: int = 0, y_off: int = 0,
+) -> None:
+    """
+    Draw active NWS storm-based warning polygons over a RainViewer-projected radar
+    region. Uses the same Web-Mercator tile projection as _fetch_rainviewer_image so
+    polygons line up with the radar tiles. Best-effort: any failure is swallowed.
+
+    Alerts without polygon geometry (zone-based) are skipped here — the existing
+    special-weather banner already surfaces those.
+    """
+    _TILE_SIZE = 512
+    alerts = _fetch_nws_alerts(center_lat, center_lon, headers)
+    if not alerts:
+        return
+
+    n = 2 ** zoom
+
+    def _world_px(lon: float, lat: float):
+        x = (lon + 180.0) / 360.0 * n * _TILE_SIZE
+        lat_rad = math.radians(lat)
+        y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * _TILE_SIZE
+        return x, y
+
+    cx_px, cy_px = _world_px(center_lon, center_lat)
+
+    def _to_pixel(lon: float, lat: float):
+        wx, wy = _world_px(lon, lat)
+        return (x_off + region_w / 2.0 + (wx - cx_px),
+                y_off + region_h / 2.0 + (wy - cy_px))
+
+    draw = ImageDraw.Draw(canvas)
+    RED = (255, 0, 0)
+
+    for alert in alerts:
+        poly = alert.get("polygon")
+        if not poly or len(poly) < 3:
+            continue
+        pts = [_to_pixel(lon, lat) for lon, lat in poly]
+        # Skip if the polygon is entirely outside the visible region
+        xs = [p[0] for p in pts]
+        ys = [p[1] for p in pts]
+        if max(xs) < x_off or min(xs) > x_off + region_w or max(ys) < y_off or min(ys) > y_off + region_h:
+            continue
+        # Bold red outline
+        draw.line(pts + [pts[0]], fill=RED, width=3)
+        # Event label at the polygon's top vertex
+        label = alert.get("event", "Alert")
+        lx = min(xs)
+        ly = min(ys)
+        lx = max(x_off + 2, min(lx, x_off + region_w - 120))
+        ly = max(y_off + 2, min(ly, y_off + region_h - 18))
+        try:
+            lf = get_font(13, bold=True, config=None)
+        except Exception:
+            lf = ImageFont.load_default()
+        bb = draw.textbbox((0, 0), label, font=lf)
+        draw.rectangle([lx, ly, lx + (bb[2] - bb[0]) + 6, ly + (bb[3] - bb[1]) + 4], fill=RED)
+        draw.text((lx + 3, ly + 2), label, fill=(255, 255, 255), font=lf)
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -1181,6 +1282,11 @@ def generate_weather_image(config, special_msg=None):
             except Exception:
                 pass
 
+        # Severe-weather warning polygons over the radar side (RainViewer only —
+        # projection is only known for the tile source).
+        if config.get("radar_alerts_overlay", False) and radar_source == "rainviewer":
+            _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, radar_w, height, headers)
+
         primary_region = (0, 0, radar_w, height)
         processed_radar = None
     elif radar_mode == "seven_color":
@@ -1205,6 +1311,9 @@ def generate_weather_image(config, special_msg=None):
             return None, False, None
         remapped = _remap_radar_seven_color(radar_img_7c)
         final_img.paste(remapped, (0, 0))
+        # Severe-weather warning polygons (drawn after remap so pure red survives)
+        if config.get("radar_alerts_overlay", False):
+            _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, width, radar_h, headers)
         _draw_seven_color_legend(final_img, frame_ts, station, config)
         primary_region = (0, 0, width, radar_h)
         processed_radar = None

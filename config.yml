@@ -183,6 +183,21 @@ module_cycler:
     - nasa_apod
     - flight_radar
 
+# ── 48-Hour Forecast Graph (Open-Meteo, keyless) ─────────────────────────────
+forecast_graph:
+  output_path: images/forecast_graph.bmp
+  cache_dir: data/
+
+# ── Aurora Forecast (NOAA SWPC, keyless) ─────────────────────────────────────
+aurora:
+  output_path: images/aurora_display.bmp
+  cache_dir: data/
+
+# ── Pollen Count (Open-Meteo, keyless) ───────────────────────────────────────
+pollen:
+  output_path: images/pollen_display.bmp
+  cache_dir: data/
+
 # ── Air Quality Index (AirNow) ───────────────────────────────────────────────
 air_quality:
   output_path: images/aqi_display.bmp
@@ -237,6 +252,7 @@ rainviewer_zoom: 8             # zoom level: 7=regional (~1.2km/px) 8=metro (~60
 rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Universal Blue, 8=Dark
 # seven_color mode (radar_mode: seven_color) always uses RainViewer. Color → dBZ:
 #   White=none  Blue=5-25  Green=25-35  Yellow=35-45  Orange=45-50  Red=50-60  Black=>60
+radar_alerts_overlay: false    # draw NWS storm-warning polygons over radar (RainViewer only)
 # rainviewer_lat / rainviewer_lon override forecast_location if set
 
 show_top_5: False

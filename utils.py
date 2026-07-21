@@ -26,6 +26,9 @@ MODULE_INTERVALS: Dict[str, int] = {
     "game_of_life":     300,    # 5 min per generation step
     "moon_phase":      3600,    # 1 hour
     "countdown":       3600,    # 1 hour — date math, no API
+    "forecast_graph":  1800,    # 30 min — hourly forecast
+    "aurora":          1800,    # 30 min — Kp index
+    "pollen":          3600,    # 1 hour
     "word_of_day":    86400,    # 24 hours — changes daily
     "poem_of_day":    86400,
     "on_this_day":    86400,
@@ -75,6 +78,9 @@ MODULE_MAP: Dict[str, str] = {
     "countdown":       "modules.countdown",
     "sports_scores":   "modules.sports_scores",
     "word_of_day":     "modules.word_of_day",
+    "forecast_graph":  "modules.forecast_graph",
+    "aurora":          "modules.aurora",
+    "pollen":          "modules.pollen",
 }
 
 # Platform-aware font search chains
