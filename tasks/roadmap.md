@@ -16,38 +16,41 @@ L = a day+). "Data source" notes the free API; "no key" means no signup required
 - [x] Countdown timer module (config-driven)
 - [x] Sports scores module (ESPN, no key)
 - [x] Word of the Day module (Merriam-Webster)
+- [x] 48-hour forecast graph module (Open-Meteo, keyless)
+- [x] Aurora forecast module (NOAA SWPC, keyless)
+- [x] Pollen count module (Open-Meteo, keyless)
+- [x] ISS tracker module (wheretheiss.at, keyless)
+- [x] Recent earthquakes module (USGS, keyless)
+- [x] Stock watchlist module (Yahoo Finance)
+- [x] XKCD comic of the day module (keyless)
+- [x] Electricity grid carbon intensity module (ElectricityMaps / UK Carbon Intensity API)
+- [x] Now playing module (Last.fm)
+- [x] Local traffic module (TomTom)
+- [x] Calendar / agenda module (iCal/ICS URLs)
 
 ---
 
 ## Radar / Weather
 
-- [ ] **48-hour forecast graph** — line/area chart of temp + precip probability.
-      Reuses the Open-Meteo data already fetched in `weather.py`. No new API. (S)
-- [ ] **Aurora forecast** — NOAA SWPC Kp-index gauge + "visible tonight?" verdict.
-      Data source: services.swpc.noaa.gov (no key). (M)
+- [x] **48-hour forecast graph** — Open-Meteo, temp line + precip bars. (S)
+- [x] **Aurora forecast** — NOAA SWPC Kp-index, visibility verdict by lat. (M)
+- [x] **Severe weather polygon overlay** — NWS alerts GeoJSON over radar. (L)
+- [x] **Pollen count** — Open-Meteo air quality, 6 species. (M)
 - [ ] **Lightning overlay** — RainViewer lightning tile path, semi-transparent strike
       markers over the radar canvas. (M)
-- [ ] **Severe weather polygon overlay** — NWS `api.weather.gov/alerts/active` GeoJSON,
-      draw hatched warning boxes over radar. (L)
-- [ ] **Pollen count** — Google Pollen or Ambee API. Color-tiered tile like AQI. (M)
 - [ ] **RainViewer animation** — animate last 6–12 frames as a GIF/slideshow.
       Note: each e-ink refresh is slow (~15s on 7-color), so this is a slideshow. (M)
 
 ## New Display Modules
 
-- [ ] **Calendar / agenda** — today's events as a clean list. Highest daily value.
-      Data source: Google Calendar (MCP auth available). (M)
-- [ ] **ISS pass predictions** — "Next visible pass: 9:42 PM, 6 min, NW→SE."
-      Data source: N2YO or Open-Notify (no key). (S)
-- [ ] **Recent earthquakes** — plot USGS GeoJSON feed on a small map. Reuses the
-      staticmap + lat/lon projection code from `flight_radar.py`. (M)
-- [ ] **Stock watchlist** — equities sibling to crypto module.
-      Data source: Yahoo Finance / Alpha Vantage free tier. (M)
-- [ ] **Electricity grid carbon intensity** — "clean vs dirty right now" color tile.
-      Data source: ElectricityMaps / WattTime. E-ink-native use case. (M)
-- [ ] **Now playing** — Spotify / Last.fm recent track + album art. (M)
-- [ ] **XKCD / comic of the day** — image-based, trivially easy like NASA APOD. (S)
-- [ ] **Local traffic** — TomTom / HERE free-tier incident data, delay + count. (M)
+- [x] **Calendar / agenda** — iCal/ICS URL parser, today + 7 days, stdlib VEVENT. (M)
+- [x] **ISS tracker** — wheretheiss.at, equirectangular world map, haversine dist. (S)
+- [x] **Recent earthquakes** — USGS GeoJSON, world map circles + distance list. (M)
+- [x] **Stock watchlist** — Yahoo Finance quote API, PIL-drawn triangles. (M)
+- [x] **Electricity grid carbon intensity** — ElectricityMaps + UK fallback (keyless). (M)
+- [x] **Now playing** — Last.fm recent tracks, album art, track + artist. (M)
+- [x] **XKCD / comic of the day** — xkcd.com API, letterboxed art, daily cache. (S)
+- [x] **Local traffic** — TomTom Traffic Incidents API, incident cards. (M)
 
 ## Infrastructure / Quality of Life
 

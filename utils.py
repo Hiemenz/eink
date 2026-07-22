@@ -45,6 +45,14 @@ MODULE_INTERVALS: Dict[str, int] = {
     "questions":        900,
     "brain_status":     300,
     "movie_slideshow":   60,    # advances each cycle
+    "iss_tracker":       300,    # 5 min — ISS moves fast
+    "earthquakes":       600,    # 10 min — USGS feed
+    "stocks":            300,    # 5 min — market data
+    "xkcd":            86400,    # 24 hours — daily comic
+    "carbon_intensity": 1800,    # 30 min — grid mix
+    "now_playing":        60,    # 1 min — track changes
+    "traffic":           600,    # 10 min — incident data
+    "agenda":            900,    # 15 min — calendar events
 }
 
 MODULE_MAP: Dict[str, str] = {
@@ -81,6 +89,14 @@ MODULE_MAP: Dict[str, str] = {
     "forecast_graph":  "modules.forecast_graph",
     "aurora":          "modules.aurora",
     "pollen":          "modules.pollen",
+    "iss_tracker":     "modules.iss_tracker",
+    "earthquakes":     "modules.earthquakes",
+    "stocks":          "modules.stocks",
+    "xkcd":            "modules.xkcd",
+    "carbon_intensity": "modules.carbon_intensity",
+    "now_playing":     "modules.now_playing",
+    "traffic":         "modules.traffic",
+    "agenda":          "modules.agenda",
 }
 
 # Platform-aware font search chains

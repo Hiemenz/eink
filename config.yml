@@ -229,6 +229,73 @@ word_of_day:
   api_key: ""                  # free key from dictionaryapi.com (optional)
   cache_dir: data/
 
+# ── ISS Tracker (wheretheiss.at, keyless) ────────────────────────────────────
+iss_tracker:
+  output_path: images/iss_tracker.bmp
+  cache_dir: data/
+  home_lat: 35.9251          # your latitude — used for distance/visibility calc
+  home_lon: -86.8689         # your longitude
+
+# ── Recent Earthquakes (USGS GeoJSON, keyless) ───────────────────────────────
+earthquakes:
+  output_path: images/earthquakes.bmp
+  cache_dir: data/
+  min_magnitude: 4.5         # minimum magnitude to display
+  home_lat: 35.9251
+  home_lon: -86.8689
+  max_quakes: 10             # max events to list
+
+# ── Stock Watchlist (Yahoo Finance) ──────────────────────────────────────────
+stocks:
+  output_path: images/stocks.bmp
+  cache_dir: data/
+  symbols:
+    - AAPL
+    - MSFT
+    - GOOGL
+    - AMZN
+    - NVDA
+
+# ── XKCD Comic of the Day ────────────────────────────────────────────────────
+xkcd:
+  output_path: images/xkcd.bmp
+  cache_dir: data/
+  mode: daily                # "daily" (today's) or "latest" (most recent)
+
+# ── Electricity Grid Carbon Intensity ────────────────────────────────────────
+carbon_intensity:
+  output_path: images/carbon_intensity.bmp
+  cache_dir: data/
+  zone: US-TEN               # ElectricityMaps zone (e.g. US-TEN, GB, DE, FR)
+  api_key: ""                # free token from app.electricitymaps.com
+  # Fallback to UK Carbon Intensity API (keyless, GB only) if api_key is blank
+
+# ── Now Playing (Last.fm) ────────────────────────────────────────────────────
+now_playing:
+  output_path: images/now_playing.bmp
+  cache_dir: data/
+  api_key: ""                # free key from last.fm/api
+  username: ""               # Last.fm username to track
+
+# ── Local Traffic (TomTom) ───────────────────────────────────────────────────
+traffic:
+  output_path: images/traffic.bmp
+  cache_dir: data/
+  api_key: ""                # free key from developer.tomtom.com
+  center_lat: 35.9251
+  center_lon: -86.8689
+  radius_km: 20              # search radius in km
+  max_incidents: 8
+
+# ── Calendar / Agenda (iCal) ─────────────────────────────────────────────────
+agenda:
+  output_path: images/agenda.bmp
+  cache_dir: data/
+  ical_urls:
+    - ""                     # paste your iCal/ICS URL (Google Calendar, Apple, etc.)
+  days_ahead: 7              # show events within this many days
+  max_events: 8
+
 # ── Conway's Game of Life ─────────────────────────────────────────────────────
 game_of_life:
   output_path: images/game_of_life.bmp
