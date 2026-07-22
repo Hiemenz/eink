@@ -1146,6 +1146,14 @@ def generate_weather_image(config, special_msg=None):
         if radar_img is None:
             logger.error("RainViewer fetch failed — cannot generate radar image.")
             return None, False, None
+        if rv_frame_ts:
+            _rv_state_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "radar", "rv_frame_state.json")
+            try:
+                with open(_rv_state_path, "w") as _f:
+                    import json as _json
+                    _json.dump({"frame_ts": rv_frame_ts}, _f)
+            except OSError:
+                pass
     else:
         radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
         if config.get("url_qr_loop", True):
@@ -1309,6 +1317,14 @@ def generate_weather_image(config, special_msg=None):
         if radar_img_7c is None:
             logger.error("RainViewer fetch failed for seven_color mode")
             return None, False, None
+        if frame_ts:
+            _rv_state_path2 = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "radar", "rv_frame_state.json")
+            try:
+                with open(_rv_state_path2, "w") as _f2:
+                    import json as _json2
+                    _json2.dump({"frame_ts": frame_ts}, _f2)
+            except OSError:
+                pass
         remapped = _remap_radar_seven_color(radar_img_7c)
         final_img.paste(remapped, (0, 0))
         # Severe-weather warning polygons (drawn after remap so pure red survives)

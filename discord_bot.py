@@ -65,6 +65,22 @@ ALL_MODULES = [
     "terminal",
     "crypto_market",
     "game_of_life",
+    # Phase 2 modules
+    "forecast_graph",
+    "aurora",
+    "pollen",
+    "air_quality",
+    "countdown",
+    "sports_scores",
+    "word_of_day",
+    "iss_tracker",
+    "earthquakes",
+    "stocks",
+    "xkcd",
+    "carbon_intensity",
+    "now_playing",
+    "traffic",
+    "agenda",
 ]
 
 # Pre-flight config checks per module
@@ -397,6 +413,53 @@ def _next_update_str(module: str, cfg: dict, module_intervals: dict, global_fall
     if mins >= 60:
         return f"next update in ~{mins // 60}h"
     return f"next update in ~{mins}min"
+
+
+def _in_sleep_window(cfg: dict) -> bool:
+    """Return True if the current time falls in the configured night sleep window."""
+    from datetime import time as dt_time
+    import datetime as _dt
+    sleep_cfg = cfg.get("night_sleep", {})
+    if not sleep_cfg.get("enabled", False):
+        return False
+    try:
+        h0, m0 = map(int, sleep_cfg.get("start", "23:00").split(":"))
+        h1, m1 = map(int, sleep_cfg.get("end", "06:00").split(":"))
+    except ValueError:
+        return False
+    now = _dt.datetime.now().time()
+    start = dt_time(h0, m0)
+    end = dt_time(h1, m1)
+    if start <= end:
+        return start <= now < end
+    return now >= start or now < end
+
+
+def _fetch_nws_alerts(lat: float, lon: float) -> list[dict]:
+    """Return active NWS alerts for the given coordinates (Severe/Extreme only)."""
+    import requests
+    try:
+        r = requests.get(
+            f"https://api.weather.gov/alerts/active?point={lat},{lon}",
+            headers={"User-Agent": "eink-display/1.0"},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return []
+        features = r.json().get("features", [])
+        alerts = []
+        for f in features:
+            props = f.get("properties", {})
+            sev = props.get("severity", "")
+            if sev in ("Extreme", "Severe"):
+                alerts.append({
+                    "event": props.get("event", ""),
+                    "severity": sev,
+                    "headline": props.get("headline", ""),
+                })
+        return alerts
+    except Exception:
+        return []
 
 
 def make_bot(prefix: str) -> commands.Bot:
@@ -1059,13 +1122,60 @@ async def cmd_refresh(ctx: commands.Context):
 
 @channel_guard()
 async def cmd_status(ctx: commands.Context):
-    """Show the current display state from config.yml."""
+    """Show the current display state — module, last refresh age, interval, sleep window."""
+    import time as _time
     cfg = load_config()
     active = cfg.get("active_module", "unknown")
+    from utils import MODULE_MAP, MODULE_INTERVALS as _MI
 
     embed = discord.Embed(title="E-Ink Display Status", color=discord.Color.og_blurple())
     embed.add_field(name="Active module", value=f"`{active}`", inline=True)
-    embed.add_field(name="Update interval", value=f"{cfg.get('update_interval', '?')}s", inline=True)
+
+    # Effective refresh interval
+    interval = _MI.get(active, int(cfg.get("update_interval", 21600)))
+    mins = interval // 60
+    interval_str = f"{mins // 1440}d" if mins >= 1440 else (f"{mins // 60}h" if mins >= 60 else f"{mins}min")
+    embed.add_field(name="Refresh interval", value=interval_str, inline=True)
+
+    # Night sleep status
+    if _in_sleep_window(cfg):
+        sc = cfg.get("night_sleep", {})
+        embed.add_field(name="Night sleep", value=f"ACTIVE ({sc.get('start','?')}–{sc.get('end','?')})", inline=True)
+
+    # Last image mtime → age
+    from server.app import _resolve_module_image
+    img_path = _resolve_module_image(active, cfg)
+    if img_path and os.path.exists(img_path):
+        age_s = int(_time.time() - os.path.getmtime(img_path))
+        if age_s >= 3600:
+            age_str = f"{age_s // 3600}h {(age_s % 3600) // 60}min ago"
+        elif age_s >= 60:
+            age_str = f"{age_s // 60}min ago"
+        else:
+            age_str = f"{age_s}s ago"
+        embed.add_field(name="Last image", value=age_str, inline=True)
+
+    # Radar frame age (written by weather.py when it fetches RainViewer)
+    rv_state = os.path.join(ROOT, "radar", "rv_frame_state.json")
+    if os.path.exists(rv_state):
+        try:
+            with open(rv_state) as f:
+                rv = json.load(f)
+            frame_ts = rv.get("frame_ts")
+            if frame_ts:
+                frame_age = int(_time.time()) - int(frame_ts)
+                embed.add_field(
+                    name="Radar frame age",
+                    value=f"{frame_age // 60}min" if frame_age >= 60 else f"{frame_age}s",
+                    inline=True,
+                )
+        except Exception:
+            pass
+
+    # Alert override status
+    if cfg.get("_alert_override_active"):
+        prev = cfg.get("_alert_override_previous_module", "?")
+        embed.add_field(name="Alert override", value=f"ACTIVE (was `{prev}`)", inline=False)
 
     if active in ("weather", "module_cycler"):
         station = cfg.get("station", {})
@@ -1076,16 +1186,12 @@ async def cmd_status(ctx: commands.Context):
                 inline=False,
             )
         embed.add_field(name="Radar mode", value=f"`{cfg.get('radar_mode', '?')}`", inline=True)
-        embed.add_field(name="Panel width", value=f"{cfg.get('panel_width', '?')}px", inline=True)
 
     if active == "module_cycler":
         cycle_modules = cfg.get("module_cycler", {}).get("modules", [])
         embed.add_field(name="Cycle list", value=", ".join(f"`{m}`" for m in cycle_modules), inline=False)
-
-        # Show last-run module from state file
         state_path = os.path.join(ROOT, cfg.get("module_cycler", {}).get("state_file", "data/cycler_state.json"))
         if os.path.exists(state_path):
-            import json
             with open(state_path) as f:
                 state = json.load(f)
             last = state.get("last_module")
@@ -1265,9 +1371,62 @@ def main():
         """Poll every minute; fire when the active module's interval has elapsed."""
         import time
         cfg_now = load_config()
+
+        # Night sleep — skip all auto-refreshes in the configured window
+        if _in_sleep_window(cfg_now):
+            return
+
         active = cfg_now.get("active_module", "?")
         if active in NO_AUTO_REFRESH:
             return
+
+        # Alert auto-override: check NWS alerts every 5 min regardless of active module
+        if cfg_now.get("alert_auto_override", False):
+            now_ts = time.time()
+            last_alert_check = cfg_now.get("_last_alert_check_ts", 0)
+            if now_ts - last_alert_check >= 300:
+                update_bot_state("_last_alert_check_ts", now_ts)
+                loc = cfg_now.get("forecast_location", {})
+                lat = loc.get("latitude")
+                lon = loc.get("longitude")
+                if lat and lon:
+                    alerts = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: _fetch_nws_alerts(lat, lon)
+                    )
+                    in_override = cfg_now.get("_alert_override_active", False)
+                    if alerts and not in_override:
+                        # Severe alert just started — force weather module
+                        update_bot_state("_alert_override_previous_module", active)
+                        update_bot_state("_alert_override_active", True)
+                        update_bot_state("active_module", "weather")
+                        cfg_now = load_config()
+                        active = "weather"
+                        if ALLOWED_CHANNEL:
+                            channel = bot.get_channel(ALLOWED_CHANNEL)
+                            if channel:
+                                names = ", ".join(a["event"] for a in alerts[:3])
+                                await channel.send(embed=discord.Embed(
+                                    title="⚠️ Severe weather — switched to radar",
+                                    description=names,
+                                    color=discord.Color.red(),
+                                ))
+                    elif not alerts and in_override:
+                        # Alerts cleared — restore previous module
+                        prev = cfg_now.get("_alert_override_previous_module", "weather")
+                        update_bot_state("active_module", prev)
+                        update_bot_state("_alert_override_active", False)
+                        update_bot_state("_alert_override_previous_module", None)
+                        cfg_now = load_config()
+                        active = prev
+                        if ALLOWED_CHANNEL:
+                            channel = bot.get_channel(ALLOWED_CHANNEL)
+                            if channel:
+                                await channel.send(embed=discord.Embed(
+                                    title="✅ Alerts cleared — restored module",
+                                    description=f"Back to `{prev}`",
+                                    color=discord.Color.green(),
+                                ))
+
         interval = _module_interval(active)
         elapsed = time.time() - _last_refresh[0]
         if elapsed < interval:

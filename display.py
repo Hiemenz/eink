@@ -60,10 +60,31 @@ def display_single_image(image_file):
 
 
 DISPLAY_LOCK_FILE = "/tmp/eink_display.lock"
+_REFRESH_COUNTER_FILE = "/tmp/eink_refresh_count.txt"
 
 
-def display_color_image(image_file, model='epd7in5_V2'):
-    """Display an image on the e-ink screen using the configured driver model."""
+def _read_refresh_count() -> int:
+    try:
+        with open(_REFRESH_COUNTER_FILE) as f:
+            return int(f.read().strip())
+    except Exception:
+        return 0
+
+
+def _write_refresh_count(n: int) -> None:
+    try:
+        with open(_REFRESH_COUNTER_FILE, "w") as f:
+            f.write(str(n))
+    except Exception:
+        pass
+
+
+def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int = 0):
+    """Display an image on the e-ink screen using the configured driver model.
+
+    full_clear_interval: if > 0, run an extra deep-clear cycle every N refreshes
+    to reduce ACeP 7-color ghosting. Has no effect on the B/W V2 driver.
+    """
     from waveshare_epd import epd7in5_V2, epd7in3f
     driver_map = {
         'epd7in5_V2': epd7in5_V2,
@@ -83,6 +104,17 @@ def display_color_image(image_file, model='epd7in5_V2'):
         driver = driver_map.get(model, epd7in5_V2)
         epd = driver.EPD()
         epd.init()
+
+        # Periodic deep-clear for 7-color ACeP ghosting
+        if full_clear_interval > 0 and model == 'epd7in3f':
+            count = _read_refresh_count() + 1
+            _write_refresh_count(count)
+            if count % full_clear_interval == 0:
+                print(f"[display] Deep clear #{count // full_clear_interval} (every {full_clear_interval} refreshes)")
+                epd.Clear()   # white
+                epd.Clear()   # second pass drives pigments fully to one extreme
+                _write_refresh_count(0)
+
         epd.Clear()
         image = Image.open(image_file)
         epd.display(epd.getbuffer(image))

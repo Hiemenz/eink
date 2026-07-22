@@ -13,6 +13,7 @@ import importlib
 import platform
 import sys
 import os
+from datetime import datetime, time as dt_time
 from typing import Any, Dict
 
 import yaml
@@ -72,10 +73,32 @@ def _save_hash(output_path: str, new_hash: str) -> None:
         f.write(new_hash)
 
 
+def _in_sleep_window(config: dict) -> bool:
+    """Return True if the current time falls in the configured night sleep window."""
+    sleep_cfg = config.get("night_sleep", {})
+    if not sleep_cfg.get("enabled", False):
+        return False
+    try:
+        h0, m0 = map(int, sleep_cfg.get("start", "23:00").split(":"))
+        h1, m1 = map(int, sleep_cfg.get("end", "06:00").split(":"))
+    except ValueError:
+        return False
+    now = datetime.now().time()
+    start = dt_time(h0, m0)
+    end = dt_time(h1, m1)
+    if start <= end:
+        return start <= now < end
+    return now >= start or now < end  # window crosses midnight
+
+
 def main() -> None:
     config = load_config()
     validate_config(config)
     active = config.get("active_module", "weather")
+
+    if _in_sleep_window(config):
+        logger.info("Night sleep window active — skipping refresh for module '%s'.", active)
+        return
 
     module_path = MODULE_MAP.get(active)
     if not module_path:
@@ -97,7 +120,11 @@ def main() -> None:
         else:
             if platform.system() == "Linux":
                 from display import display_color_image
-                display_color_image(output_path, model=config.get("display_model", "epd7in5_V2"))
+                display_color_image(
+                    output_path,
+                    model=config.get("display_model", "epd7in5_V2"),
+                    full_clear_interval=int(config.get("full_clear_interval", 0)),
+                )
                 logger.info("Displayed on e-ink hardware.")
                 if new_hash:
                     _save_hash(output_path, new_hash)

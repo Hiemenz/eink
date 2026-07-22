@@ -57,14 +57,16 @@ L = a day+). "Data source" notes the free API; "no key" means no signup required
 - [ ] **Composite dashboard mode** — tile 2–4 modules on one 800×480 screen
       (e.g. weather + agenda + AQI). Biggest layout upgrade; the module `generate()`
       contract makes it feasible. (L)
-- [ ] **Scheduled night sleep** — skip refreshes overnight to reduce panel wear /
-      power. (S)
-- [ ] **Periodic full-clear** — every N refreshes, full white/black flush to clear
-      7-color ghosting. (S)
-- [ ] **Alert-driven auto-override** — `module_cycler` force-switches to radar when a
-      severe-weather alert fires, until it clears. (M)
-- [ ] **Discord `!status`** — reply with current module, last update time, radar frame
-      age, and stale-data flags from the state file. (M)
+- [x] **Scheduled night sleep** — `night_sleep.enabled/start/end` in config; main.py
+      and discord_bot auto_refresh skip refreshes in the window. (S)
+- [x] **Periodic full-clear** — `full_clear_interval` in config; display.py runs an
+      extra Clear() cycle every N pushes to reduce 7-color ACeP ghosting. (S)
+- [x] **Alert-driven auto-override** — `alert_auto_override: true` in config; auto_refresh
+      polls NWS every 5 min and force-switches to radar on Severe/Extreme alerts,
+      then restores the previous module when they clear. (M)
+- [x] **Discord `!status`** — now shows last image age, effective refresh interval,
+      radar frame age (from rv_frame_state.json), sleep window, and alert override
+      status. (M)
 - [ ] **Home Assistant / MQTT bridge** — publish current module state; let HA trigger
       module switches. (L)
 - [ ] **Watchdog + health check** — auto-restart on crash, log last-successful-refresh

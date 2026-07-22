@@ -23,6 +23,22 @@ interesting_threshold: 12  # % colored pixels below which the default is conside
 alert_banner_height: 40
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
+
+# ── Night sleep ───────────────────────────────────────────────────────────────
+night_sleep:
+  enabled: false
+  start: "23:00"   # local time, 24-hour
+  end: "06:00"
+
+# ── Periodic full-clear (7-color ghosting) ────────────────────────────────────
+# Every N display pushes, run an extra clear cycle before rendering.
+# 0 = disabled. Only applies to epd7in3f (7-color). Set 20–50 for daily use.
+full_clear_interval: 0
+
+# ── Alert auto-override ───────────────────────────────────────────────────────
+# When true, auto_refresh polls NWS every 5 min; switches to weather module
+# on Severe/Extreme alerts and restores the previous module when they clear.
+alert_auto_override: false
 radar_mode: panel # "crop" | "fit" | "panel" | "seven_color"
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_header: "Franklin, TN"   # text shown in the panel header bar
