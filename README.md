@@ -9,8 +9,8 @@ A Raspberry Pi e-ink display system built around a **Waveshare 7.5" V2 (800×480
 | Component | Model |
 |---|---|
 | Display | Waveshare 7.5" V2 (800×480, black/white) |
+| Alt display | Waveshare 7.3" ACeP 7-Color — set `display_model: epd7in3f` in `config.yml` |
 | Controller | Raspberry Pi (any model with GPIO/SPI) |
-| Alt display | Waveshare 7.3" ACeP 7-Color (configure via `display_model: epd7in3f`) |
 
 ---
 
@@ -64,7 +64,22 @@ eink/
 │   ├── parking_garage.py    # Downtown Franklin parking availability
 │   ├── movie_slideshow.py   # Sequential image frame player
 │   ├── module_cycler.py     # Cycles through a configured list of modules
-│   └── brain_status.py      # AI brain / knowledge base status display
+│   ├── brain_status.py      # AI brain / knowledge base status display
+│   ├── forecast_graph.py    # 48-hour temp + precip graph (Open-Meteo, keyless)
+│   ├── aurora.py            # Aurora forecast — Kp-index gauge (NOAA SWPC, keyless)
+│   ├── pollen.py            # Pollen count by species (Open-Meteo, keyless)
+│   ├── air_quality.py       # Air Quality Index tile — 6-tier color scale (AirNow)
+│   ├── countdown.py         # Countdown timer to config-driven events
+│   ├── sports_scores.py     # Live scores card grid (ESPN, keyless)
+│   ├── word_of_day.py       # Word of the Day with definition (Merriam-Webster)
+│   ├── iss_tracker.py       # ISS position on world map (wheretheiss.at, keyless)
+│   ├── earthquakes.py       # Recent earthquakes world map (USGS, keyless)
+│   ├── stocks.py            # Stock watchlist with change indicators (Yahoo Finance)
+│   ├── xkcd.py              # XKCD comic of the day (keyless)
+│   ├── carbon_intensity.py  # Electricity grid carbon intensity (ElectricityMaps)
+│   ├── now_playing.py       # Last.fm recent track + album art
+│   ├── traffic.py           # Local traffic incidents (TomTom)
+│   └── agenda.py            # Calendar / agenda from iCal/ICS URLs
 │
 ├── data/
 │   ├── questions/           # CSVs (topic, question columns)
@@ -132,17 +147,18 @@ All settings live in `config.yml`. The Discord bot writes runtime overrides to `
 
 ### Per-module refresh intervals
 
-The Discord bot schedules each module independently. Defaults (overridable via `<module>.update_interval` in `config.yml`):
+Intervals are defined in `MODULE_INTERVALS` in `utils.py` and apply automatically — no per-module config needed. Representative defaults:
 
-| Module | Default |
+| Interval | Modules |
 |---|---|
-| `franklin_cam` | 5 min |
-| `parking_garage` | 10 min |
-| `questions` | 15 min |
-| `flight_radar` | 15 min |
-| `weather`, `brain_status` | 30 min |
-| `news_headlines`, `moon_phase`, `interesting_fact`, `claude_news` | 1 hr |
-| `chess_puzzle`, `nasa_apod`, `poem_of_day`, daily modules | 24 hr |
+| 1 min | `now_playing` |
+| 2 min | `franklin_cam` |
+| 5 min | `weather`, `flight_radar`, `sports_scores`, `brain_status`, `iss_tracker`, `stocks` |
+| 10 min | `parking_garage`, `crypto_market`, `earthquakes`, `traffic` |
+| 15 min | `questions`, `agenda` |
+| 30 min | `forecast_graph`, `aurora`, `news_headlines`, `claude_news`, `carbon_intensity` |
+| 1 hr | `air_quality`, `moon_phase`, `pollen`, `countdown`, `interesting_fact` |
+| 24 hr | `xkcd`, `word_of_day`, `nasa_apod`, `chess_puzzle`, and all other daily modules |
 
 ---
 
@@ -181,15 +197,23 @@ The bot also posts an embed + display image preview to the channel on every sche
 
 ## Weather Module
 
-Three radar display modes controlled by `radar_mode` in `config.yml`:
+Four radar display modes controlled by `radar_mode` in `config.yml`:
 
 | Mode | Description |
 |---|---|
 | `crop` | Scale-fill the full 800×480 canvas |
 | `fit` | Letterbox with neighboring station strips on the edges |
 | `panel` | Crop radar to the left portion; right panel shows current conditions, temperature, wind, and a QR code link |
+| `seven_color` | Full-canvas RainViewer radar remapped to all 7 e-ink ink channels (requires `epd7in3f`). Bottom legend strip shows dBZ scale, station, and frame timestamp. |
 
-**Panel mode** fetches live conditions from Open-Meteo (no API key required) and caches them for 5 minutes.
+**Radar sources:**
+
+| Source | Key | Notes |
+|---|---|---|
+| `ridge` (default) | None | NWS NEXRAD single-station GIF |
+| `rainviewer` | None | RainViewer CONUS composite tiles — higher resolution, used automatically by `seven_color` mode |
+
+**Panel mode** fetches live conditions from Open-Meteo (no API key required) and caches them for 5 minutes. Set `radar_alerts_overlay: true` to draw NWS storm-warning polygons over the radar canvas (RainViewer only).
 
 ---
 
@@ -204,6 +228,23 @@ Three radar display modes controlled by `radar_mode` in `config.yml`:
 
 ---
 
+## API Keys
+
+Most modules are keyless. A few require free registrations:
+
+| Module | Service | Notes |
+|---|---|---|
+| `air_quality` | [AirNow](https://docs.airnowapi.org/) | Free, US zip-code based |
+| `word_of_day` | [Merriam-Webster](https://dictionaryapi.com/) | Free Collegiate API |
+| `now_playing` | [Last.fm](https://www.last.fm/api) | Free |
+| `traffic` | [TomTom](https://developer.tomtom.com/) | Free tier (2,500 req/day) |
+| `carbon_intensity` | [ElectricityMaps](https://app.electricitymaps.com/) | Free token; falls back to UK Carbon Intensity API (keyless, GB only) |
+| `nasa_apod` | [NASA](https://api.nasa.gov/) | `DEMO_KEY` works; free key raises rate limit |
+
+Set keys in the matching section of `config.yml`.
+
+---
+
 ## Dependencies
 
 | Package | Purpose |
@@ -211,6 +252,7 @@ Three radar display modes controlled by `radar_mode` in `config.yml`:
 | `pillow` | Image generation |
 | `requests` | HTTP fetching |
 | `pyyaml` | Config parsing |
+| `numpy` | Vectorized HSV pixel remapping (seven_color radar) |
 | `discord.py` | Discord bot |
 | `python-dotenv` | `.env` support |
 | `flask` | Web dashboard |

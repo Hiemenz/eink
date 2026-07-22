@@ -233,16 +233,16 @@ word_of_day:
 iss_tracker:
   output_path: images/iss_tracker.bmp
   cache_dir: data/
-  home_lat: 35.9251          # your latitude — used for distance/visibility calc
-  home_lon: -86.8689         # your longitude
+  home_lat: 0.0              # your latitude — falls back to forecast_location if 0
+  home_lon: 0.0              # your longitude
 
 # ── Recent Earthquakes (USGS GeoJSON, keyless) ───────────────────────────────
 earthquakes:
   output_path: images/earthquakes.bmp
   cache_dir: data/
   min_magnitude: 4.5         # minimum magnitude to display
-  home_lat: 35.9251
-  home_lon: -86.8689
+  home_lat: 0.0              # falls back to forecast_location if 0
+  home_lon: 0.0
   max_quakes: 10             # max events to list
 
 # ── Stock Watchlist (Yahoo Finance) ──────────────────────────────────────────
@@ -282,8 +282,8 @@ traffic:
   output_path: images/traffic.bmp
   cache_dir: data/
   api_key: ""                # free key from developer.tomtom.com
-  center_lat: 35.9251
-  center_lon: -86.8689
+  center_lat: 0.0            # falls back to forecast_location if 0
+  center_lon: 0.0
   radius_km: 20              # search radius in km
   max_incidents: 8
 
