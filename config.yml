@@ -52,7 +52,7 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
 #          | sudoku_puzzle | poem_of_day | news_headlines | crypto_market
 #          | franklin_cam | parking_garage | module_cycler | brain_status
-#          | game_of_life
+#          | game_of_life | river_height
 active_module: weather
 
 # ── AI Brain Status Display ───────────────────────────────────────────────────
@@ -312,6 +312,20 @@ agenda:
   days_ahead: 7              # show events within this many days
   max_events: 8
 
+# ── River Height (USGS Water Services, keyless) ──────────────────────────────
+river_height:
+  output_path: images/river_display.bmp
+  cache_dir: data/
+  site_number: "03432350"               # USGS gauge: Harpeth River at Franklin, TN
+  gauge_name: "Harpeth River at Franklin"
+  nws_lid: ""                           # NWS location ID for auto flood stages (optional)
+  # Flood stage thresholds in feet (0 = auto-fetch from NWS if nws_lid set)
+  action_stage: 0.0
+  flood_stage: 0.0
+  moderate_flood_stage: 0.0
+  major_flood_stage: 0.0
+  history_hours: 48                     # hours of history shown in chart
+
 # ── Conway's Game of Life ─────────────────────────────────────────────────────
 game_of_life:
   output_path: images/game_of_life.bmp
@@ -330,8 +344,10 @@ game_of_life:
 # ── Radar source ─────────────────────────────────────────────────────────────
 # radar_source: "ridge"        # default — NWS RIDGE single-station GIF
 # radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution)
-radar_source: ridge
-rainviewer_zoom: 8             # zoom level: 7=regional (~1.2km/px) 8=metro (~600m/px) 9=city (~300m/px)
+radar_source: rainviewer
+rainviewer_zoom: 7             # zoom level: free tier max is 7 (regional, ~1.2km/px); 8+ returns "zoom not supported"
+rainviewer_map_overlay: true   # show CartoDB base map under radar for geographic orientation
+rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
 rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Universal Blue, 8=Dark
 # seven_color mode (radar_mode: seven_color) always uses RainViewer. Color → dBZ:
 #   White=none  Blue=5-25  Green=25-35  Yellow=35-45  Orange=45-50  Red=50-60  Black=>60

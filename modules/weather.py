@@ -727,17 +727,360 @@ def quantize_to_seven_colors(input_path, output_path, more_colors, threshold=0):
     logger.info("Quantized image saved to %s", output_path)
 
 
+_RV_TILE_SIZE  = 512
+_CARTO_URL     = "https://a.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}@2x.png"
+# ESRI administrative boundaries overlay (county + state lines, transparent background)
+# Note: ESRI tile URL uses {z}/{y}/{x} order (y and x swapped vs XYZ standard)
+_COUNTY_URL    = "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"
+
+
+def _rv_tile_geometry(
+    lat: float, lon: float, zoom: int, width: int, height: int, tile_size: int
+) -> Tuple[int, int, int, int, int, int]:
+    """Return (tx_min, ty_min, tx_max, ty_max, crop_x, crop_y) for a lat/lon-centered view."""
+    n = 2 ** zoom
+    cx_px = (lon + 180.0) / 360.0 * n * tile_size
+    lat_rad = math.radians(lat)
+    cy_px = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * tile_size
+    left_px = cx_px - width / 2.0
+    top_px  = cy_px - height / 2.0
+    tx_min = int(left_px // tile_size)
+    ty_min = int(top_px  // tile_size)
+    tx_max = int((left_px + width  - 1) // tile_size)
+    ty_max = int((top_px  + height - 1) // tile_size)
+    crop_x = int(left_px - tx_min * tile_size)
+    crop_y = int(top_px  - ty_min * tile_size)
+    return tx_min, ty_min, tx_max, ty_max, crop_x, crop_y
+
+
+def _fetch_rv_frame(
+    path: str, tx_min: int, ty_min: int, tx_max: int, ty_max: int,
+    zoom: int, tile_size: int, color_scheme: int, headers: dict,
+    crop_x: int, crop_y: int, width: int, height: int,
+) -> Image.Image:
+    """Fetch RainViewer radar tiles for one frame, stitch, and crop to display size (RGBA)."""
+    cw = (tx_max - tx_min + 1) * tile_size
+    ch = (ty_max - ty_min + 1) * tile_size
+    canvas = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    for tx in range(tx_min, tx_max + 1):
+        for ty in range(ty_min, ty_max + 1):
+            url = (f"https://tilecache.rainviewer.com{path}"
+                   f"/{tile_size}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png")
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+                    canvas.paste(tile, ((tx - tx_min) * tile_size, (ty - ty_min) * tile_size), tile)
+                else:
+                    logger.warning("RainViewer tile %d/%d HTTP %d", tx, ty, resp.status_code)
+            except Exception as e:
+                logger.warning("RainViewer tile %d/%d failed: %s", tx, ty, e)
+    return canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
+
+
+def _fetch_osm_roads(
+    lat: float, lon: float, zoom: int, tile_size: int, width: int, height: int,
+) -> Image.Image:
+    """Render interstate and trunk highways from OSM Overpass onto a white canvas.
+
+    Uses actual road geometry (not raster tiles), so lines are crisp and correctly
+    sized at any zoom level.  Results are cached for 24 hours to avoid re-fetching.
+    Falls back to a blank white canvas on network failure.
+    """
+    import json, time
+
+    scale = 2 ** zoom * tile_size
+
+    def _lpx(la: float, lo: float) -> Tuple[float, float]:
+        x = (lo + 180) / 360 * scale
+        y = (1 - math.log(math.tan(math.radians(la)) + 1 / math.cos(math.radians(la))) / math.pi) / 2 * scale
+        return x, y
+
+    def _pll(wx: float, wy: float) -> Tuple[float, float]:
+        lo = wx / scale * 360 - 180
+        n  = math.pi - 2 * math.pi * wy / scale
+        la = math.degrees(math.atan(math.sinh(n)))
+        return la, lo
+
+    cx, cy = _lpx(lat, lon)
+    x0, y0 = cx - width / 2, cy - height / 2
+    x1, y1 = cx + width / 2, cy + height / 2
+
+    lat_max, lon_min = _pll(x0, y0)
+    lat_min, lon_max = _pll(x1, y1)
+
+    cache_path = os.path.join("data", "osm_roads_cache.json")
+    cache_key  = f"{lat:.4f},{lon:.4f},{zoom}"
+    ways: Optional[list] = None
+
+    try:
+        if os.path.exists(cache_path):
+            with open(cache_path) as _f:
+                _c = json.load(_f)
+            if _c.get("key") == cache_key and time.time() - _c.get("ts", 0) < 86400:
+                ways = _c["ways"]
+                logger.info("OSM roads: %d ways from cache", len(ways))
+    except Exception:
+        pass
+
+    if ways is None:
+        query = (
+            f"[out:json][timeout:30];"
+            f"way[highway~\"^(motorway|trunk)$\"]"
+            f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
+            f"out geom;"
+        )
+        try:
+            resp = requests.get(
+                "https://overpass-api.de/api/interpreter",
+                params={"data": query},
+                headers={"User-Agent": "eink-display/1.0"},
+                timeout=45,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            ways = [e for e in data.get("elements", []) if e.get("type") == "way"]
+            logger.info("OSM roads: fetched %d ways from Overpass", len(ways))
+            os.makedirs("data", exist_ok=True)
+            with open(cache_path, "w") as _f:
+                json.dump({"key": cache_key, "ts": time.time(), "ways": ways}, _f)
+        except Exception as e:
+            logger.warning("OSM road fetch failed: %s", e)
+            return Image.new("RGB", (width, height), (255, 255, 255))
+
+    img  = Image.new("RGB", (width, height), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    for way in ways:
+        if "geometry" not in way:
+            continue
+        pts = []
+        for node in way["geometry"]:
+            wx, wy = _lpx(node["lat"], node["lon"])
+            pts.append((wx - x0, wy - y0))
+        if len(pts) >= 2:
+            hw = way.get("tags", {}).get("highway", "")
+            lw = 3 if hw == "motorway" else 2
+            draw.line(pts, fill=(0, 0, 0), width=lw)
+    return img
+
+
+def _compute_storm_motion(
+    prev_rgba: Image.Image, curr_rgba: Image.Image
+) -> Optional[Tuple[float, float]]:
+    """
+    Estimate storm motion (dx, dy) in pixels via patch-based cross-correlation.
+
+    Divides the image into overlapping 40×40 px patches and, for each patch
+    with meaningful precipitation in the current frame, searches the previous
+    frame for the best-matching position.  The median displacement across all
+    qualifying patches is returned as (dx, dy), where positive dx = eastward
+    and negative dy = northward (i.e. forward travel direction, not origin).
+
+    Patch tracking correctly handles MCS systems where the bulk-precipitation
+    centroid drifts opposite to individual cell motion (new cells fire on the
+    trailing side while existing cells translate in the actual travel direction).
+    """
+    try:
+        prev_a = np.array(prev_rgba.getchannel("A"), dtype=np.float32)
+        curr_a = np.array(curr_rgba.getchannel("A"), dtype=np.float32)
+        if prev_a.sum() < 500 or curr_a.sum() < 500:
+            return None
+
+        H, W = curr_a.shape
+        CELL_SZ  = 40
+        SEARCH_R = 25
+        MIN_SUM  = 1500  # alpha sum threshold for a patch to be tracked
+
+        vectors = []
+
+        for gy in range(0, H - CELL_SZ + 1, CELL_SZ // 2):
+            for gx in range(0, W - CELL_SZ + 1, CELL_SZ // 2):
+                curr_patch = curr_a[gy:gy + CELL_SZ, gx:gx + CELL_SZ]
+                if curr_patch.sum() < MIN_SUM:
+                    continue
+
+                py1 = max(0, gy - SEARCH_R)
+                py2 = min(H, gy + CELL_SZ + SEARCH_R)
+                px1 = max(0, gx - SEARCH_R)
+                px2 = min(W, gx + CELL_SZ + SEARCH_R)
+                prev_region = prev_a[py1:py2, px1:px2]
+                rH, rW = prev_region.shape
+
+                if rH < CELL_SZ or rW < CELL_SZ:
+                    continue
+
+                # Phase cross-correlation: F_prev * conj(F_curr_padded).
+                # Peak at (peak_y, peak_x) means the curr patch best matches
+                # the prev region starting at that offset.
+                curr_pad = np.zeros((rH, rW), dtype=np.float32)
+                curr_pad[:CELL_SZ, :CELL_SZ] = curr_patch
+                F_prev = np.fft.rfft2(prev_region)
+                F_curr = np.fft.rfft2(curr_pad)
+                cross = F_prev * np.conj(F_curr)
+                nrm = np.abs(cross); nrm[nrm == 0] = 1
+                corr = np.real(np.fft.irfft2(cross / nrm, s=(rH, rW)))
+
+                peak_y, peak_x = np.unravel_index(np.argmax(corr), corr.shape)
+                if corr[peak_y, peak_x] < corr.mean() * 3.0:
+                    continue  # weak peak → skip
+
+                # Unwrap circular shift: treat peaks near the right/bottom edge as
+                # large negative shifts (the correlation wrapped around).
+                if peak_y > rH // 2:
+                    peak_y -= rH
+                if peak_x > rW // 2:
+                    peak_x -= rW
+
+                dy_vec = gy - (py1 + peak_y)
+                dx_vec = gx - (px1 + peak_x)
+
+                # Discard vectors that hit the search boundary (likely under-estimated).
+                if abs(dy_vec) > SEARCH_R - 2 or abs(dx_vec) > SEARCH_R - 2:
+                    continue
+
+                vectors.append((dx_vec, dy_vec))
+
+        if len(vectors) < 3:
+            return None
+
+        vx = float(np.median([v[0] for v in vectors]))
+        vy = float(np.median([v[1] for v in vectors]))
+
+        if math.sqrt(vx ** 2 + vy ** 2) < 1.0:
+            return None
+
+        return (vx, vy)
+    except Exception as e:
+        logger.warning("Storm motion computation failed: %s", e)
+        return None
+
+
+def _draw_emoji_arrow(
+    draw: ImageDraw.ImageDraw,
+    cx: float, cy: float,
+    ux: float, uy: float,
+    color,
+    size: int = 18,
+) -> None:
+    """Draw a ➡️-style arrow centered at (cx, cy) pointing in unit direction (ux, uy).
+    Has a narrow rectangular shaft (45% of length) and a wider filled triangle head (55%)."""
+    px, py = -uy, ux  # perpendicular unit vector
+
+    half      = size / 2.0
+    shaft_len = size * 0.45
+    shaft_hw  = size * 0.12
+    head_hw   = size * 0.40
+
+    # Tail (base)
+    bx, by = cx - ux * half, cy - uy * half
+    # Shaft/head junction
+    jx, jy = bx + ux * shaft_len, by + uy * shaft_len
+    # Tip
+    tx, ty = bx + ux * size, by + uy * size
+
+    shaft = [
+        (bx + px * shaft_hw, by + py * shaft_hw),
+        (bx - px * shaft_hw, by - py * shaft_hw),
+        (jx - px * shaft_hw, jy - py * shaft_hw),
+        (jx + px * shaft_hw, jy + py * shaft_hw),
+    ]
+    head = [
+        (jx + px * head_hw, jy + py * head_hw),
+        (jx - px * head_hw, jy - py * head_hw),
+        (tx, ty),
+    ]
+    draw.polygon(shaft, fill=color)
+    draw.polygon(head, fill=color)
+
+
+def _draw_storm_motion_overlay(
+    img: Image.Image,
+    motion: Tuple[float, float],
+    precip_mask: Image.Image,
+    config: dict,
+    km_per_px: float,
+    frame_interval_min: float,
+) -> None:
+    """Overlay storm motion on img (in-place).
+
+    Draws up to 5 small arrows placed at the centres of the largest precipitation
+    clusters, all pointing in the detected motion direction.  A compact
+    "Motion: E  13 mph →" label sits in the bottom-left corner.
+    """
+    dx, dy = motion
+    mag = math.sqrt(dx ** 2 + dy ** 2)
+    if mag < 1:
+        return
+
+    # (dx, dy) is already the forward travel direction (prev→curr displacement).
+    ux, uy = dx / mag, dy / mag
+    draw = ImageDraw.Draw(img)
+    W, H  = img.size
+
+    CELL_ARROW_COLOR = (0, 0, 0)
+    MAX_ARROWS       = 5
+
+    # --- place arrows at the leading edge of each cluster --------------------
+    # "Leading edge" = the precipitation pixel with the highest projection onto
+    # the motion direction, so the arrow sits just ahead of the cell rather than
+    # covering it.
+    alpha = np.array(precip_mask.getchannel("A"))
+    ys, xs = np.where(alpha > 30)
+    arrow_points: list[Tuple[int, int]] = []
+    ARROW_SIZE = 20
+    MARGIN = ARROW_SIZE // 2  # gap between cell edge and arrow tail
+
+    if len(ys) >= 20:
+        pts = np.stack([xs, ys], axis=1).astype(np.float32)
+        # Split into spatial buckets along the axis perpendicular to motion
+        # (cross-track), so we sample distinct cells rather than all bunching up.
+        px2, py2 = -uy, ux  # perpendicular to motion
+        cross_proj = pts[:, 0] * px2 + pts[:, 1] * py2
+        order  = np.argsort(cross_proj)
+        pts    = pts[order]
+        chunks = np.array_split(pts, min(MAX_ARROWS, len(pts)))
+        SAFE = ARROW_SIZE + MARGIN  # clearance from image edge for a leading-edge arrow
+        for chunk in chunks:
+            if len(chunk) == 0:
+                continue
+            # Prefer the leading-edge pixel that still has room ahead for an arrow.
+            # Filter to pixels that keep the arrow fully within the image after MARGIN offset.
+            inner = chunk[
+                (chunk[:, 0] >= SAFE) & (chunk[:, 0] <= W - SAFE) &
+                (chunk[:, 1] >= SAFE) & (chunk[:, 1] <= H - SAFE)
+            ]
+            if len(inner) > 0:
+                fwd_proj = inner[:, 0] * ux + inner[:, 1] * uy
+                lx, ly   = inner[int(np.argmax(fwd_proj))]
+                ax = lx + ux * MARGIN
+                ay = ly + uy * MARGIN
+            else:
+                # No leading pixel far enough from the edge: fall back to centroid.
+                ax = float(chunk[:, 0].mean())
+                ay = float(chunk[:, 1].mean())
+            ax = float(np.clip(ax, ARROW_SIZE, W - ARROW_SIZE))
+            ay = float(np.clip(ay, ARROW_SIZE, H - ARROW_SIZE))
+            arrow_points.append((ax, ay))
+
+    for ax, ay in arrow_points:
+        # White halo behind the arrow for visibility over any background
+        _draw_emoji_arrow(draw, ax, ay, ux, uy, (255, 255, 255), size=ARROW_SIZE + 6)
+        _draw_emoji_arrow(draw, ax, ay, ux, uy, CELL_ARROW_COLOR, size=ARROW_SIZE)
+
+
+
 def _fetch_rainviewer_image(
     lat: float, lon: float, zoom: int, width: int, height: int,
-    color_scheme: int, headers: dict
+    color_scheme: int, headers: dict, config: dict = None,
 ) -> Tuple[Optional[Image.Image], Optional[int]]:
     """
     Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
-    Tiles are transparent PNGs composited onto a white background.
+
+    Layers a CartoDB Positron base map underneath the radar for geographic orientation,
+    and overlays storm motion arrows computed from consecutive radar frames.
+
     Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp), or (None, None).
     """
-    _TILE_SIZE = 512
-
     try:
         api_resp = requests.get(
             "https://api.rainviewer.com/public/weather-maps.json",
@@ -753,56 +1096,77 @@ def _fetch_rainviewer_image(
     if not radar_frames:
         logger.error("No radar frames in RainViewer API response")
         return None, None
+
     latest_frame = radar_frames[-1]
-    latest_path = latest_frame["path"]  # e.g. "/v2/radar/1721234567"
-    frame_ts = latest_frame.get("time")  # Unix timestamp int
+    latest_path  = latest_frame["path"]
+    frame_ts     = latest_frame.get("time")
     logger.info("RainViewer: using frame %s", latest_path)
 
-    # World-pixel coordinates of the center point at this zoom level
-    n = 2 ** zoom
-    cx_px = (lon + 180.0) / 360.0 * n * _TILE_SIZE
-    lat_rad = math.radians(lat)
-    cy_px = (
-        (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi)
-        / 2.0 * n * _TILE_SIZE
+    frame_interval_min = 10.0
+    if len(radar_frames) >= 2:
+        frame_interval_min = (radar_frames[-1]["time"] - radar_frames[-2]["time"]) / 60.0
+
+    tx_min, ty_min, tx_max, ty_max, crop_x, crop_y = _rv_tile_geometry(
+        lat, lon, zoom, width, height, _RV_TILE_SIZE
     )
 
-    # Display bounds in world-pixel space
-    left_px = cx_px - width / 2.0
-    top_px = cy_px - height / 2.0
+    # Road overlay — OSM interstate/trunk geometry rendered as crisp black lines
+    show_map = (config or {}).get("rainviewer_map_overlay", True)
+    road_img = None
+    if show_map:
+        road_img = _fetch_osm_roads(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
-    # Tile index range needed to cover the display area
-    tx_min = int(left_px // _TILE_SIZE)
-    ty_min = int(top_px // _TILE_SIZE)
-    tx_max = int((left_px + width - 1) // _TILE_SIZE)
-    ty_max = int((top_px + height - 1) // _TILE_SIZE)
+    # Start with white background, then layer: radar → roads on top
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
 
-    canvas_w = (tx_max - tx_min + 1) * _TILE_SIZE
-    canvas_h = (ty_max - ty_min + 1) * _TILE_SIZE
-    canvas = Image.new("RGBA", (canvas_w, canvas_h), (255, 255, 255, 255))
+    # Current radar frame
+    curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+                                 zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                 crop_x, crop_y, width, height)
+    canvas.alpha_composite(curr_radar)
 
-    for tx in range(tx_min, tx_max + 1):
-        for ty in range(ty_min, ty_max + 1):
-            url = (
-                f"https://tilecache.rainviewer.com{latest_path}"
-                f"/{_TILE_SIZE}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png"
-            )
-            try:
-                resp = requests.get(url, headers=headers, timeout=10)
-                if resp.status_code == 200:
-                    tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                    px = (tx - tx_min) * _TILE_SIZE
-                    py = (ty - ty_min) * _TILE_SIZE
-                    canvas.paste(tile, (px, py), tile)
-                else:
-                    logger.warning("RainViewer tile %d/%d HTTP %d", tx, ty, resp.status_code)
-            except Exception as e:
-                logger.warning("RainViewer tile %d/%d fetch failed: %s", tx, ty, e)
+    # Roads composited last so they appear on top of precipitation
+    if road_img is not None:
+        bm_arr = np.array(road_img)
+        road_px = np.all(bm_arr == 0, axis=2)   # black pixels = road lines
+        road_overlay = np.zeros((height, width, 4), dtype=np.uint8)
+        road_overlay[road_px] = [0, 0, 0, 255]
+        canvas.alpha_composite(Image.fromarray(road_overlay, "RGBA"))
 
-    crop_x = int(left_px - tx_min * _TILE_SIZE)
-    crop_y = int(top_px - ty_min * _TILE_SIZE)
-    result = canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
-    return result.convert("RGB"), frame_ts
+    result = canvas.convert("RGB")
+
+    # Storm motion: compare against the immediately previous frame (10-min gap).
+    # Patch cross-correlation works best on consecutive frames where cell patterns
+    # haven't changed substantially; longer gaps cause large growth/dissipation that
+    # biases the bulk centroid and corrupts FFT-style methods.
+    show_motion = (config or {}).get("rainviewer_storm_motion", True)
+    if show_motion and len(radar_frames) >= 2 and config is not None:
+        gap = 1
+        prev_frame_meta = radar_frames[-(gap + 1)]
+        prev_path  = prev_frame_meta["path"]
+        actual_interval_min = (radar_frames[-1]["time"] - prev_frame_meta["time"]) / 60.0
+        prev_radar = _fetch_rv_frame(prev_path, tx_min, ty_min, tx_max, ty_max,
+                                     zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                     crop_x, crop_y, width, height)
+        motion = _compute_storm_motion(prev_radar, curr_radar)
+        if motion:
+            km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
+            _draw_storm_motion_overlay(result, motion, curr_radar, config, km_per_px, actual_interval_min)
+
+    # Radar timestamp label (bottom-left corner)
+    if frame_ts:
+        import datetime as _dt
+        ts_str = _dt.datetime.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
+        _draw = ImageDraw.Draw(result)
+        _font = get_font(11, config=config)
+        _lb   = _draw.textbbox((0, 0), ts_str, font=_font)
+        _lw, _lh = _lb[2] - _lb[0], _lb[3] - _lb[1]
+        _x, _y = 6, result.height - _lh - 6
+        _draw.rectangle([(_x - 2, _y - 2), (_x + _lw + 2, _y + _lh + 2)],
+                        fill=(255, 255, 255), outline=(180, 180, 180))
+        _draw.text((_x, _y), ts_str, fill=(40, 40, 40), font=_font)
+
+    return result, frame_ts
 
 
 def _fetch_radar_image(radar_url: str, headers: dict):
@@ -1138,11 +1502,11 @@ def generate_weather_image(config, special_msg=None):
         if not rv_lat or not rv_lon:
             logger.error("RainViewer requires lat/lon — set forecast_location or rainviewer_lat/lon")
             return None, False, None
-        rv_zoom = config.get("rainviewer_zoom", 8)
+        rv_zoom = config.get("rainviewer_zoom", 7)
         rv_color = config.get("rainviewer_color_scheme", 4)
         # Pre-size to the exact radar canvas so mode scaling is a no-op
         rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers)
+        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers, config)
         if radar_img is None:
             logger.error("RainViewer fetch failed — cannot generate radar image.")
             return None, False, None
@@ -1308,11 +1672,11 @@ def generate_weather_image(config, special_msg=None):
         if not rv_lat or not rv_lon:
             logger.error("seven_color mode requires lat/lon — set forecast_location or rainviewer_lat/lon")
             return None, False, None
-        rv_zoom = config.get("rainviewer_zoom", 8)
+        rv_zoom = config.get("rainviewer_zoom", 7)
         rv_color = config.get("rainviewer_color_scheme", 4)
         radar_h = height - _LEGEND_H
         radar_img_7c, frame_ts = _fetch_rainviewer_image(
-            rv_lat, rv_lon, rv_zoom, width, radar_h, rv_color, headers
+            rv_lat, rv_lon, rv_zoom, width, radar_h, rv_color, headers, config
         )
         if radar_img_7c is None:
             logger.error("RainViewer fetch failed for seven_color mode")
