@@ -10,6 +10,8 @@ from modules.special_weather import get_special_weather_messages, get_alert_head
 from eink_generator import load_config
 from modules.forecast import get_detailed_forecast, generate_forecast_image
 from modules.moon_phase import _moon_age, _phase_fraction, _phase_name, _illumination
+from modules.river_height import _get_river_data, _resolve_thresholds, _stage_color_and_label
+from modules.air_quality import _get_aqi_data, _aqi_color, _aqi_category
 from datetime import datetime as _dt, date as _date, timedelta as _td
 from zoneinfo import ZoneInfo
 from astral import LocationInfo
@@ -163,6 +165,19 @@ def _do_fetch_conditions(url: str, lat: float, lon: float, headers: dict) -> Opt
         weather_code = current.get("weather_code", 0)
         weather_desc = _wmo_description(weather_code)
 
+        # Precip type (rain/snow/mix) — radar reflectivity alone can't distinguish these,
+        # so estimate from the freezing level height above ground during active precip.
+        freezing_hourly = hourly.get("freezing_level_height", [])
+        elevation_m = data.get("elevation", 0) or 0
+        precip_type = None
+        if (50 <= weather_code < 100 and cur_idx >= 0 and freezing_hourly
+                and cur_idx < len(freezing_hourly) and freezing_hourly[cur_idx] is not None):
+            agl = freezing_hourly[cur_idx] - elevation_m
+            if agl < 300:
+                precip_type = "Snow"
+            elif agl < 1000:
+                precip_type = "Wintry Mix"
+
         # Next 5 hourly slots after current hour
         hourly_temps  = hourly.get("temperature_2m", [])
         hourly_codes  = hourly.get("weather_code", [])
@@ -195,6 +210,7 @@ def _do_fetch_conditions(url: str, lat: float, lon: float, headers: dict) -> Opt
             "humidity":     int(current.get("relative_humidity_2m", 0)),
             "weather_code": weather_code,
             "weather_desc": weather_desc,
+            "precip_type":  precip_type,
             "is_day":       bool(current.get("is_day", 1)),
             "pressure":        pressure_inhg,
             "pressure_trend":  pressure_trend,
@@ -242,7 +258,7 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
         f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
         f"weather_code,surface_pressure,"
         f"wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,is_day"
-        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability,uv_index"
+        f"&hourly=visibility,surface_pressure,relative_humidity_2m,temperature_2m,weather_code,precipitation_probability,uv_index,freezing_level_height"
         f"&daily=sunrise,sunset,precipitation_sum,temperature_2m_max,temperature_2m_min"
         f"&wind_speed_unit=mph"
         f"&temperature_unit=fahrenheit"
@@ -471,6 +487,8 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         ("Rain Today", f"{conditions['rain_today']}\"",                                           ""),
         ("Rain 7-Day", f"{conditions['rain_7day']}\"",                                            ""),
     ]
+    if conditions.get("precip_type"):
+        rows.append(("Precip Type", conditions["precip_type"], ""))
 
     for label, value, row_trend in rows:
         draw.text((text_x, y + 2), label, fill=BLACK, font=label_font)
@@ -658,6 +676,86 @@ def _draw_hourly_uv_boxes(canvas, conditions, config, panel_x, panel_w, start_y)
                 [(bx + 1, stripe_y), (bx + box_w - 2, by + box_h - 1)],
                 fill=uv_col,
             )
+
+
+_BADGE_H = 20
+# Exact RGB values river_height.py/air_quality.py already use for their
+# "attention" severity tiers — dark enough that badge text needs to be white,
+# not black, to stay readable. (Their lighter tiers — yellow, green, blue — use
+# black text, which is also this function's default.)
+_BADGE_WHITE_TEXT_BGS = {(255, 128, 0), (220, 0, 0), (255, 0, 0), (150, 0, 150), (0, 0, 0)}
+
+
+def _draw_status_badges(canvas, config, panel_x, panel_w, start_y) -> int:
+    """
+    Draw at most one merged colored status badge — river flood stage and/or air
+    quality — below the panel content. Call AFTER the panel's B/W snap so the
+    badge's severity color survives the final quantize pass. Cross-links the
+    already-configured modules.river_height / modules.air_quality data sources;
+    each badge is independently gated on its own module having usable data.
+
+    Returns the y position after the badge (== start_y if nothing triggered).
+    """
+    height = canvas.size[1]
+    # Hard budget guard: never let a badge squeeze the always-present hourly
+    # forecast strip below a usable height. Badges are rare-event extras — if
+    # there isn't enough headroom left, they simply don't render.
+    if start_y > height - 110:
+        return start_y
+
+    draw = ImageDraw.Draw(canvas)
+    margin = 8
+    text_x = panel_x + margin
+    right_x = panel_x + panel_w - margin
+    max_w = right_x - text_x - 6
+    font = get_font(13, bold=True, config=config)
+
+    parts = []  # (text, color), river first then AQI
+
+    river_cfg = config.get("river_height", {}) or {}
+    site = str(river_cfg.get("site_number", "")).strip()
+    if site:
+        try:
+            river_data = _get_river_data(river_cfg, river_cfg.get("cache_dir", "data/"))
+            if river_data:
+                thresholds = _resolve_thresholds(river_cfg)
+                color, label = _stage_color_and_label(river_data["current_ft"], thresholds)
+                if label != "Normal":
+                    parts.append((f"River {river_data['current_ft']:.1f}ft {label}", color))
+        except Exception as e:
+            logger.warning("River badge error: %s", e)
+
+    aqi_cfg = config.get("air_quality", {}) or {}
+    api_key = aqi_cfg.get("api_key", "")
+    if api_key:
+        try:
+            aqi_data = _get_aqi_data(aqi_cfg.get("zip_code", ""), api_key, aqi_cfg.get("cache_dir", "data/"))
+            if aqi_data and aqi_data.get("aqi", 0) > 50:
+                cat = aqi_data.get("category") or _aqi_category(aqi_data["aqi"])
+                parts.append((f"AQI {aqi_data['aqi']} {cat}", _aqi_color(aqi_data["aqi"])))
+        except Exception as e:
+            logger.warning("AQI badge error: %s", e)
+
+    if not parts:
+        return start_y
+
+    text = "  |  ".join(t for t, _ in parts)
+    color = tuple(parts[0][1])  # single-color background even when merged; first badge wins
+    while text and draw.textbbox((0, 0), text, font=font)[2] > max_w:
+        text = text[:-1]
+
+    y = start_y
+    draw.rectangle([(text_x, y), (right_x, y + _BADGE_H)], fill=color)
+    tcolor = (255, 255, 255) if color in _BADGE_WHITE_TEXT_BGS else (0, 0, 0)
+    tb = draw.textbbox((0, 0), text, font=font)
+    text_pos = (text_x + 4, y + (_BADGE_H - (tb[3] - tb[1])) // 2 - tb[1])
+    draw.text(text_pos, text, fill=tcolor, font=font)
+    _snap_region_2color(
+        canvas,
+        (text_pos[0] + tb[0], text_pos[1] + tb[1], text_pos[0] + tb[2] + 1, text_pos[1] + tb[3] + 1),
+        color, tcolor,
+    )
+    return y + _BADGE_H + 3
 
 
 if platform.system() == "Linux":
@@ -1163,8 +1261,18 @@ def _fetch_rainviewer_image(
         _lw, _lh = _lb[2] - _lb[0], _lb[3] - _lb[1]
         _x, _y = 6, result.height - _lh - 6
         _draw.rectangle([(_x - 2, _y - 2), (_x + _lw + 2, _y + _lh + 2)],
-                        fill=(255, 255, 255), outline=(180, 180, 180))
-        _draw.text((_x, _y), ts_str, fill=(40, 40, 40), font=_font)
+                        fill=(255, 255, 255), outline=(0, 0, 0))
+        _draw.text((_x, _y), ts_str, fill=(0, 0, 0), font=_font)
+
+        # Snap the label box to pure B/W now (same >128 threshold used for the panel
+        # content elsewhere). The anti-aliased glyph edges must not survive into
+        # _remap_radar_seven_color(), whose black cutoff (v<0.18) is tuned for radar
+        # reflectivity and erodes small text down to an unreadable speckle.
+        _box = (_x - 2, _y - 2, _x + _lw + 2, _y + _lh + 2)
+        _snapped = result.crop(_box).convert("L").point(
+            lambda px: 255 if px > 128 else 0
+        ).convert("RGB")
+        result.paste(_snapped, _box[:2])
 
     return result, frame_ts
 
@@ -1301,19 +1409,50 @@ def _remap_radar_seven_color(image: Image.Image) -> Image.Image:
     return Image.fromarray(out, "RGB")
 
 
+def _snap_region_2color(
+    canvas: Image.Image, box: Tuple[int, int, int, int], color_a, color_b
+) -> None:
+    """Flatten a canvas region to exactly {color_a, color_b} by nearest-RGB distance.
+
+    Any text/label drawn directly onto a canvas that will later pass through
+    quantize_to_seven_colors()'s naive nearest-palette pass must have its
+    anti-aliased edge pixels pre-resolved like this — otherwise those blended
+    pixels land on whichever of the 7 palette colors happens to be nearest in
+    raw RGB space (often a wrong, unrelated color), not on the two colors
+    actually intended. Unlike a fixed luminance threshold, this works for any
+    background color, not just white.
+    """
+    region = np.array(canvas.crop(box).convert("RGB"), dtype=np.float32)
+    a = np.array(color_a, dtype=np.float32)
+    b = np.array(color_b, dtype=np.float32)
+    da = np.sum((region - a) ** 2, axis=-1)
+    db = np.sum((region - b) ** 2, axis=-1)
+    out = np.where(da[..., None] <= db[..., None], a, b).astype(np.uint8)
+    canvas.paste(Image.fromarray(out, "RGB"), box[:2])
+
+
 def _draw_seven_color_legend(
     canvas: Image.Image,
     frame_ts: Optional[int],
     station: str,
     config: dict,
+    x0: int = 0,
+    x1: Optional[int] = None,
+    show_station_time: bool = True,
 ) -> None:
-    """Draw the bottom legend strip showing all 7 e-ink colors with dBZ labels."""
+    """Draw the bottom legend strip showing all 7 e-ink colors with dBZ labels.
+
+    x0/x1 scope the strip to a sub-range of the canvas width (e.g. just the
+    radar side of panel mode); defaults draw across the full canvas as before.
+    """
     W, H = canvas.size
+    if x1 is None:
+        x1 = W
     y0 = H - _LEGEND_H
 
     draw = ImageDraw.Draw(canvas)
-    draw.rectangle([(0, y0), (W - 1, H - 1)], fill=(255, 255, 255))
-    draw.line([(0, y0), (W - 1, y0)], fill=(0, 0, 0), width=1)
+    draw.rectangle([(x0, y0), (x1 - 1, H - 1)], fill=(255, 255, 255))
+    draw.line([(x0, y0), (x1 - 1, y0)], fill=(0, 0, 0), width=1)
 
     def _lfont(size):
         for path in [
@@ -1335,7 +1474,7 @@ def _draw_seven_color_legend(
     text_pad = 3
     swatch_y = y0 + (_LEGEND_H - swatch_side) // 2
 
-    x = 8
+    x = x0 + 8
     for swatch_rgb, label, text_rgb in _SEVEN_COLOR_LEGEND:
         # Color swatch with black outline
         draw.rectangle(
@@ -1345,13 +1484,20 @@ def _draw_seven_color_legend(
         # Label to the right of swatch
         bb = draw.textbbox((0, 0), label, font=font)
         lh = bb[3] - bb[1]
-        draw.text(
-            (x + swatch_side + text_pad, swatch_y + (swatch_side - lh) // 2),
-            label, fill=(0, 0, 0), font=font,
+        label_x = x + swatch_side + text_pad
+        label_y = swatch_y + (swatch_side - lh) // 2
+        draw.text((label_x, label_y), label, fill=(0, 0, 0), font=font)
+        _snap_region_2color(
+            canvas,
+            (label_x + bb[0], label_y + bb[1], label_x + bb[2] + 1, label_y + bb[3] + 1),
+            (255, 255, 255), (0, 0, 0),
         )
         x += swatch_side + text_pad + (bb[2] - bb[0]) + pad
 
     # Right side: station + frame timestamp
+    if not show_station_time:
+        return
+
     if frame_ts:
         try:
             from datetime import timezone as _tz_mod
@@ -1364,9 +1510,13 @@ def _draw_seven_color_legend(
     right_str = f"{station}  {ts_str}" if ts_str else station
     rb = draw.textbbox((0, 0), right_str, font=font)
     rw, rh = rb[2] - rb[0], rb[3] - rb[1]
-    draw.text(
-        (W - rw - 8, y0 + (_LEGEND_H - rh) // 2),
-        right_str, fill=(0, 0, 0), font=font,
+    right_x = x1 - rw - 8
+    right_y = y0 + (_LEGEND_H - rh) // 2
+    draw.text((right_x, right_y), right_str, fill=(0, 0, 0), font=font)
+    _snap_region_2color(
+        canvas,
+        (right_x + rb[0], right_y + rb[1], right_x + rb[2] + 1, right_y + rb[3] + 1),
+        (255, 255, 255), (0, 0, 0),
     )
 
 
@@ -1471,6 +1621,82 @@ def _overlay_severe_alerts(
         draw.text((lx + 3, ly + 2), label, fill=(255, 255, 255), font=lf)
 
 
+def _fetch_lightning_strikes(
+    lat: float, lon: float, headers: dict, client_id: str, client_secret: str,
+) -> List[Dict[str, Any]]:
+    """
+    Fetch recent lightning strikes near (lat, lon) from the Xweather API.
+
+    Free/standard tier limits: radius <=100km, data window is the past 5 minutes
+    only, <=1000 strikes per query. Best-effort: returns [] on missing credentials
+    or any failure — lightning is a nice-to-have overlay, never blocks radar.
+    """
+    if not client_id or not client_secret:
+        return []
+    url = (
+        f"https://data.api.xweather.com/lightning/closest"
+        f"?p={lat:.4f},{lon:.4f}&radius=100km&limit=1000"
+        f"&client_id={client_id}&client_secret={client_secret}"
+    )
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        logger.warning("Xweather lightning fetch failed: %s", e)
+        return []
+
+    raw = data.get("response", data if isinstance(data, list) else [])
+    strikes = []
+    for item in raw:
+        loc = item.get("loc", {}) or {}
+        lat_s, lon_s = loc.get("lat"), loc.get("long")
+        if lat_s is not None and lon_s is not None:
+            strikes.append({"lat": lat_s, "lon": lon_s})
+    if strikes:
+        logger.info("Xweather: %d recent lightning strike(s) within 100km", len(strikes))
+    return strikes
+
+
+def _draw_lightning_overlay(
+    canvas: Image.Image, strikes: List[Dict[str, Any]],
+    center_lat: float, center_lon: float, zoom: int,
+    region_w: int, region_h: int, x_off: int = 0, y_off: int = 0,
+) -> None:
+    """
+    Draw recent lightning strikes as small white-haloed black dots over a
+    RainViewer-projected radar region. Uses the same Web-Mercator projection as
+    _overlay_severe_alerts so strikes line up with the radar tiles. Pure
+    exact-palette fills — no anti-aliased content, so no pre-quantize snap needed.
+    """
+    if not strikes:
+        return
+
+    _TILE_SIZE = 512
+    n = 2 ** zoom
+
+    def _world_px(lon: float, lat: float):
+        x = (lon + 180.0) / 360.0 * n * _TILE_SIZE
+        lat_rad = math.radians(lat)
+        y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n * _TILE_SIZE
+        return x, y
+
+    cx_px, cy_px = _world_px(center_lon, center_lat)
+
+    def _to_pixel(lon: float, lat: float):
+        wx, wy = _world_px(lon, lat)
+        return (x_off + region_w / 2.0 + (wx - cx_px),
+                y_off + region_h / 2.0 + (wy - cy_px))
+
+    draw = ImageDraw.Draw(canvas)
+    for s in strikes:
+        x, y = _to_pixel(s["lon"], s["lat"])
+        if not (x_off <= x <= x_off + region_w and y_off <= y <= y_off + region_h):
+            continue
+        draw.ellipse([x - 6, y - 6, x + 6, y + 6], fill=(255, 255, 255))  # white halo
+        draw.ellipse([x - 3, y - 3, x + 3, y + 3], fill=(0, 0, 0))        # black core
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -1495,6 +1721,17 @@ def generate_weather_image(config, special_msg=None):
     radar_url_qr = None
     rv_frame_ts = None  # Unix timestamp of the radar frame (RainViewer only)
 
+    # In panel mode with RainViewer, carve out room at the bottom of the radar side
+    # for the compact color-key legend (mirrors how seven_color mode already does
+    # this). The dBZ legend only makes sense for RainViewer's classified colors, not
+    # the raw NWS ridge GIF, so it's gated on radar_source too.
+    panel_legend = (
+        config.get("panel_legend", True)
+        and radar_mode == "panel"
+        and radar_source == "rainviewer"
+    )
+    radar_h = (height - _LEGEND_H) if panel_legend else height
+
     if radar_source == "rainviewer":
         forecast_loc = config.get("forecast_location", {})
         rv_lat = config.get("rainviewer_lat") or forecast_loc.get("latitude")
@@ -1506,10 +1743,15 @@ def generate_weather_image(config, special_msg=None):
         rv_color = config.get("rainviewer_color_scheme", 4)
         # Pre-size to the exact radar canvas so mode scaling is a no-op
         rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, height, rv_color, headers, config)
+        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
         if radar_img is None:
             logger.error("RainViewer fetch failed — cannot generate radar image.")
             return None, False, None
+        # Snap to the exact 7-color e-ink palette here (HSV dBZ-tier classification) rather
+        # than relying on quantize_to_seven_colors()'s naive per-pixel nearest-RGB pass below.
+        # That naive pass scatters anti-aliased pixels (e.g. the radar timestamp label text)
+        # across mismatched palette colors, turning legible text into speckled noise.
+        radar_img = _remap_radar_seven_color(radar_img)
         if rv_frame_ts:
             _rv_state_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "radar", "rv_frame_state.json")
             try:
@@ -1564,14 +1806,19 @@ def generate_weather_image(config, special_msg=None):
 
         header_h = 21
 
-        # Radar fills full height — max scale fills the canvas, clipping ~1px from sides.
-        scale = max(radar_w / radar_img.width, height / radar_img.height)
+        # Radar fills the radar area (full height, or height minus the legend strip) —
+        # max scale fills the canvas, clipping ~1px from sides.
+        scale = max(radar_w / radar_img.width, radar_h / radar_img.height)
         rw = int(radar_img.width * scale)
         rh = int(radar_img.height * scale)
         scaled_radar = radar_img.resize((rw, rh), Image.LANCZOS)
         x_off = (radar_w - rw) // 2   # negative = PIL auto-crops the sides
-        y_off = (height - rh) // 2
+        y_off = (radar_h - rh) // 2
         final_img.paste(scaled_radar, (x_off, y_off))
+
+        if panel_legend:
+            _draw_seven_color_legend(final_img, rv_frame_ts, station, config,
+                                      x0=0, x1=radar_w, show_station_time=False)
 
         # White panel background (full height on right side)
         draw_tmp = ImageDraw.Draw(final_img)
@@ -1596,9 +1843,11 @@ def generate_weather_image(config, special_msg=None):
         ).convert("RGB")
         final_img.paste(panel_bw, (radar_w, header_h))
 
-        # Draw colored hourly UV boxes AFTER snap so colors survive quantize
+        # Draw colored hourly UV boxes (and any river/AQI status badge) AFTER
+        # snap so their colors survive quantize
         if conditions and hourly_start_y is not None:
-            _draw_hourly_uv_boxes(final_img, conditions, config, radar_w, panel_w, hourly_start_y)
+            badge_y = _draw_status_badges(final_img, config, radar_w, panel_w, hourly_start_y)
+            _draw_hourly_uv_boxes(final_img, conditions, config, radar_w, panel_w, badge_y)
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
         # Red when an alert is active, black otherwise
@@ -1642,24 +1891,23 @@ def generate_weather_image(config, special_msg=None):
         # Thin vertical separator (full height)
         draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(180, 180, 180), width=1)
 
-        # RainViewer frame timestamp — bottom-left corner of the radar side
-        if rv_frame_ts:
-            try:
-                from datetime import timezone as _tz_mod2
-                _ts_label = _dt.fromtimestamp(int(rv_frame_ts), tz=_tz_mod2.utc).astimezone().strftime("%-I:%M %p")
-                _ts_font = hdr_font or ImageFont.load_default()
-                _ts_bb = draw_tmp.textbbox((0, 0), _ts_label, font=_ts_font)
-                _ts_h = _ts_bb[3] - _ts_bb[1]
-                draw_tmp.text((6, height - _ts_h - 4), _ts_label, fill=(255, 255, 255), font=_ts_font)
-            except Exception:
-                pass
+        # Note: the radar frame timestamp is already baked into the bottom-left
+        # corner of the radar tile itself (see the boxed label in
+        # _fetch_rainviewer_image) — no separate label needed here.
 
         # Severe-weather warning polygons over the radar side (RainViewer only —
         # projection is only known for the tile source).
         if config.get("radar_alerts_overlay", False) and radar_source == "rainviewer":
-            _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, radar_w, height, headers)
+            _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, radar_w, radar_h, headers)
 
-        primary_region = (0, 0, radar_w, height)
+        if config.get("lightning_overlay", False) and radar_source == "rainviewer":
+            strikes = _fetch_lightning_strikes(
+                rv_lat, rv_lon, headers,
+                config.get("xweather_client_id", ""), config.get("xweather_client_secret", ""),
+            )
+            _draw_lightning_overlay(final_img, strikes, rv_lat, rv_lon, rv_zoom, radar_w, radar_h)
+
+        primary_region = (0, 0, radar_w, radar_h)
         processed_radar = None
     elif radar_mode == "seven_color":
         # Full-screen 7-color radar: uses all Waveshare e-ink ink channels.
@@ -1694,6 +1942,12 @@ def generate_weather_image(config, special_msg=None):
         # Severe-weather warning polygons (drawn after remap so pure red survives)
         if config.get("radar_alerts_overlay", False):
             _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, width, radar_h, headers)
+        if config.get("lightning_overlay", False):
+            strikes = _fetch_lightning_strikes(
+                rv_lat, rv_lon, headers,
+                config.get("xweather_client_id", ""), config.get("xweather_client_secret", ""),
+            )
+            _draw_lightning_overlay(final_img, strikes, rv_lat, rv_lon, rv_zoom, width, radar_h)
         _draw_seven_color_legend(final_img, frame_ts, station, config)
         primary_region = (0, 0, width, radar_h)
         processed_radar = None

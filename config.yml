@@ -41,6 +41,7 @@ full_clear_interval: 0
 alert_auto_override: false
 radar_mode: panel # "crop" | "fit" | "panel" | "seven_color"
 panel_width: 280          # width of conditions panel (panel mode only)
+panel_legend: true        # show 7-color dBZ legend strip under the radar in panel mode
 panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
 panel_qr_radar: false   # show radar link QR in panel when no alerts active
@@ -353,6 +354,13 @@ rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Univers
 #   White=none  Blue=5-25  Green=25-35  Yellow=35-45  Orange=45-50  Red=50-60  Black=>60
 radar_alerts_overlay: false    # draw NWS storm-warning polygons over radar (RainViewer only)
 # rainviewer_lat / rainviewer_lon override forecast_location if set
+
+# ── Lightning overlay (Xweather, opt-in) ──────────────────────────────────────
+# Requires a free developer key from xweather.com/account (15,000 accesses/month).
+# Free tier caps: radius <=100km, strikes from the past 5 minutes only.
+lightning_overlay: false
+xweather_client_id: ""
+xweather_client_secret: ""
 
 show_top_5: False
 special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
