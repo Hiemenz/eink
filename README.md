@@ -2,6 +2,8 @@
 
 A Raspberry Pi e-ink display system built around a **Waveshare 7.5" V2 (800×480)** e-paper screen. Content is generated as 800×480 BMP images by a set of pluggable modules and pushed to the hardware. Everything is controlled via a Discord bot — no SSH required once deployed.
 
+For a full architectural breakdown see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ---
 
 ## Hardware
@@ -79,7 +81,12 @@ eink/
 │   ├── carbon_intensity.py  # Electricity grid carbon intensity (ElectricityMaps)
 │   ├── now_playing.py       # Last.fm recent track + album art
 │   ├── traffic.py           # Local traffic incidents (TomTom)
-│   └── agenda.py            # Calendar / agenda from iCal/ICS URLs
+│   ├── agenda.py            # Calendar / agenda from iCal/ICS URLs
+│   ├── river_height.py      # USGS river gauge chart with flood-stage thresholds
+│   ├── game_of_life.py      # Conway's Game of Life — evolves each refresh
+│   ├── crypto_market.py     # Top-N crypto prices and 24 h change (keyless)
+│   ├── qrcode_display.py    # Static or Wi-Fi QR code
+│   └── terminal.py          # Raw terminal-style text display
 │
 ├── data/
 │   ├── questions/           # CSVs (topic, question columns)
@@ -214,6 +221,37 @@ Four radar display modes controlled by `radar_mode` in `config.yml`:
 | `rainviewer` | None | RainViewer CONUS composite tiles — higher resolution, used automatically by `seven_color` mode |
 
 **Panel mode** fetches live conditions from Open-Meteo (no API key required) and caches them for 5 minutes. Set `radar_alerts_overlay: true` to draw NWS storm-warning polygons over the radar canvas (RainViewer only).
+
+---
+
+## Web Dashboard
+
+A Flask web app runs on port 5000 for browser-based control on the local network:
+
+```bash
+poetry run python server/app.py
+```
+
+Access at `http://<pi-hostname>.local:5000`. It supports switching modules, triggering refreshes, managing the movie slideshow, and downloading generated images. The Discord bot covers the same functionality — the web dashboard is optional.
+
+---
+
+## AI Brain (Optional)
+
+`ai_brain/` is an autonomous LLM-driven reasoning loop that runs continuously on the Pi. It uses an Ollama-hosted model to decide what to do each cycle, then delegates work to one of four agents:
+
+| Agent | Role |
+|---|---|
+| `ResearchAgent` | Web search and summarisation |
+| `BuilderAgent` | Writing or modifying Python code |
+| `OperatorAgent` | Shell commands and file management |
+| `PlannerAgent` | Breaking a complex goal into subtasks |
+
+The `brain_status` display module reads the brain's SQLite database to show its current state on screen. Start it with:
+
+```bash
+poetry run python ai_brain/main.py
+```
 
 ---
 
