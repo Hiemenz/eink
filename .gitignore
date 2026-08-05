@@ -13,6 +13,8 @@ data/*_cache_*.json
 data/parking_history.parquet
 data/cycler_state.json
 data/xkcd_current.png
+data/rv_tiles/
+data/nws_view_states.json
 
 # Runtime state
 radar/radar_state.json
