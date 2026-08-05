@@ -19,6 +19,10 @@ if ROOT not in sys.path:
 
 from unittest.mock import patch, MagicMock
 
+import io
+import math
+
+import modules.weather as W_MOD
 from modules.weather import (
     _deg_to_compass,
     _wmo_description,
@@ -35,6 +39,20 @@ from modules.weather import (
     _fetch_lightning_strikes,
     _draw_lightning_overlay,
     _draw_status_badges,
+    _patch_motion_vectors,
+    _cluster_motion_vectors,
+    _bearing_from_vector,
+    _storm_speed_kmh,
+    _precip_arrival_minutes,
+    _nowcast_arrival_minutes,
+    _draw_nowcast_outline,
+    _draw_corner_labels,
+    _remap_radar_seven_color,
+    _overlay_severe_alerts,
+    _fetch_nws_alerts,
+    _redact,
+    _first_set,
+    _view_bounds,
 )
 
 
@@ -455,3 +473,360 @@ class TestDrawStatusBadges:
             y = _draw_status_badges(canvas, _BASE_BADGE_CONFIG, 0, 280, 400)
         assert y == 400
         mock_river.assert_not_called()  # guard short-circuits before any data fetch
+
+
+# ---------------------------------------------------------------------------
+# Radar audit fixes (bugs) and new features
+# ---------------------------------------------------------------------------
+
+class TestQuantizePalette:
+    """quantize_to_seven_colors must be exact-palette-out."""
+
+    def test_mid_grey_never_survives_as_grey(self, tmp_path):
+        # The panel separator used to be drawn in (180,180,180): too far from
+        # white to hit the threshold, and white is not a palette entry, so it
+        # landed on the nearest ink -- orange -- putting a coloured line down
+        # the middle of the display.
+        src = tmp_path / "grey.bmp"
+        Image.new("RGB", (4, 4), (180, 180, 180)).save(src)
+        out = tmp_path / "grey_q.bmp"
+        quantize_to_seven_colors(str(src), str(out), more_colors=False, threshold=75)
+        colors = {px for px in Image.open(out).convert("RGB").getdata()}
+        assert colors == {(255, 128, 0)}, "grey lands on orange -- draw UI in pure B/W"
+
+    def test_pure_black_and_white_are_stable(self, tmp_path):
+        src = tmp_path / "bw.bmp"
+        img = Image.new("RGB", (2, 1), (0, 0, 0))
+        img.putpixel((1, 0), (255, 255, 255))
+        img.save(src)
+        out = tmp_path / "bw_q.bmp"
+        quantize_to_seven_colors(str(src), str(out), more_colors=False, threshold=75)
+        result = Image.open(out).convert("RGB")
+        assert result.getpixel((0, 0)) == (0, 0, 0)
+        assert result.getpixel((1, 0)) == (255, 255, 255)
+
+
+class TestRemapSevenColorBoundaries:
+    """Hue band edges must classify the boundary colour into the band it names."""
+
+    @staticmethod
+    def _classify(rgb):
+        img = Image.new("RGB", (1, 1), rgb)
+        return _remap_radar_seven_color(img).getpixel((0, 0))
+
+    def test_pure_yellow_is_yellow_not_orange(self):
+        # Hue of (255,255,0) is exactly 60deg = 0.16666..., which is below a
+        # rounded 0.167 literal -- it used to fall through into the orange
+        # (heavy rain) tier, over-reading moderate rain by a full dBZ tier.
+        assert self._classify((255, 255, 0)) == (255, 255, 0)
+
+    def test_band_centres_land_in_their_own_tier(self):
+        assert self._classify((255, 0, 0)) == (255, 0, 0)        # red     0deg
+        assert self._classify((255, 128, 0)) == (255, 128, 0)    # orange 30deg
+        assert self._classify((0, 255, 0)) == (0, 255, 0)        # green 120deg
+        assert self._classify((0, 0, 255)) == (0, 0, 255)        # blue  240deg
+
+    def test_white_background_stays_white(self):
+        assert self._classify((255, 255, 255)) == (255, 255, 255)
+
+
+class TestPatchMotionPeakGate:
+    """The weak-peak gate must actually reject uncorrelated patches."""
+
+    def test_noise_pairs_yield_no_confident_vectors(self):
+        # Two independently random frames share no real structure. The old gate
+        # (peak < mean*3) passed 100% of such pairs because a phase-correlation
+        # surface has a mean of essentially zero, feeding junk into the median.
+        rng = np.random.RandomState(7)
+        def noise():
+            a = (rng.rand(200, 200) < 0.05).astype(np.uint8) * 255
+            rgb = np.zeros((200, 200, 3), dtype=np.uint8)
+            return Image.fromarray(np.dstack([rgb, a]), mode="RGBA")
+        assert _compute_storm_motion(noise(), noise()) is None
+
+    def test_real_shift_still_recovered(self):
+        prev = _rgba_with_blob((200, 200), 70, 70, 60)
+        curr = _rgba_with_blob((200, 200), 64, 80, 60)
+        vectors = _patch_motion_vectors(prev, curr)
+        assert vectors, "a genuine translation must still produce vectors"
+        for cx, cy, dx, dy in vectors:
+            assert 0 <= cx <= 200 and 0 <= cy <= 200
+
+
+class TestClusterMotionVectors:
+    """Per-cell arrows: cells that move differently must not merge."""
+
+    def test_adjacent_cells_with_opposite_motion_stay_separate(self):
+        # Two touching groups -- close enough to chain on distance alone, but
+        # travelling in opposite directions. This is the splitting-supercell
+        # case that a single averaged arrow gets wrong for both limbs.
+        east = [(100 + i * 20, 100, 10.0, 0.0) for i in range(4)]
+        west = [(180 + i * 20, 100, -10.0, 0.0) for i in range(4)]
+        clusters = _cluster_motion_vectors(east + west)
+        assert len(clusters) == 2
+        headings = sorted(round(dx) for _, _, dx, _ in clusters)
+        assert headings == [-10, 10]
+
+    def test_coherent_group_collapses_to_one_arrow(self):
+        vectors = [(100 + i * 20, 100, 8.0, -3.0) for i in range(5)]
+        clusters = _cluster_motion_vectors(vectors)
+        assert len(clusters) == 1
+        cx, cy, dx, dy = clusters[0]
+        assert dx == pytest.approx(8.0)
+        assert dy == pytest.approx(-3.0)
+
+    def test_stationary_and_undersized_clusters_dropped(self):
+        assert _cluster_motion_vectors([]) == []
+        # below min_members
+        assert _cluster_motion_vectors([(10, 10, 5.0, 5.0)]) == []
+        # coherent but not actually moving
+        assert _cluster_motion_vectors([(10 + i * 20, 10, 0.0, 0.0) for i in range(4)]) == []
+
+
+class TestBearingAndSpeed:
+    def test_bearing_uses_screen_coordinates(self):
+        # Screen y grows downward, so north is -y.
+        assert _bearing_from_vector(0, -1) == pytest.approx(0)     # N
+        assert _bearing_from_vector(1, 0) == pytest.approx(90)     # E
+        assert _bearing_from_vector(0, 1) == pytest.approx(180)    # S
+        assert _bearing_from_vector(-1, 0) == pytest.approx(270)   # W
+
+    def test_bearing_round_trips_through_compass(self):
+        assert _deg_to_compass(_bearing_from_vector(1, -1)) == "NE"
+
+    def test_speed_conversion(self):
+        # 10 px at 0.5 km/px in 10 minutes = 5 km in 1/6 h = 30 km/h
+        assert _storm_speed_kmh(10, 0.5, 10) == pytest.approx(30.0)
+
+    def test_speed_guards_bad_inputs(self):
+        assert _storm_speed_kmh(10, 0.5, 0) == 0.0
+        assert _storm_speed_kmh(10, 0, 10) == 0.0
+
+
+class TestPrecipArrival:
+    @staticmethod
+    def _mask(size, box):
+        h, w = size
+        alpha = np.zeros((h, w), dtype=np.uint8)
+        y0, x0, y1, x1 = box
+        alpha[y0:y1, x0:x1] = 255
+        return Image.fromarray(np.dstack([np.zeros((h, w, 3), np.uint8), alpha]), "RGBA")
+
+    def test_upwind_precip_gives_positive_eta(self):
+        # Precip 100px west of home, moving east at 0.5 km/px, 60 km/h.
+        mask = self._mask((200, 200), (90, 0, 110, 20))
+        eta = _precip_arrival_minutes(mask, 1.0, 0.0, 60.0, 0.5, (100.0, 100.0))
+        # nearest upwind pixel is at x=19 -> 81 px -> 40.5 km -> ~40.5 min
+        assert eta == pytest.approx(40.5, abs=1.0)
+
+    def test_precip_over_home_reports_now(self):
+        mask = self._mask((200, 200), (95, 95, 105, 105))
+        assert _precip_arrival_minutes(mask, 1.0, 0.0, 60.0, 0.5, (100.0, 100.0)) == 0.0
+
+    def test_downwind_precip_never_arrives(self):
+        # Precip is east of home and moving further east -- it has already passed.
+        mask = self._mask((200, 200), (90, 180, 110, 200))
+        assert _precip_arrival_minutes(mask, 1.0, 0.0, 60.0, 0.5, (100.0, 100.0)) is None
+
+    def test_off_corridor_precip_ignored(self):
+        # Upwind but far off the motion axis -- it will miss home entirely.
+        mask = self._mask((200, 200), (0, 0, 10, 20))
+        assert _precip_arrival_minutes(mask, 1.0, 0.0, 60.0, 0.5, (100.0, 100.0)) is None
+
+    def test_empty_mask_and_zero_speed(self):
+        mask = self._mask((200, 200), (0, 0, 0, 0))
+        assert _precip_arrival_minutes(mask, 1.0, 0.0, 60.0, 0.5, (100.0, 100.0)) is None
+        busy = self._mask((200, 200), (90, 0, 110, 20))
+        assert _precip_arrival_minutes(busy, 1.0, 0.0, 0.0, 0.5, (100.0, 100.0)) is None
+
+
+class TestNowcastOutline:
+    def test_outline_is_drawn_as_dashes_not_fill(self):
+        alpha = np.zeros((80, 80), dtype=np.uint8)
+        alpha[20:60, 20:60] = 255
+        nowcast = Image.fromarray(
+            np.dstack([np.zeros((80, 80, 3), np.uint8), alpha]), "RGBA")
+        img = Image.new("RGB", (80, 80), (255, 255, 255))
+        assert _draw_nowcast_outline(img, nowcast) is True
+
+        arr = np.array(img)
+        black = np.all(arr == 0, axis=-1)
+        # Edge is marked...
+        assert black[20:60, 20:22].any()
+        # ...the interior is left alone (an outline, not a filled blob)...
+        assert not black[35:45, 35:45].any()
+        # ...and it is dashed, so well under half the perimeter band is inked.
+        assert black.sum() < 40 * 4 * 2
+
+    def test_empty_nowcast_draws_nothing(self):
+        nowcast = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+        img = Image.new("RGB", (40, 40), (255, 255, 255))
+        assert _draw_nowcast_outline(img, nowcast) is False
+        assert np.all(np.array(img) == 255)
+
+
+class TestNowcastArrival:
+    @staticmethod
+    def _frames(now):
+        return [{"time": int(now + 600), "path": "/n1"},
+                {"time": int(now + 1200), "path": "/n2"}]
+
+    def test_first_wet_frame_sets_eta(self):
+        now = 1_700_000_000
+        def fake_frame(path, *a, **kw):
+            probe = 32
+            alpha = np.zeros((probe, probe), dtype=np.uint8)
+            if path == "/n2":
+                alpha[:] = 255
+            return Image.fromarray(
+                np.dstack([np.zeros((probe, probe, 3), np.uint8), alpha]), "RGBA")
+        with patch("modules.weather._fetch_rv_frame", side_effect=fake_frame):
+            eta = _nowcast_arrival_minutes(self._frames(now), 36.0, -86.8, 7, 512, 4, {}, now)
+        assert eta == pytest.approx(20.0)
+
+    def test_dry_nowcast_returns_none(self):
+        now = 1_700_000_000
+        dry = Image.new("RGBA", (32, 32), (0, 0, 0, 0))
+        with patch("modules.weather._fetch_rv_frame", return_value=dry):
+            assert _nowcast_arrival_minutes(self._frames(now), 36.0, -86.8, 7, 512, 4, {}, now) is None
+
+    def test_no_frames_returns_none(self):
+        assert _nowcast_arrival_minutes([], 36.0, -86.8, 7, 512, 4, {}, 0) is None
+
+
+class TestOverlayClipping:
+    """Overlays must never paint outside the radar region."""
+
+    def test_alert_polygon_clipped_to_region(self):
+        # A polygon spanning well past the region's right edge; the area to the
+        # right of the region stands in for the conditions panel.
+        canvas = Image.new("RGB", (400, 200), (255, 255, 255))
+        # Starts inside the region and runs several degrees past its right edge.
+        big = [(-86.85, 36.05), (-80.0, 36.05), (-80.0, 35.95), (-86.85, 35.95)]
+        alerts = [{"event": "Tornado Warning", "severity": "Extreme", "polygon": big}]
+        with patch("modules.weather._fetch_nws_alerts", return_value=alerts):
+            _overlay_severe_alerts(canvas, 36.0, -86.8, 7, 200, 200, {}, config={})
+        right = np.array(canvas)[:, 200:]
+        assert np.all(right == 255), "alert overlay bled outside the radar region"
+        assert not np.all(np.array(canvas)[:, :200] == 255), "nothing drawn in-region"
+
+    def test_alert_label_is_two_colour_after_snap(self):
+        canvas = Image.new("RGB", (300, 200), (255, 255, 255))
+        poly = [(-86.9, 36.1), (-86.7, 36.1), (-86.7, 35.9), (-86.9, 35.9)]
+        alerts = [{"event": "Tornado Warning", "severity": "Extreme", "polygon": poly}]
+        with patch("modules.weather._fetch_nws_alerts", return_value=alerts):
+            _overlay_severe_alerts(canvas, 36.0, -86.8, 7, 300, 200, {}, config={})
+        colors = {tuple(c) for c in np.unique(np.array(canvas).reshape(-1, 3), axis=0)}
+        # Anti-aliased white-on-red glyph edges must have been resolved: nothing
+        # but white, red and the untouched background may survive.
+        assert colors <= {(255, 255, 255), (255, 0, 0)}, f"unsnapped AA pixels: {colors}"
+
+    def test_lightning_halo_clipped_to_region(self):
+        canvas = Image.new("RGB", (400, 200), (255, 255, 255))
+        # A strike right on the region's right edge -- its 12px halo would
+        # otherwise spill onto the panel beside it.
+        _, _, _, lon_max = _view_bounds(36.0, -86.8, 7, 200, 200)
+        strikes = [{"lat": 36.0, "lon": lon_max - 0.001}]
+        _draw_lightning_overlay(canvas, strikes, 36.0, -86.8, 7, 200, 200)
+        assert np.all(np.array(canvas)[:, 200:] == 255)
+
+
+class TestAlertAreaQuery:
+    def test_area_query_used_when_view_geometry_known(self):
+        captured = {}
+        def fake_get(url, **kw):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"features": []}
+            return resp
+        with patch("modules.weather._view_state_codes", return_value=["TN", "KY"]), \
+             patch("modules.weather.requests.get", side_effect=fake_get):
+            _fetch_nws_alerts(36.0, -86.8, {}, zoom=7, width=520, height=444)
+        assert "area=TN,KY" in captured["url"]
+        assert "point=" not in captured["url"]
+
+    def test_falls_back_to_point_query_without_geometry(self):
+        captured = {}
+        def fake_get(url, **kw):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.json.return_value = {"features": []}
+            return resp
+        with patch("modules.weather.requests.get", side_effect=fake_get):
+            _fetch_nws_alerts(36.0, -86.8, {})
+        assert "point=36.0000,-86.8000" in captured["url"]
+
+
+class TestSecretRedaction:
+    def test_client_secret_never_reaches_the_log(self, caplog):
+        boom = RuntimeError("failed for url: https://x/?client_secret=SUPERSECRET&p=1")
+        with patch("modules.weather.requests.get", side_effect=boom):
+            with caplog.at_level("WARNING"):
+                result = _fetch_lightning_strikes(36.0, -86.8, {}, "id", "SUPERSECRET")
+        assert result == []
+        assert "SUPERSECRET" not in caplog.text
+        assert "***" in caplog.text
+
+    def test_redact_handles_blank_secrets(self):
+        assert _redact("nothing to hide", "", None or "") == "nothing to hide"
+
+
+class TestFirstSet:
+    def test_zero_is_a_valid_coordinate(self):
+        # lat/lon of exactly 0.0 is the equator / prime meridian, not "missing".
+        assert _first_set(None, 0.0) == 0.0
+        assert _first_set(0.0, 12.0) == 0.0
+
+    def test_falls_through_to_later_values(self):
+        assert _first_set(None, None, 5) == 5
+        assert _first_set(None, None) is None
+
+
+class TestViewBounds:
+    def test_bounds_bracket_the_centre(self):
+        lat_min, lon_min, lat_max, lon_max = _view_bounds(36.0, -86.8, 7, 520, 444)
+        assert lat_min < 36.0 < lat_max
+        assert lon_min < -86.8 < lon_max
+
+    def test_zoom_7_view_spans_roughly_a_hundred_km(self):
+        # Sanity check on the projection: at zoom 7 with 512px tiles the scale is
+        # ~0.5 km/px, so a 520px wide view spans a bit over 250 km of longitude.
+        _, lon_min, _, lon_max = _view_bounds(36.0, -86.8, 7, 520, 444)
+        km = (lon_max - lon_min) * 111.32 * math.cos(math.radians(36.0))
+        assert 200 < km < 300
+
+
+class TestTileCache:
+    def test_second_fetch_serves_from_disk(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(W_MOD, "_TILE_CACHE_DIR", str(tmp_path / "tiles"))
+        buf = io.BytesIO()
+        Image.new("RGBA", (8, 8), (1, 2, 3, 255)).save(buf, format="PNG")
+        payload = buf.getvalue()
+
+        calls = []
+        def fake_get(url, **kw):
+            calls.append(url)
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.content = payload
+            return resp
+
+        args = ("/v2/radar/past_0", 0, 0, 0, 0, 7, 8, 4, {}, 0, 0, 8, 8)
+        with patch("modules.weather.requests.get", side_effect=fake_get):
+            first = W_MOD._fetch_rv_frame(*args)
+            second = W_MOD._fetch_rv_frame(*args)
+        assert len(calls) == 1, "second fetch should have hit the disk cache"
+        assert list(first.getdata()) == list(second.getdata())
+
+    def test_prune_keeps_newest(self, tmp_path, monkeypatch):
+        cache = tmp_path / "tiles"
+        cache.mkdir()
+        monkeypatch.setattr(W_MOD, "_TILE_CACHE_DIR", str(cache))
+        for i in range(10):
+            p = cache / f"{i}.png"
+            p.write_bytes(b"x")
+            os.utime(p, (i, i))
+        W_MOD._prune_tile_cache(max_files=4)
+        assert sorted(int(p.stem) for p in cache.iterdir()) == [6, 7, 8, 9]
