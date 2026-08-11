@@ -83,6 +83,7 @@ eink/
 │   ├── traffic.py           # Local traffic incidents (TomTom)
 │   ├── agenda.py            # Calendar / agenda from iCal/ICS URLs
 │   ├── river_height.py      # USGS river gauge chart with flood-stage thresholds
+│   ├── business_idea.py     # Business idea pulled from the sibling business-ideas repo
 │   ├── game_of_life.py      # Conway's Game of Life — evolves each refresh
 │   ├── crypto_market.py     # Top-N crypto prices and 24 h change (keyless)
 │   ├── qrcode_display.py    # Static or Wi-Fi QR code
@@ -165,7 +166,7 @@ Intervals are defined in `MODULE_INTERVALS` in `utils.py` and apply automaticall
 | 15 min | `questions`, `agenda` |
 | 30 min | `forecast_graph`, `aurora`, `news_headlines`, `claude_news`, `carbon_intensity` |
 | 1 hr | `air_quality`, `moon_phase`, `pollen`, `countdown`, `interesting_fact` |
-| 24 hr | `xkcd`, `word_of_day`, `nasa_apod`, `chess_puzzle`, and all other daily modules |
+| 24 hr | `xkcd`, `word_of_day`, `nasa_apod`, `chess_puzzle`, `business_idea`, and all other daily modules |
 
 ---
 
