@@ -81,6 +81,7 @@ ALL_MODULES = [
     "now_playing",
     "traffic",
     "agenda",
+    "business_idea",
 ]
 
 # Pre-flight config checks per module
@@ -357,6 +358,7 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "questions":       _p("questions",         "images/questions_display.bmp"),
         "terminal":        _p("terminal",          "images/terminal_display.bmp"),
         "crypto_market":   _p("crypto_market",     "images/crypto_market.bmp"),
+        "business_idea":   _p("business_idea",     "images/business_idea.bmp"),
     }
 
     # module_cycler delegates to whatever module it last ran
@@ -1326,6 +1328,7 @@ MODULE_INTERVALS: dict[str, int] = {
     "brain_status":     1800,   # 30 min
     "module_cycler":    1800,   # 30 min
     "crypto_market":    21600,  # 6 hours
+    "business_idea":    86400,  # 24 hours
 }
 
 

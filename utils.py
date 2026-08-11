@@ -54,6 +54,7 @@ MODULE_INTERVALS: Dict[str, int] = {
     "traffic":           600,    # 10 min — incident data
     "agenda":            900,    # 15 min — calendar events
     "river_height":      900,    # 15 min — USGS gauge updates
+    "business_idea":    86400,    # 24 hours — one new idea per day
 }
 
 MODULE_MAP: Dict[str, str] = {
@@ -99,6 +100,7 @@ MODULE_MAP: Dict[str, str] = {
     "traffic":         "modules.traffic",
     "agenda":          "modules.agenda",
     "river_height":    "modules.river_height",
+    "business_idea":   "modules.business_idea",
 }
 
 # Platform-aware font search chains

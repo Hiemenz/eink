@@ -246,6 +246,14 @@ word_of_day:
   api_key: ""                  # free key from dictionaryapi.com (optional)
   cache_dir: data/
 
+# ── Business Idea (markdown ideas from the sibling business-ideas repo) ──────
+business_idea:
+  output_path: images/business_idea.bmp
+  source_dir: ../business-ideas
+  idea_dirs: [main-income-ideas, side-income-ideas, discovered-problems, proof-of-concepts]
+  shown_cache: data/business_idea_shown.json
+  update_interval: 86400       # seconds — how often to advance to a new idea
+
 # ── ISS Tracker (wheretheiss.at, keyless) ────────────────────────────────────
 iss_tracker:
   output_path: images/iss_tracker.bmp
