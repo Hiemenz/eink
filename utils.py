@@ -51,6 +51,7 @@ MODULE_INTERVALS: Dict[str, int] = {
     "xkcd":            86400,    # 24 hours — daily comic
     "carbon_intensity": 1800,    # 30 min — grid mix
     "now_playing":        60,    # 1 min — track changes
+    "siriusxm_now_playing": 120,  # 2 min — avoid hammering SiriusXM's unofficial API
     "traffic":           600,    # 10 min — incident data
     "agenda":            900,    # 15 min — calendar events
     "river_height":      900,    # 15 min — USGS gauge updates
@@ -97,6 +98,7 @@ MODULE_MAP: Dict[str, str] = {
     "xkcd":            "modules.xkcd",
     "carbon_intensity": "modules.carbon_intensity",
     "now_playing":     "modules.now_playing",
+    "siriusxm_now_playing": "modules.siriusxm_now_playing",
     "traffic":         "modules.traffic",
     "agenda":          "modules.agenda",
     "river_height":    "modules.river_height",
