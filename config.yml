@@ -302,6 +302,16 @@ now_playing:
   api_key: ""                # free key from last.fm/api
   username: ""               # Last.fm username to track
 
+# ── SiriusXM Now Playing + Spotify QR ────────────────────────────────────────
+siriusxm_now_playing:
+  output_path: images/siriusxm_now_playing.bmp
+  cache_dir: data/
+  username: ""                  # your SiriusXM account email/username
+  password: ""                  # your SiriusXM account password
+  channel_name: "Life with John Mayer"   # channel name, id, or number
+  spotify_client_id: ""         # free app at developer.spotify.com/dashboard
+  spotify_client_secret: ""
+
 # ── Local Traffic (TomTom) ───────────────────────────────────────────────────
 traffic:
   output_path: images/traffic.bmp
