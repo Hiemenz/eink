@@ -69,7 +69,7 @@ L = a day+). "Data source" notes the free API; "no key" means no signup required
       status. (M)
 - [ ] **Home Assistant / MQTT bridge** — publish current module state; let HA trigger
       module switches. (L)
-- [ ] **Watchdog + health check** — auto-restart on crash, log last-successful-refresh
+- [x] **Watchdog + health check** — auto-restart on crash, log last-successful-refresh
       per module. (M)
 
 ---

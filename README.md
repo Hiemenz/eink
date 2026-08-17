@@ -196,10 +196,39 @@ DISCORD_CHANNEL_ID=123456789
 | `!set <key> [value]` | Update any config value (dot notation). `!set franklin_cam` switches with no args |
 | `!refresh` | Force refresh with the current module |
 | `!status` | Show current module, station, and location |
+| `!health` | Show per-module refresh health — last success age, any modules with failures |
 | `!modules` | List all modules and their configurable options |
 | `!help` or `help` | Show this command reference |
 
 The bot also posts an embed + display image preview to the channel on every scheduled auto-refresh.
+
+### Watchdog & health checks
+
+Every `main.py` run (whether via the bot's auto-refresh loop, `!refresh`, or a
+manual invocation) records its outcome to `data/health.json` — per-module
+last-attempt/last-success timestamps, last error, and consecutive-failure
+count. Check it anytime with `!health`, or directly:
+
+```bash
+cat data/health.json
+```
+
+The bot's `auto_refresh` loop also catches exceptions per-tick so one bad
+iteration (a flaky API, a module bug) logs and retries next minute instead of
+silently killing the loop.
+
+That covers *within-process* crashes. To recover from the bot process itself
+dying, run it under a supervisor that restarts on failure — a systemd unit
+example is provided at `systemd/eink-discord-bot.service.example`:
+
+```bash
+sudo cp systemd/eink-discord-bot.service.example /etc/systemd/system/eink-discord-bot.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now eink-discord-bot
+```
+
+Adjust `WorkingDirectory`, `User`, and the `ExecStart` interpreter path for
+your Pi before enabling it.
 
 ---
 

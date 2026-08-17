@@ -20,6 +20,7 @@ data/nws_view_states.json
 radar/radar_state.json
 radar/rv_frame_state.json
 bot_state.json
+data/health.json
 
 # Secrets
 .env
