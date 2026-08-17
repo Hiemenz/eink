@@ -8,6 +8,7 @@ patch cross-correlation storm-motion estimator.
 
 import sys
 import os
+import time
 
 import numpy as np
 import pytest
@@ -53,6 +54,14 @@ from modules.weather import (
     _redact,
     _first_set,
     _view_bounds,
+    _STALE_RADAR_MIN,
+    _STALE_COLOR,
+    _draw_seven_color_legend,
+    _LEGEND_H,
+    _draw_stale_banner,
+    _STALE_BANNER_H,
+    _ALERT_SEVERITY_STYLE,
+    _ALERT_DEFAULT_STYLE,
 )
 
 
@@ -665,6 +674,125 @@ class TestNowcastOutline:
         assert np.all(np.array(img) == 255)
 
 
+class TestDrawCornerLabels:
+    def test_plain_string_line_drawn_black(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, ["Radar: 3:14 PM"], {})
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR not in colors
+
+    def test_colored_tuple_line_survives_the_box_snap(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, [("Radar: 43 min old", _STALE_COLOR)], {})
+        # The red text must still be red after the white/black luminance snap —
+        # not flattened to black (its luminance is under 128) or lost entirely.
+        # (The box border is legitimately black, so check for red presence only.)
+        assert _STALE_COLOR in set(img.getdata())
+
+    def test_mixed_black_and_red_lines_both_survive(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(
+            img,
+            ["Cells ENE 32 mph", ("Radar: 43 min old", _STALE_COLOR)],
+            {},
+        )
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR in colors
+
+    def test_no_lines_draws_nothing(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, [], {})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+
+class TestRadarStaleness:
+    """The legend's 7 color swatches legitimately include red, so these tests
+    must scope color checks to the right-side station/time label region rather
+    than the whole canvas."""
+
+    def _render_right_label(self, frame_ts, now):
+        # Wide enough that the 7 left-aligned color swatches (which legitimately
+        # include red/orange) don't reach anywhere near the right-aligned label.
+        canvas = Image.new("RGB", (1200, 100), (255, 255, 255))
+        with patch("modules.weather.time.time", return_value=now):
+            _draw_seven_color_legend(canvas, frame_ts, "KOHX", {})
+        y0 = canvas.height - _LEGEND_H
+        return canvas.crop((canvas.width - 160, y0, canvas.width, canvas.height))
+
+    def test_fresh_frame_shows_black_clock_time_not_red(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - 5 * 60, now)  # 5 min old
+        colors = set(region.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR not in colors
+
+    def test_stale_frame_shows_red_age(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - 43 * 60, now)  # matches audit's example age
+        # (The legend strip's top border is always a black line across the full
+        # width, so black presence isn't a useful negative signal here — only
+        # red presence, which only the stale path draws.)
+        assert _STALE_COLOR in set(region.getdata())
+
+    def test_boundary_at_threshold_is_not_stale(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - _STALE_RADAR_MIN * 60, now)  # exactly at threshold
+        assert _STALE_COLOR not in set(region.getdata())
+
+
+class TestDrawStaleBanner:
+    def test_source_image_is_not_mutated(self):
+        img = Image.new("RGB", (300, 100), (255, 255, 255))
+        _draw_stale_banner(img, 43.0, {})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_banner_band_is_pure_red_and_white_only(self):
+        img = Image.new("RGB", (300, 100), (255, 255, 255))
+        banner = _draw_stale_banner(img, 43.0, {})
+        band = banner.crop((0, 0, banner.width, _STALE_BANNER_H))
+        colors = set(band.getdata())
+        # Must be exact-palette in/out: text drawn on an already-quantized bmp
+        # has to be snapped to {red, white}, or a later requantize pass would
+        # scatter its anti-aliased edges onto unrelated palette colors.
+        assert colors <= {_STALE_COLOR, (255, 255, 255)}
+        assert _STALE_COLOR in colors
+
+    def test_body_below_banner_is_untouched(self):
+        img = Image.new("RGB", (300, 100), (0, 0, 0))
+        banner = _draw_stale_banner(img, 5.0, {})
+        below = banner.crop((0, _STALE_BANNER_H, banner.width, banner.height))
+        assert set(below.getdata()) == {(0, 0, 0)}
+
+
+class TestGenerateStaleFallback:
+    def test_total_fetch_failure_pushes_cached_render_with_banner(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+        cached = tmp_path / "radar" / "eink_quantized_display_KOHX.bmp"
+        Image.new("RGB", (300, 100), (255, 255, 255)).save(cached, format="bmp")
+        old = time.time() - 3600
+        os.utime(cached, (old, old))
+
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            result = W_MOD.generate({"station": {"name": "KOHX"}})
+
+        assert result is not None
+        assert os.path.basename(result) == "eink_stale_display_KOHX.bmp"
+        out = Image.open(result).convert("RGB")
+        assert _STALE_COLOR in set(out.crop((0, 0, out.width, _STALE_BANNER_H)).getdata())
+        # The cached original that fed the banner is left untouched on disk.
+        assert set(Image.open(cached).convert("RGB").getdata()) == {(255, 255, 255)}
+
+    def test_cold_start_with_no_cache_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            assert W_MOD.generate({"station": {"name": "KOHX"}}) is None
+
+
 class TestNowcastArrival:
     @staticmethod
     def _frames(now):
@@ -729,6 +857,61 @@ class TestOverlayClipping:
         strikes = [{"lat": 36.0, "lon": lon_max - 0.001}]
         _draw_lightning_overlay(canvas, strikes, 36.0, -86.8, 7, 200, 200)
         assert np.all(np.array(canvas)[:, 200:] == 255)
+
+
+class TestAlertSeverityStyle:
+    """A Tornado Warning (Extreme) must not render identically to a Flood
+    Advisory (Minor/Unknown) — severity should drive outline/label color."""
+
+    _POLY = [(-86.9, 36.1), (-86.7, 36.1), (-86.7, 35.9), (-86.9, 35.9)]
+
+    def _render(self, alerts):
+        canvas = Image.new("RGB", (300, 200), (255, 255, 255))
+        with patch("modules.weather._fetch_nws_alerts", return_value=alerts):
+            _overlay_severe_alerts(canvas, 36.0, -86.8, 7, 300, 200, {}, config={})
+        return canvas
+
+    def test_extreme_uses_its_styled_color(self):
+        canvas = self._render(
+            [{"event": "Tornado Warning", "severity": "Extreme", "polygon": self._POLY}]
+        )
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] in set(canvas.getdata())
+
+    def test_severe_uses_a_different_color_than_extreme(self):
+        canvas = self._render(
+            [{"event": "Severe Thunderstorm Warning", "severity": "Severe", "polygon": self._POLY}]
+        )
+        colors = set(canvas.getdata())
+        assert _ALERT_SEVERITY_STYLE["Severe"]["color"] in colors
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] not in colors
+
+    def test_moderate_uses_its_styled_color(self):
+        canvas = self._render(
+            [{"event": "Flood Warning", "severity": "Moderate", "polygon": self._POLY}]
+        )
+        assert _ALERT_SEVERITY_STYLE["Moderate"]["color"] in set(canvas.getdata())
+
+    def test_minor_severity_falls_back_to_default_not_extreme_styling(self):
+        canvas = self._render(
+            [{"event": "Flood Advisory", "severity": "Minor", "polygon": self._POLY}]
+        )
+        colors = set(canvas.getdata())
+        assert _ALERT_DEFAULT_STYLE["color"] in colors
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] not in colors
+
+    def test_missing_severity_falls_back_to_default(self):
+        canvas = self._render([{"event": "Special Weather Statement", "polygon": self._POLY}])
+        assert _ALERT_DEFAULT_STYLE["color"] in set(canvas.getdata())
+
+    def test_more_severe_alert_wins_zorder_regardless_of_input_order(self):
+        minor = {"event": "Flood Watch", "severity": "Minor", "polygon": self._POLY}
+        extreme = {"event": "Tornado Warning", "severity": "Extreme", "polygon": self._POLY}
+        for alerts in ([minor, extreme], [extreme, minor]):
+            # Identical polygon for both alerts, so their outline/label pixels
+            # coincide — draw order (least-severe first, by design) decides
+            # which color survives, regardless of the order alerts arrived in.
+            canvas = self._render(alerts)
+            assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] in set(canvas.getdata())
 
 
 class TestAlertAreaQuery:

@@ -1497,6 +1497,11 @@ def _draw_storm_motion_overlay(
 # into an unbounded number of tile fetches.
 _NOWCAST_MAX_FRAMES = 3
 
+# RainViewer's composite mosaic normally advances every ~10 min; past this age the
+# feed itself (not just our fetch cadence) is considered stale and gets flagged.
+_STALE_RADAR_MIN = 20
+_STALE_COLOR = (255, 0, 0)
+
 
 def _nowcast_arrival_minutes(
     frames: List[Dict[str, Any]],
@@ -1579,7 +1584,7 @@ def _draw_nowcast_outline(img: Image.Image, nowcast_rgba: Image.Image) -> bool:
 
 
 def _draw_corner_labels(
-    img: Image.Image, lines: List[str], config: dict, margin: int = 6
+    img: Image.Image, lines: List, config: dict, margin: int = 6
 ) -> None:
     """
     Draw a stacked white caption box in the bottom-left of the radar canvas.
@@ -1589,22 +1594,30 @@ def _draw_corner_labels(
     The snap is required: anti-aliased glyph edges must not reach
     `_remap_radar_seven_color`, whose black cutoff is tuned for reflectivity and
     erodes small text into unreadable speckle.
+
+    Each entry in `lines` is either a plain string (drawn black) or an
+    `(text, rgb_color)` tuple for a line that needs a non-black color (e.g. a red
+    staleness warning). Non-black lines bypass the box-wide luminance snap — which
+    assumes only black/white are present — and are re-snapped individually against
+    white with `_snap_region_2color` per the exact-palette-in/out rule.
     """
     if not lines:
         return
+
+    entries = [line if isinstance(line, tuple) else (line, (0, 0, 0)) for line in lines]
 
     draw = ImageDraw.Draw(img)
     font = get_font(11, config=config)
 
     widths, heights = [], []
-    for line in lines:
-        bb = draw.textbbox((0, 0), line, font=font)
+    for text, _color in entries:
+        bb = draw.textbbox((0, 0), text, font=font)
         widths.append(bb[2] - bb[0])
         heights.append(bb[3] - bb[1])
 
     line_h = max(heights) + 4
     box_w  = max(widths) + 8
-    box_h  = line_h * len(lines) + 4
+    box_h  = line_h * len(entries) + 4
 
     x0 = margin
     y0 = img.height - box_h - margin
@@ -1612,8 +1625,12 @@ def _draw_corner_labels(
                    fill=(255, 255, 255), outline=(0, 0, 0))
 
     y = y0 + 3
-    for line in lines:
-        draw.text((x0 + 4, y), line, fill=(0, 0, 0), font=font)
+    color_rows = []  # (bbox, color) for lines needing a post-snap re-snap
+    for text, color in entries:
+        draw.text((x0 + 4, y), text, fill=color, font=font)
+        if color != (0, 0, 0):
+            bb = draw.textbbox((x0 + 4, y), text, font=font)
+            color_rows.append((bb, color))
         y += line_h
 
     box = (max(0, x0 - 1), max(0, y0 - 1),
@@ -1622,6 +1639,12 @@ def _draw_corner_labels(
         lambda px: 255 if px > 128 else 0
     ).convert("RGB")
     img.paste(snapped, box[:2])
+
+    for bb, color in color_rows:
+        _snap_region_2color(
+            img, (bb[0] - 1, bb[1] - 1, bb[2] + 1, bb[3] + 1),
+            (255, 255, 255), color,
+        )
 
 
 def _fetch_rainviewer_image(
@@ -1740,11 +1763,18 @@ def _fetch_rainviewer_image(
             except Exception as e:
                 logger.warning("Nowcast outline failed: %s", e)
 
-    # Bottom-left caption stack (radar frame time first, then motion/nowcast)
+    # Bottom-left caption stack (radar frame time first, then motion/nowcast).
+    # A stale RainViewer feed (composite mosaic hasn't advanced) reads as a normal
+    # timestamp otherwise — flag it in red past _STALE_RADAR_MIN rather than let
+    # the display quietly show old radar as if it were current.
     if frame_ts:
-        caption_lines.insert(
-            0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
-        )
+        age_min = (time.time() - frame_ts) / 60.0
+        if age_min > _STALE_RADAR_MIN:
+            caption_lines.insert(0, (f"Radar: {age_min:.0f} min old", _STALE_COLOR))
+        else:
+            caption_lines.insert(
+                0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
+            )
     _draw_corner_labels(result, caption_lines, cfg)
 
     return result, frame_ts
@@ -1912,6 +1942,38 @@ def _snap_region_2color(
     canvas.paste(Image.fromarray(out, "RGB"), box[:2])
 
 
+_STALE_BANNER_H = 22
+
+
+def _draw_stale_banner(img: Image.Image, age_min: float, config: dict) -> Image.Image:
+    """Stamp a red 'stale' banner across the top of a cached render before
+    re-pushing it to the display after a total fetch failure.
+
+    Operates on a copy — the source (the last known-good quantized image) is
+    left untouched on disk so a later successful render still starts clean,
+    and so repeated failed cycles keep computing staleness from that same
+    original mtime rather than compounding banners on top of banners.
+    """
+    banner = img.copy()
+    draw = ImageDraw.Draw(banner)
+    draw.rectangle([(0, 0), (banner.width - 1, _STALE_BANNER_H - 1)], fill=_STALE_COLOR)
+
+    text = f"STALE — radar hasn't updated in {age_min:.0f} min"
+    font = get_font(13, bold=True, config=config)
+    bb = draw.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    tx = max(4, (banner.width - tw) // 2)
+    ty = (_STALE_BANNER_H - th) // 2
+    draw.text((tx, ty), text, fill=(255, 255, 255), font=font)
+
+    # Drawn straight onto an already-quantized bmp: the glyph edges are
+    # anti-aliased RGB, not exact palette entries, so they must be snapped to
+    # {red, white} before saving or a reload elsewhere would scatter them
+    # across mismatched palette colors on the next quantize pass.
+    _snap_region_2color(banner, (0, 0, banner.width, _STALE_BANNER_H), _STALE_COLOR, (255, 255, 255))
+    return banner
+
+
 def _draw_seven_color_legend(
     canvas: Image.Image,
     frame_ts: Optional[int],
@@ -1979,25 +2041,32 @@ def _draw_seven_color_legend(
     if not show_station_time:
         return
 
+    stale = False
     if frame_ts:
         try:
-            from datetime import timezone as _tz_mod
-            ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
+            age_min = (time.time() - frame_ts) / 60.0
+            if age_min > _STALE_RADAR_MIN:
+                stale = True
+                ts_str = f"{age_min:.0f} min old"
+            else:
+                from datetime import timezone as _tz_mod
+                ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
         except Exception:
             ts_str = ""
     else:
         ts_str = ""
 
     right_str = f"{station}  {ts_str}" if ts_str else station
+    text_color = _STALE_COLOR if stale else (0, 0, 0)
     rb = draw.textbbox((0, 0), right_str, font=font)
     rw, rh = rb[2] - rb[0], rb[3] - rb[1]
     right_x = x1 - rw - 8
     right_y = y0 + (_LEGEND_H - rh) // 2
-    draw.text((right_x, right_y), right_str, fill=(0, 0, 0), font=font)
+    draw.text((right_x, right_y), right_str, fill=text_color, font=font)
     _snap_region_2color(
         canvas,
         (right_x + rb[0], right_y + rb[1], right_x + rb[2] + 1, right_y + rb[3] + 1),
-        (255, 255, 255), (0, 0, 0),
+        (255, 255, 255), text_color,
     )
 
 
@@ -2115,6 +2184,20 @@ def _fetch_nws_alerts(
     return alerts
 
 
+# NWS CAP `severity` maps to visual weight, so a Tornado Warning (Extreme) reads
+# as unmistakably more urgent than a Flood Advisory (Minor/Unknown) rather than
+# rendering identically. Colors are drawn as exact fills via _snap_region_2color,
+# so any 7-color palette entry is safe here — not limited to quantize_to_seven_
+# colors()'s nearest-RGB pass.
+_ALERT_SEVERITY_STYLE = {
+    "Extreme":  {"color": (255, 0, 0),   "width": 4, "text": (255, 255, 255)},
+    "Severe":   {"color": (255, 128, 0), "width": 3, "text": (255, 255, 255)},
+    "Moderate": {"color": (255, 255, 0), "width": 2, "text": (0, 0, 0)},
+}
+_ALERT_DEFAULT_STYLE = {"color": (0, 0, 0), "width": 2, "text": (255, 255, 255)}  # Minor/Unknown
+_ALERT_SEVERITY_RANK = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
+
+
 def _overlay_severe_alerts(
     canvas: Image.Image, center_lat: float, center_lon: float, zoom: int,
     region_w: int, region_h: int, headers: dict,
@@ -2136,6 +2219,14 @@ def _overlay_severe_alerts(
     if not alerts:
         return
 
+    # Draw least-severe first so an Extreme polygon overlapping a Minor one (e.g.
+    # a Tornado Warning inside a broader Flood Watch) always wins the z-order.
+    alerts = sorted(
+        alerts,
+        key=lambda a: _ALERT_SEVERITY_RANK.index(a.get("severity"))
+        if a.get("severity") in _ALERT_SEVERITY_RANK else 0,
+    )
+
     scale = (2 ** zoom) * _RV_TILE_SIZE
     cx_px, cy_px = _merc_xy(center_lat, center_lon, scale)
 
@@ -2147,8 +2238,6 @@ def _overlay_severe_alerts(
     # by the paste rather than spilling onto the rest of the canvas.
     layer = canvas.crop((x_off, y_off, x_off + region_w, y_off + region_h)).convert("RGB")
     draw = ImageDraw.Draw(layer)
-    RED = (255, 0, 0)
-    WHITE = (255, 255, 255)
 
     try:
         lf = get_font(13, bold=True, config=config)
@@ -2168,8 +2257,11 @@ def _overlay_severe_alerts(
             continue
         drew_any = True
 
-        # Bold red outline
-        draw.line(pts + [pts[0]], fill=RED, width=3)
+        style = _ALERT_SEVERITY_STYLE.get(alert.get("severity"), _ALERT_DEFAULT_STYLE)
+        color, width, text_color = style["color"], style["width"], style["text"]
+
+        # Outline weight and color both scale with severity.
+        draw.line(pts + [pts[0]], fill=color, width=width)
 
         # Event label anchored at the polygon's topmost vertex
         label = alert.get("event", "Alert")
@@ -2179,12 +2271,12 @@ def _overlay_severe_alerts(
         lx = max(2, min(xs[top_i], region_w - tw - 8))
         ly = max(2, min(ys[top_i], region_h - th - 6))
         box = (int(lx), int(ly), int(lx + tw + 6), int(ly + th + 4))
-        draw.rectangle(list(box), fill=RED)
-        draw.text((lx + 3, ly + 2), label, fill=WHITE, font=lf)
-        # Anti-aliased white-on-red glyph edges must be resolved to exactly those
-        # two colors before quantize_to_seven_colors() scatters them across
-        # unrelated palette inks.
-        _snap_region_2color(layer, box, RED, WHITE)
+        draw.rectangle(list(box), fill=color)
+        draw.text((lx + 3, ly + 2), label, fill=text_color, font=lf)
+        # Anti-aliased glyph edges must be resolved to exactly the two colors in
+        # play before quantize_to_seven_colors() scatters them across unrelated
+        # palette inks.
+        _snap_region_2color(layer, box, color, text_color)
 
     if drew_any:
         canvas.paste(layer, (x_off, y_off))
@@ -2673,7 +2765,22 @@ def generate(config):
         if not os.path.exists(config["quantized_path"]):
             logger.error("Radar generation failed and no cached image exists — skipping cycle.")
             return None
-        default_image_path = config["quantized_path"]
+        # A total fetch failure with a cached render available degrades gracefully:
+        # re-push that render (banner-stamped, so it reads as stale rather than
+        # current) instead of silently leaving whatever module the cycler had up.
+        # Staleness is measured off the cached file's mtime, not a baked-in radar
+        # frame time, so it also covers RIDGE (which has no frame_ts) and keeps
+        # growing correctly across consecutive failed cycles.
+        age_min = (now - os.path.getmtime(config["quantized_path"])) / 60.0
+        stale_path = os.path.join(radar_folder, f"eink_stale_display_{default_station}.bmp")
+        cached_img = Image.open(config["quantized_path"]).convert("RGB")
+        _draw_stale_banner(cached_img, age_min, config).save(stale_path, format="bmp")
+        logger.warning(
+            "Radar fetch failed — re-pushing cached render with a stale banner (%.0f min old).",
+            age_min,
+        )
+        default_image_path = stale_path
+        default_updated = True
     default_percentage = calculate_non_bw_percentage(config["quantized_path"], region=default_region)
     logger.info("Default station (%s) has %.2f%% interesting pixels.", default_station, default_percentage)
     should_update = default_updated
