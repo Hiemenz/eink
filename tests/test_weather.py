@@ -12,7 +12,7 @@ import time
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -62,6 +62,15 @@ from modules.weather import (
     _STALE_BANNER_H,
     _ALERT_SEVERITY_STYLE,
     _ALERT_DEFAULT_STYLE,
+    _draw_range_rings,
+    _RANGE_RING_KM,
+    _pick_adaptive_zoom,
+    _ADAPTIVE_ZOOM_MIN,
+    _ADAPTIVE_ZOOM_MAX,
+    _ADAPTIVE_ZOOM_NEAR_KM,
+    _classify_trend,
+    _draw_dashed_polyline,
+    _fetch_admin_boundaries,
 )
 
 
@@ -1013,3 +1022,140 @@ class TestTileCache:
             os.utime(p, (i, i))
         W_MOD._prune_tile_cache(max_files=4)
         assert sorted(int(p.stem) for p in cache.iterdir()) == [6, 7, 8, 9]
+
+
+class TestDrawRangeRings:
+    def test_disabled_via_config_draws_nothing(self):
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=0.5, config={"rainviewer_range_rings": False})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_draws_black_and_white_ring_and_crosshair(self):
+        # km_per_px chosen so all 3 rings fit comfortably inside a 300x300 canvas.
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=1.0, config={})
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert (255, 255, 255) in colors
+
+    def test_rings_larger_than_canvas_are_skipped(self):
+        # At 0.01 km/px even the smallest (25 km) ring has radius 2500px on a
+        # 20x20 canvas -- nowhere near fitting inside min(W,H)/2 -- so nothing
+        # should be drawn.
+        img = Image.new("RGB", (20, 20), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=0.01, config={})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_default_is_enabled(self):
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=1.0, config={})  # no explicit flag
+        assert (0, 0, 0) in set(img.getdata())
+
+
+class TestPickAdaptiveZoom:
+    def _rgba(self, size, blob=None):
+        alpha = np.zeros(size, dtype=np.uint8)
+        if blob is not None:
+            (y0, y1, x0, x1) = blob
+            alpha[y0:y1, x0:x1] = 255
+        rgb = np.zeros((*size, 3), dtype=np.uint8)
+        return Image.fromarray(np.dstack([rgb, alpha]), "RGBA")
+
+    def test_disabled_via_config_returns_none(self):
+        img = self._rgba((40, 40))  # empty frame, would otherwise zoom out
+        assert _pick_adaptive_zoom(img, 7, 0.5, {"rainviewer_adaptive_zoom": False}) is None
+
+    def test_empty_frame_zooms_out(self):
+        img = self._rgba((40, 40))
+        assert _pick_adaptive_zoom(img, 7, 0.5, {}) == 6
+
+    def test_empty_frame_at_min_zoom_stays_put(self):
+        img = self._rgba((40, 40))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MIN, 0.5, {}) is None
+
+    def test_nearby_cell_zooms_in(self):
+        # A blob right at the centre of a 40x40 frame at 1 km/px is ~0 km away.
+        # Base zoom must be below _ADAPTIVE_ZOOM_MAX (RainViewer's free-tier
+        # cap of 7) for there to be any headroom to zoom in.
+        img = self._rgba((40, 40), blob=(18, 22, 18, 22))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MAX - 1, 1.0, {}) == _ADAPTIVE_ZOOM_MAX
+
+    def test_nearby_cell_at_max_zoom_stays_put(self):
+        img = self._rgba((40, 40), blob=(18, 22, 18, 22))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MAX, 1.0, {}) is None
+
+    def test_distant_cell_no_change(self):
+        # A blob in the far corner of a 200x200 frame at 1 km/px is well past
+        # _ADAPTIVE_ZOOM_NEAR_KM from centre.
+        img = self._rgba((200, 200), blob=(2, 6, 2, 6))
+        assert (
+            math.hypot(4 - 100, 4 - 100) * 1.0 > _ADAPTIVE_ZOOM_NEAR_KM
+        )  # sanity-check the fixture
+        assert _pick_adaptive_zoom(img, 7, 1.0, {}) is None
+
+
+class TestClassifyTrend:
+    def test_increasing_mass_is_intensifying(self):
+        assert _classify_trend([100.0, 130.0, 200.0]) == "Intensifying"
+
+    def test_decreasing_mass_is_weakening(self):
+        assert _classify_trend([200.0, 130.0, 100.0]) == "Weakening"
+
+    def test_flat_mass_is_steady(self):
+        assert _classify_trend([100.0, 101.0, 102.0]) == "Steady"
+
+    def test_small_noise_stays_steady(self):
+        # ~5% change, well under the 15% threshold.
+        assert _classify_trend([100.0, 100.0, 105.0]) == "Steady"
+
+    def test_wrong_length_returns_none(self):
+        assert _classify_trend([100.0, 200.0]) is None
+        assert _classify_trend([]) is None
+
+
+class TestDrawDashedPolyline:
+    def test_produces_gaps_not_a_solid_line(self):
+        img = Image.new("RGBA", (100, 20), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(0, 10), (99, 10)], (0, 0, 0, 255), 1, dash=6, gap=4)
+        row = [img.getpixel((x, 10))[3] for x in range(100)]
+        assert any(a == 0 for a in row), "expected gaps in the dash pattern"
+        assert any(a > 0 for a in row), "expected some ink from the dash pattern"
+
+    def test_degenerate_single_point_does_not_crash(self):
+        img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(5, 5)], (0, 0, 0, 255), 1)  # no crash
+
+    def test_zero_length_segment_does_not_crash(self):
+        img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(5, 5), (5, 5), (9, 5)], (0, 0, 0, 255), 1)
+
+
+class TestFetchAdminBoundaries:
+    def test_network_failure_returns_transparent_layer(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch("modules.weather.requests.get", side_effect=Exception("boom")):
+            img = _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+        assert img.size == (100, 100)
+        # Fully transparent: every pixel's alpha channel is 0. (A tuple like
+        # (0, 0, 0, 0) is itself truthy, so check the alpha band explicitly
+        # rather than `any(img.getdata())`.)
+        assert all(px[3] == 0 for px in img.getdata())
+
+    def test_second_call_serves_from_disk_cache(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        calls = []
+
+        def fake_get(url, **kw):
+            calls.append(url)
+            resp = MagicMock()
+            resp.raise_for_status = lambda: None
+            resp.json = lambda: {"elements": []}
+            return resp
+
+        with patch("modules.weather.requests.get", side_effect=fake_get):
+            _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+            _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+        assert len(calls) == 1, "second call should have hit the 24h disk cache"
