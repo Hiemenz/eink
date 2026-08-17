@@ -1064,6 +1064,122 @@ def _fetch_osm_roads(
     return img
 
 
+def _draw_dashed_polyline(
+    draw: ImageDraw.ImageDraw, pts: List[Tuple[float, float]],
+    fill, width: int, dash: float = 6.0, gap: float = 4.0,
+) -> None:
+    """Draw a polyline with on/off dashing — plain PIL has no dashed-line primitive.
+
+    Walks each segment in ~2px steps rather than computing exact dash-boundary
+    intersections; at e-ink scale the difference is not visible and this stays
+    simple. Dash phase carries across segments (`dist_accum`) so a multi-point
+    boundary way dashes continuously instead of restarting at each vertex.
+    """
+    period = dash + gap
+    dist_accum = 0.0
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        seg_len = math.hypot(x1 - x0, y1 - y0)
+        if seg_len < 1e-6:
+            continue
+        steps = max(1, int(seg_len // 2))
+        for i in range(steps):
+            t0, t1 = i / steps, (i + 1) / steps
+            if (dist_accum + t0 * seg_len) % period < dash:
+                draw.line(
+                    [(x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0),
+                     (x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1)],
+                    fill=fill, width=width,
+                )
+        dist_accum += seg_len
+
+
+def _fetch_admin_boundaries(
+    lat: float, lon: float, zoom: int, tile_size: int, width: int, height: int,
+) -> Image.Image:
+    """Render county and state boundary lines from OSM Overpass, dashed.
+
+    Same approach as `_fetch_osm_roads` (real geometry over raster tiles, 24h
+    disk cache keyed on viewport), but dashed rather than solid so a boundary
+    reads as an administrative line, not another road, at a glance. State lines
+    (admin_level=4) draw wider/longer-dashed than county lines (admin_level=6)
+    so the two remain visually distinct from each other too.
+    """
+    import json, time
+
+    scale = 2 ** zoom * tile_size
+
+    def _lpx(la: float, lo: float) -> Tuple[float, float]:
+        return _merc_xy(la, lo, scale)
+
+    cx, cy = _lpx(lat, lon)
+    x0, y0 = cx - width / 2, cy - height / 2
+
+    lat_min, lon_min, lat_max, lon_max = _view_bounds(lat, lon, zoom, width, height, tile_size)
+
+    cache_path = os.path.join("data", "osm_boundaries_cache.json")
+    cache_key  = f"{lat:.4f},{lon:.4f},{zoom},{width}x{height}"
+    ways: Optional[list] = None
+
+    try:
+        if os.path.exists(cache_path):
+            with open(cache_path) as _f:
+                _c = json.load(_f)
+            if _c.get("key") == cache_key and time.time() - _c.get("ts", 0) < 86400:
+                ways = _c["ways"]
+                logger.info("Admin boundaries: %d ways from cache", len(ways))
+    except Exception:
+        pass
+
+    if ways is None:
+        query = (
+            f"[out:json][timeout:30];"
+            f"way[\"boundary\"=\"administrative\"][\"admin_level\"~\"^(4|6)$\"]"
+            f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
+            f"out geom;"
+        )
+        try:
+            resp = requests.get(
+                "https://overpass-api.de/api/interpreter",
+                params={"data": query},
+                headers={"User-Agent": "eink-display/1.0"},
+                timeout=45,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            ways = [e for e in data.get("elements", []) if e.get("type") == "way"]
+            logger.info("Admin boundaries: fetched %d ways from Overpass", len(ways))
+            os.makedirs("data", exist_ok=True)
+            with open(cache_path, "w") as _f:
+                json.dump({"key": cache_key, "ts": time.time(), "ways": ways}, _f)
+        except Exception as e:
+            logger.warning("Admin boundary fetch failed: %s", e)
+            return Image.new("RGBA", (width, height), (0, 0, 0, 0))
+
+    img  = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    polylines = []  # (pts, width, dash, gap)
+    for way in ways:
+        if "geometry" not in way:
+            continue
+        pts = []
+        for node in way["geometry"]:
+            wx, wy = _lpx(node["lat"], node["lon"])
+            pts.append((wx - x0, wy - y0))
+        if len(pts) < 2:
+            continue
+        is_state = way.get("tags", {}).get("admin_level") == "4"
+        polylines.append((pts, 2 if is_state else 1, 10 if is_state else 5, 5 if is_state else 4))
+
+    # White casing dashes first (all boundaries), then black core dashes, so a
+    # casing never erases an already-drawn core at a shared border segment.
+    for pts, lw, dash, gap in polylines:
+        _draw_dashed_polyline(draw, pts, (255, 255, 255, 255), lw + 2, dash, gap)
+    for pts, lw, dash, gap in polylines:
+        _draw_dashed_polyline(draw, pts, (0, 0, 0, 255), lw, dash, gap)
+    return img
+
+
 # Peak must exceed the correlation surface's mean by this many standard
 # deviations to count as a real match. A phase-correlation surface has a mean of
 # essentially zero (it is the DC term spread over rH*rW pixels), so the old
@@ -1313,6 +1429,32 @@ def _storm_speed_kmh(mag_px: float, km_per_px: float, interval_min: float) -> fl
     return mag_px * km_per_px / (interval_min / 60.0)
 
 
+# Relative change (endpoint vs. 3-frame average) required to call a trend, not
+# noise, from a single frame's coverage flickering at a cell's ragged edge.
+_TREND_CHANGE_THRESHOLD = 0.15
+
+
+def _classify_trend(masses: List[float]) -> Optional[str]:
+    """Classify a 3-frame reflectivity-mass trend as Intensifying/Steady/Weakening.
+
+    `masses` is total alpha-channel coverage (pixel count × opacity) for the
+    oldest, middle, and newest of 3 consecutive frames — cheap to compute since
+    those frames are already fetched for storm motion. Compares the oldest and
+    newest endpoints against the 3-frame average rather than requiring strict
+    monotonicity, so one noisy middle frame doesn't flip the call.
+    """
+    if len(masses) != 3:
+        return None
+    oldest, _mid, newest = masses
+    ref = max(sum(masses) / 3.0, 1.0)
+    delta = newest - oldest
+    if delta > ref * _TREND_CHANGE_THRESHOLD:
+        return "Intensifying"
+    if delta < -ref * _TREND_CHANGE_THRESHOLD:
+        return "Weakening"
+    return "Steady"
+
+
 def _precip_arrival_minutes(
     precip_mask: Image.Image,
     ux: float, uy: float,
@@ -1497,6 +1639,11 @@ def _draw_storm_motion_overlay(
 # into an unbounded number of tile fetches.
 _NOWCAST_MAX_FRAMES = 3
 
+# RainViewer's composite mosaic normally advances every ~10 min; past this age the
+# feed itself (not just our fetch cadence) is considered stale and gets flagged.
+_STALE_RADAR_MIN = 20
+_STALE_COLOR = (255, 0, 0)
+
 
 def _nowcast_arrival_minutes(
     frames: List[Dict[str, Any]],
@@ -1579,7 +1726,7 @@ def _draw_nowcast_outline(img: Image.Image, nowcast_rgba: Image.Image) -> bool:
 
 
 def _draw_corner_labels(
-    img: Image.Image, lines: List[str], config: dict, margin: int = 6
+    img: Image.Image, lines: List, config: dict, margin: int = 6
 ) -> None:
     """
     Draw a stacked white caption box in the bottom-left of the radar canvas.
@@ -1589,22 +1736,30 @@ def _draw_corner_labels(
     The snap is required: anti-aliased glyph edges must not reach
     `_remap_radar_seven_color`, whose black cutoff is tuned for reflectivity and
     erodes small text into unreadable speckle.
+
+    Each entry in `lines` is either a plain string (drawn black) or an
+    `(text, rgb_color)` tuple for a line that needs a non-black color (e.g. a red
+    staleness warning). Non-black lines bypass the box-wide luminance snap — which
+    assumes only black/white are present — and are re-snapped individually against
+    white with `_snap_region_2color` per the exact-palette-in/out rule.
     """
     if not lines:
         return
+
+    entries = [line if isinstance(line, tuple) else (line, (0, 0, 0)) for line in lines]
 
     draw = ImageDraw.Draw(img)
     font = get_font(11, config=config)
 
     widths, heights = [], []
-    for line in lines:
-        bb = draw.textbbox((0, 0), line, font=font)
+    for text, _color in entries:
+        bb = draw.textbbox((0, 0), text, font=font)
         widths.append(bb[2] - bb[0])
         heights.append(bb[3] - bb[1])
 
     line_h = max(heights) + 4
     box_w  = max(widths) + 8
-    box_h  = line_h * len(lines) + 4
+    box_h  = line_h * len(entries) + 4
 
     x0 = margin
     y0 = img.height - box_h - margin
@@ -1612,8 +1767,12 @@ def _draw_corner_labels(
                    fill=(255, 255, 255), outline=(0, 0, 0))
 
     y = y0 + 3
-    for line in lines:
-        draw.text((x0 + 4, y), line, fill=(0, 0, 0), font=font)
+    color_rows = []  # (bbox, color) for lines needing a post-snap re-snap
+    for text, color in entries:
+        draw.text((x0 + 4, y), text, fill=color, font=font)
+        if color != (0, 0, 0):
+            bb = draw.textbbox((x0 + 4, y), text, font=font)
+            color_rows.append((bb, color))
         y += line_h
 
     box = (max(0, x0 - 1), max(0, y0 - 1),
@@ -1622,6 +1781,108 @@ def _draw_corner_labels(
         lambda px: 255 if px > 128 else 0
     ).convert("RGB")
     img.paste(snapped, box[:2])
+
+    for bb, color in color_rows:
+        _snap_region_2color(
+            img, (bb[0] - 1, bb[1] - 1, bb[2] + 1, bb[3] + 1),
+            (255, 255, 255), color,
+        )
+
+
+_RANGE_RING_KM = (25, 50, 100)
+
+
+def _draw_range_rings(img: Image.Image, km_per_px: float, config: dict) -> None:
+    """Draw a home crosshair and 25/50/100 km range rings centered on the canvas.
+
+    At zoom 7 the canvas spans roughly ±130 km with no other way to judge how
+    far a cell is from home — this is a pure orientation aid, drawn before any
+    weather-derived overlay so storm arrows and captions stay legible on top.
+
+    White-cased black lines, the same trick as the OSM road overlay: without
+    the casing a thin black ring is indistinguishable from the black ">60 dBZ"
+    reflectivity tier once quantized to the 7-color palette.
+    """
+    if not config.get("rainviewer_range_rings", True) or km_per_px <= 0:
+        return
+
+    W, H = img.size
+    cx, cy = W / 2.0, H / 2.0
+    draw = ImageDraw.Draw(img)
+
+    # Drop rings that would fall entirely off-canvas at this zoom.
+    rings = [(km, km / km_per_px) for km in _RANGE_RING_KM]
+    rings = [(km, r) for km, r in rings if r < min(W, H) / 2.0]
+    if not rings:
+        return
+
+    arm = 8
+    # Casing first (all rings + crosshair), then cores, so a casing never
+    # erases an already-drawn core where two elements cross.
+    for _, r in rings:
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(255, 255, 255), width=3)
+    draw.line([(cx - arm, cy), (cx + arm, cy)], fill=(255, 255, 255), width=3)
+    draw.line([(cx, cy - arm), (cx, cy + arm)], fill=(255, 255, 255), width=3)
+
+    for _, r in rings:
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(0, 0, 0), width=1)
+    draw.line([(cx - arm, cy), (cx + arm, cy)], fill=(0, 0, 0), width=1)
+    draw.line([(cx, cy - arm), (cx, cy + arm)], fill=(0, 0, 0), width=1)
+
+    # Distance labels along the NE diagonal, clamped on-canvas — keeps them
+    # clear of the bottom-left caption stack regardless of ring size.
+    diag = math.cos(math.pi / 4)
+    font = get_font(10, config=config)
+    for km, r in rings:
+        label = f"{km}km"
+        bb = draw.textbbox((0, 0), label, font=font)
+        tw, th = bb[2] - bb[0], bb[3] - bb[1]
+        lx = max(2, min(cx + r * diag - tw / 2.0, W - tw - 2))
+        ly = max(2, min(cy - r * diag - th / 2.0, H - th - 2))
+        box = (int(lx) - 1, int(ly) - 1, int(lx + tw + 1), int(ly + th + 1))
+        draw.rectangle(box, fill=(255, 255, 255))
+        draw.text((lx, ly), label, fill=(0, 0, 0), font=font)
+        # Anti-aliased glyph edges must be resolved before quantize_to_seven_
+        # colors() scatters them across unrelated palette inks.
+        _snap_region_2color(img, box, (255, 255, 255), (0, 0, 0))
+
+
+# Bounds a single adaptive-zoom step so a rain-free night can't creep the view
+# out indefinitely. The upper bound is not a stylistic choice: RainViewer's
+# free tier hard-caps zoom at 7 (config.yml documents "8+ returns 'zoom not
+# supported'"), so at the default rainviewer_zoom: 7 the zoom-in half of this
+# is inert — it only has headroom to act if the configured default is < 7.
+_ADAPTIVE_ZOOM_MIN = 5
+_ADAPTIVE_ZOOM_MAX = 7
+_ADAPTIVE_ZOOM_NEAR_KM = 25.0
+
+
+def _pick_adaptive_zoom(
+    curr_radar_rgba: Image.Image, base_zoom: int, km_per_px: float, config: dict,
+) -> Optional[int]:
+    """One-step RainViewer zoom adjustment based on this frame's precip content.
+
+    A blank frame gives no context at all, so pull back a level for a wider
+    view. A cell already within `_ADAPTIVE_ZOOM_NEAR_KM` of home benefits from
+    more detail than the configured default zoom gives it, so push in a level.
+    Returns None (the common case: no change) when neither condition holds, or
+    when the relevant bound is already at its limit.
+    """
+    if not config.get("rainviewer_adaptive_zoom", True):
+        return None
+
+    alpha = np.array(curr_radar_rgba.split()[-1])
+    if not alpha.any():
+        return base_zoom - 1 if base_zoom > _ADAPTIVE_ZOOM_MIN else None
+
+    if base_zoom >= _ADAPTIVE_ZOOM_MAX:
+        return None
+    h, w = alpha.shape
+    ys, xs = np.nonzero(alpha)
+    nearest_km = np.hypot(xs - w / 2.0, ys - h / 2.0).min() * km_per_px
+    if nearest_km < _ADAPTIVE_ZOOM_NEAR_KM:
+        return base_zoom + 1
+    return None
 
 
 def _fetch_rainviewer_image(
@@ -1665,28 +1926,58 @@ def _fetch_rainviewer_image(
         lat, lon, zoom, width, height, _RV_TILE_SIZE
     )
 
+    # Current radar frame — fetched first so it can also serve as the adaptive-
+    # zoom probe below; the common "no adjustment" case pays nothing beyond this,
+    # since the fetch was needed either way.
+    curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+                                 zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                 crop_x, crop_y, width, height)
+
+    km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
+
+    # Adaptive zoom: an empty frame gives no context, so pull back a level; a
+    # cell already within _ADAPTIVE_ZOOM_NEAR_KM benefits from more detail than
+    # the configured default gives it, so push in a level. Only an actual bump
+    # re-fetches — geometry, km_per_px and the frame all move with the new zoom.
+    new_zoom = _pick_adaptive_zoom(curr_radar, zoom, km_per_px, cfg)
+    if new_zoom is not None and new_zoom != zoom:
+        logger.info("Adaptive zoom: %d -> %d", zoom, new_zoom)
+        zoom = new_zoom
+        tx_min, ty_min, tx_max, ty_max, crop_x, crop_y = _rv_tile_geometry(
+            lat, lon, zoom, width, height, _RV_TILE_SIZE
+        )
+        curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+                                     zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                     crop_x, crop_y, width, height)
+        km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
+
     # Road overlay — OSM interstate/trunk geometry, black core in a white casing
     show_map = cfg.get("rainviewer_map_overlay", True)
     road_img = None
     if show_map:
         road_img = _fetch_osm_roads(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
-    # Start with white background, then layer: radar → roads on top
-    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
+    # County/state boundary overlay — dashed, so it reads as administrative
+    # geometry rather than another road.
+    show_boundaries = cfg.get("rainviewer_admin_boundaries", False)
+    boundary_img = None
+    if show_boundaries:
+        boundary_img = _fetch_admin_boundaries(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
-    # Current radar frame
-    curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
-                                 zoom, _RV_TILE_SIZE, color_scheme, headers,
-                                 crop_x, crop_y, width, height)
+    # Start with white background, then layer: radar → boundaries → roads on top,
+    # so the more prominent solid roads always win over a dashed boundary line
+    # sharing the same pixels.
+    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
     canvas.alpha_composite(curr_radar)
 
-    # Roads composited last so they appear on top of precipitation
+    if boundary_img is not None:
+        canvas.alpha_composite(boundary_img)
     if road_img is not None:
         canvas.alpha_composite(road_img)
 
     result = canvas.convert("RGB")
+    _draw_range_rings(result, km_per_px, cfg)
 
-    km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
     caption_lines: List[str] = []
 
     # Storm motion: compare against the immediately previous frame (10-min gap).
@@ -1714,6 +2005,23 @@ def _fetch_rainviewer_image(
             if motion_lines:
                 caption_lines.extend(motion_lines)
 
+    # Trend badge: compare total reflectivity mass (summed alpha coverage) across
+    # the last 3 frames. The current and immediately-previous frame are usually
+    # already on the tile cache from the motion fetch above, so this is cheap.
+    if cfg.get("rainviewer_trend_badge", True) and len(radar_frames) >= 3:
+        trend_frames = radar_frames[-3:]
+        masses = []
+        for fmeta in trend_frames:
+            frame_img = curr_radar if fmeta is latest_frame else _fetch_rv_frame(
+                fmeta["path"], tx_min, ty_min, tx_max, ty_max,
+                zoom, _RV_TILE_SIZE, color_scheme, headers,
+                crop_x, crop_y, width, height,
+            )
+            masses.append(float(np.array(frame_img.split()[-1], dtype=np.float64).sum()))
+        trend = _classify_trend(masses)
+        if trend:
+            caption_lines.append(f"Trend: {trend}")
+
     # Nowcast: dashed projected precipitation edge, plus a model-based arrival
     # estimate that supersedes the straight-line extrapolation above.
     if cfg.get("rainviewer_nowcast", True):
@@ -1740,11 +2048,18 @@ def _fetch_rainviewer_image(
             except Exception as e:
                 logger.warning("Nowcast outline failed: %s", e)
 
-    # Bottom-left caption stack (radar frame time first, then motion/nowcast)
+    # Bottom-left caption stack (radar frame time first, then motion/nowcast).
+    # A stale RainViewer feed (composite mosaic hasn't advanced) reads as a normal
+    # timestamp otherwise — flag it in red past _STALE_RADAR_MIN rather than let
+    # the display quietly show old radar as if it were current.
     if frame_ts:
-        caption_lines.insert(
-            0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
-        )
+        age_min = (time.time() - frame_ts) / 60.0
+        if age_min > _STALE_RADAR_MIN:
+            caption_lines.insert(0, (f"Radar: {age_min:.0f} min old", _STALE_COLOR))
+        else:
+            caption_lines.insert(
+                0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
+            )
     _draw_corner_labels(result, caption_lines, cfg)
 
     return result, frame_ts
@@ -1912,6 +2227,38 @@ def _snap_region_2color(
     canvas.paste(Image.fromarray(out, "RGB"), box[:2])
 
 
+_STALE_BANNER_H = 22
+
+
+def _draw_stale_banner(img: Image.Image, age_min: float, config: dict) -> Image.Image:
+    """Stamp a red 'stale' banner across the top of a cached render before
+    re-pushing it to the display after a total fetch failure.
+
+    Operates on a copy — the source (the last known-good quantized image) is
+    left untouched on disk so a later successful render still starts clean,
+    and so repeated failed cycles keep computing staleness from that same
+    original mtime rather than compounding banners on top of banners.
+    """
+    banner = img.copy()
+    draw = ImageDraw.Draw(banner)
+    draw.rectangle([(0, 0), (banner.width - 1, _STALE_BANNER_H - 1)], fill=_STALE_COLOR)
+
+    text = f"STALE — radar hasn't updated in {age_min:.0f} min"
+    font = get_font(13, bold=True, config=config)
+    bb = draw.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    tx = max(4, (banner.width - tw) // 2)
+    ty = (_STALE_BANNER_H - th) // 2
+    draw.text((tx, ty), text, fill=(255, 255, 255), font=font)
+
+    # Drawn straight onto an already-quantized bmp: the glyph edges are
+    # anti-aliased RGB, not exact palette entries, so they must be snapped to
+    # {red, white} before saving or a reload elsewhere would scatter them
+    # across mismatched palette colors on the next quantize pass.
+    _snap_region_2color(banner, (0, 0, banner.width, _STALE_BANNER_H), _STALE_COLOR, (255, 255, 255))
+    return banner
+
+
 def _draw_seven_color_legend(
     canvas: Image.Image,
     frame_ts: Optional[int],
@@ -1979,25 +2326,32 @@ def _draw_seven_color_legend(
     if not show_station_time:
         return
 
+    stale = False
     if frame_ts:
         try:
-            from datetime import timezone as _tz_mod
-            ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
+            age_min = (time.time() - frame_ts) / 60.0
+            if age_min > _STALE_RADAR_MIN:
+                stale = True
+                ts_str = f"{age_min:.0f} min old"
+            else:
+                from datetime import timezone as _tz_mod
+                ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
         except Exception:
             ts_str = ""
     else:
         ts_str = ""
 
     right_str = f"{station}  {ts_str}" if ts_str else station
+    text_color = _STALE_COLOR if stale else (0, 0, 0)
     rb = draw.textbbox((0, 0), right_str, font=font)
     rw, rh = rb[2] - rb[0], rb[3] - rb[1]
     right_x = x1 - rw - 8
     right_y = y0 + (_LEGEND_H - rh) // 2
-    draw.text((right_x, right_y), right_str, fill=(0, 0, 0), font=font)
+    draw.text((right_x, right_y), right_str, fill=text_color, font=font)
     _snap_region_2color(
         canvas,
         (right_x + rb[0], right_y + rb[1], right_x + rb[2] + 1, right_y + rb[3] + 1),
-        (255, 255, 255), (0, 0, 0),
+        (255, 255, 255), text_color,
     )
 
 
@@ -2115,6 +2469,20 @@ def _fetch_nws_alerts(
     return alerts
 
 
+# NWS CAP `severity` maps to visual weight, so a Tornado Warning (Extreme) reads
+# as unmistakably more urgent than a Flood Advisory (Minor/Unknown) rather than
+# rendering identically. Colors are drawn as exact fills via _snap_region_2color,
+# so any 7-color palette entry is safe here — not limited to quantize_to_seven_
+# colors()'s nearest-RGB pass.
+_ALERT_SEVERITY_STYLE = {
+    "Extreme":  {"color": (255, 0, 0),   "width": 4, "text": (255, 255, 255)},
+    "Severe":   {"color": (255, 128, 0), "width": 3, "text": (255, 255, 255)},
+    "Moderate": {"color": (255, 255, 0), "width": 2, "text": (0, 0, 0)},
+}
+_ALERT_DEFAULT_STYLE = {"color": (0, 0, 0), "width": 2, "text": (255, 255, 255)}  # Minor/Unknown
+_ALERT_SEVERITY_RANK = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
+
+
 def _overlay_severe_alerts(
     canvas: Image.Image, center_lat: float, center_lon: float, zoom: int,
     region_w: int, region_h: int, headers: dict,
@@ -2136,6 +2504,14 @@ def _overlay_severe_alerts(
     if not alerts:
         return
 
+    # Draw least-severe first so an Extreme polygon overlapping a Minor one (e.g.
+    # a Tornado Warning inside a broader Flood Watch) always wins the z-order.
+    alerts = sorted(
+        alerts,
+        key=lambda a: _ALERT_SEVERITY_RANK.index(a.get("severity"))
+        if a.get("severity") in _ALERT_SEVERITY_RANK else 0,
+    )
+
     scale = (2 ** zoom) * _RV_TILE_SIZE
     cx_px, cy_px = _merc_xy(center_lat, center_lon, scale)
 
@@ -2147,8 +2523,6 @@ def _overlay_severe_alerts(
     # by the paste rather than spilling onto the rest of the canvas.
     layer = canvas.crop((x_off, y_off, x_off + region_w, y_off + region_h)).convert("RGB")
     draw = ImageDraw.Draw(layer)
-    RED = (255, 0, 0)
-    WHITE = (255, 255, 255)
 
     try:
         lf = get_font(13, bold=True, config=config)
@@ -2168,8 +2542,11 @@ def _overlay_severe_alerts(
             continue
         drew_any = True
 
-        # Bold red outline
-        draw.line(pts + [pts[0]], fill=RED, width=3)
+        style = _ALERT_SEVERITY_STYLE.get(alert.get("severity"), _ALERT_DEFAULT_STYLE)
+        color, width, text_color = style["color"], style["width"], style["text"]
+
+        # Outline weight and color both scale with severity.
+        draw.line(pts + [pts[0]], fill=color, width=width)
 
         # Event label anchored at the polygon's topmost vertex
         label = alert.get("event", "Alert")
@@ -2179,12 +2556,12 @@ def _overlay_severe_alerts(
         lx = max(2, min(xs[top_i], region_w - tw - 8))
         ly = max(2, min(ys[top_i], region_h - th - 6))
         box = (int(lx), int(ly), int(lx + tw + 6), int(ly + th + 4))
-        draw.rectangle(list(box), fill=RED)
-        draw.text((lx + 3, ly + 2), label, fill=WHITE, font=lf)
-        # Anti-aliased white-on-red glyph edges must be resolved to exactly those
-        # two colors before quantize_to_seven_colors() scatters them across
-        # unrelated palette inks.
-        _snap_region_2color(layer, box, RED, WHITE)
+        draw.rectangle(list(box), fill=color)
+        draw.text((lx + 3, ly + 2), label, fill=text_color, font=lf)
+        # Anti-aliased glyph edges must be resolved to exactly the two colors in
+        # play before quantize_to_seven_colors() scatters them across unrelated
+        # palette inks.
+        _snap_region_2color(layer, box, color, text_color)
 
     if drew_any:
         canvas.paste(layer, (x_off, y_off))
@@ -2673,7 +3050,22 @@ def generate(config):
         if not os.path.exists(config["quantized_path"]):
             logger.error("Radar generation failed and no cached image exists — skipping cycle.")
             return None
-        default_image_path = config["quantized_path"]
+        # A total fetch failure with a cached render available degrades gracefully:
+        # re-push that render (banner-stamped, so it reads as stale rather than
+        # current) instead of silently leaving whatever module the cycler had up.
+        # Staleness is measured off the cached file's mtime, not a baked-in radar
+        # frame time, so it also covers RIDGE (which has no frame_ts) and keeps
+        # growing correctly across consecutive failed cycles.
+        age_min = (now - os.path.getmtime(config["quantized_path"])) / 60.0
+        stale_path = os.path.join(radar_folder, f"eink_stale_display_{default_station}.bmp")
+        cached_img = Image.open(config["quantized_path"]).convert("RGB")
+        _draw_stale_banner(cached_img, age_min, config).save(stale_path, format="bmp")
+        logger.warning(
+            "Radar fetch failed — re-pushing cached render with a stale banner (%.0f min old).",
+            age_min,
+        )
+        default_image_path = stale_path
+        default_updated = True
     default_percentage = calculate_non_bw_percentage(config["quantized_path"], region=default_region)
     logger.info("Default station (%s) has %.2f%% interesting pixels.", default_station, default_percentage)
     should_update = default_updated

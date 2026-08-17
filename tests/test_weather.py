@@ -8,10 +8,11 @@ patch cross-correlation storm-motion estimator.
 
 import sys
 import os
+import time
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -53,6 +54,23 @@ from modules.weather import (
     _redact,
     _first_set,
     _view_bounds,
+    _STALE_RADAR_MIN,
+    _STALE_COLOR,
+    _draw_seven_color_legend,
+    _LEGEND_H,
+    _draw_stale_banner,
+    _STALE_BANNER_H,
+    _ALERT_SEVERITY_STYLE,
+    _ALERT_DEFAULT_STYLE,
+    _draw_range_rings,
+    _RANGE_RING_KM,
+    _pick_adaptive_zoom,
+    _ADAPTIVE_ZOOM_MIN,
+    _ADAPTIVE_ZOOM_MAX,
+    _ADAPTIVE_ZOOM_NEAR_KM,
+    _classify_trend,
+    _draw_dashed_polyline,
+    _fetch_admin_boundaries,
 )
 
 
@@ -665,6 +683,125 @@ class TestNowcastOutline:
         assert np.all(np.array(img) == 255)
 
 
+class TestDrawCornerLabels:
+    def test_plain_string_line_drawn_black(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, ["Radar: 3:14 PM"], {})
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR not in colors
+
+    def test_colored_tuple_line_survives_the_box_snap(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, [("Radar: 43 min old", _STALE_COLOR)], {})
+        # The red text must still be red after the white/black luminance snap —
+        # not flattened to black (its luminance is under 128) or lost entirely.
+        # (The box border is legitimately black, so check for red presence only.)
+        assert _STALE_COLOR in set(img.getdata())
+
+    def test_mixed_black_and_red_lines_both_survive(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(
+            img,
+            ["Cells ENE 32 mph", ("Radar: 43 min old", _STALE_COLOR)],
+            {},
+        )
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR in colors
+
+    def test_no_lines_draws_nothing(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        _draw_corner_labels(img, [], {})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+
+class TestRadarStaleness:
+    """The legend's 7 color swatches legitimately include red, so these tests
+    must scope color checks to the right-side station/time label region rather
+    than the whole canvas."""
+
+    def _render_right_label(self, frame_ts, now):
+        # Wide enough that the 7 left-aligned color swatches (which legitimately
+        # include red/orange) don't reach anywhere near the right-aligned label.
+        canvas = Image.new("RGB", (1200, 100), (255, 255, 255))
+        with patch("modules.weather.time.time", return_value=now):
+            _draw_seven_color_legend(canvas, frame_ts, "KOHX", {})
+        y0 = canvas.height - _LEGEND_H
+        return canvas.crop((canvas.width - 160, y0, canvas.width, canvas.height))
+
+    def test_fresh_frame_shows_black_clock_time_not_red(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - 5 * 60, now)  # 5 min old
+        colors = set(region.getdata())
+        assert (0, 0, 0) in colors
+        assert _STALE_COLOR not in colors
+
+    def test_stale_frame_shows_red_age(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - 43 * 60, now)  # matches audit's example age
+        # (The legend strip's top border is always a black line across the full
+        # width, so black presence isn't a useful negative signal here — only
+        # red presence, which only the stale path draws.)
+        assert _STALE_COLOR in set(region.getdata())
+
+    def test_boundary_at_threshold_is_not_stale(self):
+        now = 1_700_000_000
+        region = self._render_right_label(now - _STALE_RADAR_MIN * 60, now)  # exactly at threshold
+        assert _STALE_COLOR not in set(region.getdata())
+
+
+class TestDrawStaleBanner:
+    def test_source_image_is_not_mutated(self):
+        img = Image.new("RGB", (300, 100), (255, 255, 255))
+        _draw_stale_banner(img, 43.0, {})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_banner_band_is_pure_red_and_white_only(self):
+        img = Image.new("RGB", (300, 100), (255, 255, 255))
+        banner = _draw_stale_banner(img, 43.0, {})
+        band = banner.crop((0, 0, banner.width, _STALE_BANNER_H))
+        colors = set(band.getdata())
+        # Must be exact-palette in/out: text drawn on an already-quantized bmp
+        # has to be snapped to {red, white}, or a later requantize pass would
+        # scatter its anti-aliased edges onto unrelated palette colors.
+        assert colors <= {_STALE_COLOR, (255, 255, 255)}
+        assert _STALE_COLOR in colors
+
+    def test_body_below_banner_is_untouched(self):
+        img = Image.new("RGB", (300, 100), (0, 0, 0))
+        banner = _draw_stale_banner(img, 5.0, {})
+        below = banner.crop((0, _STALE_BANNER_H, banner.width, banner.height))
+        assert set(below.getdata()) == {(0, 0, 0)}
+
+
+class TestGenerateStaleFallback:
+    def test_total_fetch_failure_pushes_cached_render_with_banner(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+        cached = tmp_path / "radar" / "eink_quantized_display_KOHX.bmp"
+        Image.new("RGB", (300, 100), (255, 255, 255)).save(cached, format="bmp")
+        old = time.time() - 3600
+        os.utime(cached, (old, old))
+
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            result = W_MOD.generate({"station": {"name": "KOHX"}})
+
+        assert result is not None
+        assert os.path.basename(result) == "eink_stale_display_KOHX.bmp"
+        out = Image.open(result).convert("RGB")
+        assert _STALE_COLOR in set(out.crop((0, 0, out.width, _STALE_BANNER_H)).getdata())
+        # The cached original that fed the banner is left untouched on disk.
+        assert set(Image.open(cached).convert("RGB").getdata()) == {(255, 255, 255)}
+
+    def test_cold_start_with_no_cache_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            assert W_MOD.generate({"station": {"name": "KOHX"}}) is None
+
+
 class TestNowcastArrival:
     @staticmethod
     def _frames(now):
@@ -729,6 +866,61 @@ class TestOverlayClipping:
         strikes = [{"lat": 36.0, "lon": lon_max - 0.001}]
         _draw_lightning_overlay(canvas, strikes, 36.0, -86.8, 7, 200, 200)
         assert np.all(np.array(canvas)[:, 200:] == 255)
+
+
+class TestAlertSeverityStyle:
+    """A Tornado Warning (Extreme) must not render identically to a Flood
+    Advisory (Minor/Unknown) — severity should drive outline/label color."""
+
+    _POLY = [(-86.9, 36.1), (-86.7, 36.1), (-86.7, 35.9), (-86.9, 35.9)]
+
+    def _render(self, alerts):
+        canvas = Image.new("RGB", (300, 200), (255, 255, 255))
+        with patch("modules.weather._fetch_nws_alerts", return_value=alerts):
+            _overlay_severe_alerts(canvas, 36.0, -86.8, 7, 300, 200, {}, config={})
+        return canvas
+
+    def test_extreme_uses_its_styled_color(self):
+        canvas = self._render(
+            [{"event": "Tornado Warning", "severity": "Extreme", "polygon": self._POLY}]
+        )
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] in set(canvas.getdata())
+
+    def test_severe_uses_a_different_color_than_extreme(self):
+        canvas = self._render(
+            [{"event": "Severe Thunderstorm Warning", "severity": "Severe", "polygon": self._POLY}]
+        )
+        colors = set(canvas.getdata())
+        assert _ALERT_SEVERITY_STYLE["Severe"]["color"] in colors
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] not in colors
+
+    def test_moderate_uses_its_styled_color(self):
+        canvas = self._render(
+            [{"event": "Flood Warning", "severity": "Moderate", "polygon": self._POLY}]
+        )
+        assert _ALERT_SEVERITY_STYLE["Moderate"]["color"] in set(canvas.getdata())
+
+    def test_minor_severity_falls_back_to_default_not_extreme_styling(self):
+        canvas = self._render(
+            [{"event": "Flood Advisory", "severity": "Minor", "polygon": self._POLY}]
+        )
+        colors = set(canvas.getdata())
+        assert _ALERT_DEFAULT_STYLE["color"] in colors
+        assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] not in colors
+
+    def test_missing_severity_falls_back_to_default(self):
+        canvas = self._render([{"event": "Special Weather Statement", "polygon": self._POLY}])
+        assert _ALERT_DEFAULT_STYLE["color"] in set(canvas.getdata())
+
+    def test_more_severe_alert_wins_zorder_regardless_of_input_order(self):
+        minor = {"event": "Flood Watch", "severity": "Minor", "polygon": self._POLY}
+        extreme = {"event": "Tornado Warning", "severity": "Extreme", "polygon": self._POLY}
+        for alerts in ([minor, extreme], [extreme, minor]):
+            # Identical polygon for both alerts, so their outline/label pixels
+            # coincide — draw order (least-severe first, by design) decides
+            # which color survives, regardless of the order alerts arrived in.
+            canvas = self._render(alerts)
+            assert _ALERT_SEVERITY_STYLE["Extreme"]["color"] in set(canvas.getdata())
 
 
 class TestAlertAreaQuery:
@@ -830,3 +1022,140 @@ class TestTileCache:
             os.utime(p, (i, i))
         W_MOD._prune_tile_cache(max_files=4)
         assert sorted(int(p.stem) for p in cache.iterdir()) == [6, 7, 8, 9]
+
+
+class TestDrawRangeRings:
+    def test_disabled_via_config_draws_nothing(self):
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=0.5, config={"rainviewer_range_rings": False})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_draws_black_and_white_ring_and_crosshair(self):
+        # km_per_px chosen so all 3 rings fit comfortably inside a 300x300 canvas.
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=1.0, config={})
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors
+        assert (255, 255, 255) in colors
+
+    def test_rings_larger_than_canvas_are_skipped(self):
+        # At 0.01 km/px even the smallest (25 km) ring has radius 2500px on a
+        # 20x20 canvas -- nowhere near fitting inside min(W,H)/2 -- so nothing
+        # should be drawn.
+        img = Image.new("RGB", (20, 20), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=0.01, config={})
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_default_is_enabled(self):
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        _draw_range_rings(img, km_per_px=1.0, config={})  # no explicit flag
+        assert (0, 0, 0) in set(img.getdata())
+
+
+class TestPickAdaptiveZoom:
+    def _rgba(self, size, blob=None):
+        alpha = np.zeros(size, dtype=np.uint8)
+        if blob is not None:
+            (y0, y1, x0, x1) = blob
+            alpha[y0:y1, x0:x1] = 255
+        rgb = np.zeros((*size, 3), dtype=np.uint8)
+        return Image.fromarray(np.dstack([rgb, alpha]), "RGBA")
+
+    def test_disabled_via_config_returns_none(self):
+        img = self._rgba((40, 40))  # empty frame, would otherwise zoom out
+        assert _pick_adaptive_zoom(img, 7, 0.5, {"rainviewer_adaptive_zoom": False}) is None
+
+    def test_empty_frame_zooms_out(self):
+        img = self._rgba((40, 40))
+        assert _pick_adaptive_zoom(img, 7, 0.5, {}) == 6
+
+    def test_empty_frame_at_min_zoom_stays_put(self):
+        img = self._rgba((40, 40))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MIN, 0.5, {}) is None
+
+    def test_nearby_cell_zooms_in(self):
+        # A blob right at the centre of a 40x40 frame at 1 km/px is ~0 km away.
+        # Base zoom must be below _ADAPTIVE_ZOOM_MAX (RainViewer's free-tier
+        # cap of 7) for there to be any headroom to zoom in.
+        img = self._rgba((40, 40), blob=(18, 22, 18, 22))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MAX - 1, 1.0, {}) == _ADAPTIVE_ZOOM_MAX
+
+    def test_nearby_cell_at_max_zoom_stays_put(self):
+        img = self._rgba((40, 40), blob=(18, 22, 18, 22))
+        assert _pick_adaptive_zoom(img, _ADAPTIVE_ZOOM_MAX, 1.0, {}) is None
+
+    def test_distant_cell_no_change(self):
+        # A blob in the far corner of a 200x200 frame at 1 km/px is well past
+        # _ADAPTIVE_ZOOM_NEAR_KM from centre.
+        img = self._rgba((200, 200), blob=(2, 6, 2, 6))
+        assert (
+            math.hypot(4 - 100, 4 - 100) * 1.0 > _ADAPTIVE_ZOOM_NEAR_KM
+        )  # sanity-check the fixture
+        assert _pick_adaptive_zoom(img, 7, 1.0, {}) is None
+
+
+class TestClassifyTrend:
+    def test_increasing_mass_is_intensifying(self):
+        assert _classify_trend([100.0, 130.0, 200.0]) == "Intensifying"
+
+    def test_decreasing_mass_is_weakening(self):
+        assert _classify_trend([200.0, 130.0, 100.0]) == "Weakening"
+
+    def test_flat_mass_is_steady(self):
+        assert _classify_trend([100.0, 101.0, 102.0]) == "Steady"
+
+    def test_small_noise_stays_steady(self):
+        # ~5% change, well under the 15% threshold.
+        assert _classify_trend([100.0, 100.0, 105.0]) == "Steady"
+
+    def test_wrong_length_returns_none(self):
+        assert _classify_trend([100.0, 200.0]) is None
+        assert _classify_trend([]) is None
+
+
+class TestDrawDashedPolyline:
+    def test_produces_gaps_not_a_solid_line(self):
+        img = Image.new("RGBA", (100, 20), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(0, 10), (99, 10)], (0, 0, 0, 255), 1, dash=6, gap=4)
+        row = [img.getpixel((x, 10))[3] for x in range(100)]
+        assert any(a == 0 for a in row), "expected gaps in the dash pattern"
+        assert any(a > 0 for a in row), "expected some ink from the dash pattern"
+
+    def test_degenerate_single_point_does_not_crash(self):
+        img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(5, 5)], (0, 0, 0, 255), 1)  # no crash
+
+    def test_zero_length_segment_does_not_crash(self):
+        img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        _draw_dashed_polyline(draw, [(5, 5), (5, 5), (9, 5)], (0, 0, 0, 255), 1)
+
+
+class TestFetchAdminBoundaries:
+    def test_network_failure_returns_transparent_layer(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch("modules.weather.requests.get", side_effect=Exception("boom")):
+            img = _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+        assert img.size == (100, 100)
+        # Fully transparent: every pixel's alpha channel is 0. (A tuple like
+        # (0, 0, 0, 0) is itself truthy, so check the alpha band explicitly
+        # rather than `any(img.getdata())`.)
+        assert all(px[3] == 0 for px in img.getdata())
+
+    def test_second_call_serves_from_disk_cache(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        calls = []
+
+        def fake_get(url, **kw):
+            calls.append(url)
+            resp = MagicMock()
+            resp.raise_for_status = lambda: None
+            resp.json = lambda: {"elements": []}
+            return resp
+
+        with patch("modules.weather.requests.get", side_effect=fake_get):
+            _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+            _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
+        assert len(calls) == 1, "second call should have hit the 24h disk cache"
