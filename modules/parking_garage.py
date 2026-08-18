@@ -201,6 +201,16 @@ def _render(garages, total_data, predictions, output_path, width=800, height=480
     # Divider
     draw.line([(20, 50), (width - 20, 50)], fill="#cccccc", width=1)
 
+    # This layout is a fixed 2-column gauge grid; note it on-screen (rather
+    # than silently dropping them) if the API ever returns more garages than
+    # fit. The combined total below still includes every garage regardless.
+    if len(garages) > 2:
+        extra_font = _font(12)
+        extra_text = f"+{len(garages) - 2} more not shown"
+        ebox = draw.textbbox((0, 0), extra_text, font=extra_font)
+        draw.text((width - (ebox[2] - ebox[0]) - 10, 36),
+                  extra_text, fill="#aaaaaa", font=extra_font)
+
     # Two-column layout
     col_width = width // 2
     top_y = 60

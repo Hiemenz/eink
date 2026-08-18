@@ -61,7 +61,10 @@ def _generate_puzzle(seed, num_clues=35):
     puzzle = [row[:] for row in solution]
     cells = [(r, c) for r in range(9) for c in range(9)]
     rng.shuffle(cells)
-    cells_to_remove = 81 - num_clues
+    # Clamp so an out-of-range num_clues (e.g. > 81) can't turn this negative,
+    # which would slice from the end and strip nearly the whole grid instead
+    # of leaving it full.
+    cells_to_remove = max(0, min(81, 81 - num_clues))
     for r, c in cells[:cells_to_remove]:
         puzzle[r][c] = 0
     return puzzle, solution

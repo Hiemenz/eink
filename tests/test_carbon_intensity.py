@@ -10,12 +10,14 @@ import time
 from unittest.mock import patch, MagicMock
 
 import pytest
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from modules import carbon_intensity as ci
+from utils import get_font
 
 
 class TestCarbonColor:
@@ -214,3 +216,104 @@ class TestCleanestWindow:
     def test_bad_timestamps_return_none(self):
         forecast = [{"value": 100, "from": "garbage"} for _ in range(4)]
         assert ci._cleanest_window(forecast, span=4) is None
+
+    def test_exact_span_length_uses_whole_forecast(self):
+        forecast = [{"value": 100, "from": f"2026-07-21T0{i}:00Z"} for i in range(4)]
+        result = ci._cleanest_window(forecast, span=4)
+        assert result is not None
+
+    def test_window_at_end_clamps_end_label(self):
+        forecast = [
+            {"value": 300, "from": "2026-07-21T00:00Z"},
+            {"value": 10, "from": "2026-07-21T00:30Z"},
+            {"value": 10, "from": "2026-07-21T01:00Z"},
+        ]
+        result = ci._cleanest_window(forecast, span=2)
+        assert result is not None
+
+
+class TestFitNumber:
+    def _draw(self):
+        img = Image.new("RGB", (ci.WIDTH, ci.HEIGHT))
+        return ImageDraw.Draw(img)
+
+    def test_returns_font_fitting_within_bounds(self):
+        draw = self._draw()
+        font = ci._fit_number(draw, "123", {}, max_w=200, max_h=100)
+        bb = draw.textbbox((0, 0), "123", font=font)
+        assert (bb[2] - bb[0]) <= 200
+        assert (bb[3] - bb[1]) <= 100
+
+    def test_smaller_box_yields_smaller_font(self):
+        draw = self._draw()
+        big = ci._fit_number(draw, "500", {}, max_w=700, max_h=300)
+        small = ci._fit_number(draw, "500", {}, max_w=60, max_h=40)
+        assert small.size <= big.size
+
+
+class TestDrawCentered:
+    def test_returns_text_height(self):
+        img = Image.new("RGB", (ci.WIDTH, ci.HEIGHT))
+        draw = ImageDraw.Draw(img)
+        font = get_font(20, config={})
+        h = ci._draw_centered(draw, "hello", font, 10, (0, 0, 0))
+        assert h > 0
+
+
+class TestGenerate:
+    def _cfg(self, tmp_path, **overrides):
+        cfg = {
+            "carbon_intensity": {
+                "output_path": str(tmp_path / "carbon.bmp"),
+                "cache_dir": str(tmp_path / "cache"),
+                **overrides,
+            }
+        }
+        return cfg
+
+    def test_no_data_writes_unavailable_message(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        with patch.object(ci, "_get_carbon_data", return_value=None):
+            out = ci.generate(cfg)
+        assert out == cfg["carbon_intensity"]["output_path"]
+        assert os.path.exists(out)
+
+    def test_with_data_and_forecast_writes_image_and_returns_path(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        data = {
+            "intensity": 250.0,
+            "region": "UK National",
+            "provider": "UK Carbon Intensity API",
+            "forecast": [
+                {"value": 100, "from": "2026-07-21T00:00Z"},
+                {"value": 300, "from": "2026-07-21T00:30Z"},
+            ],
+            "fetched_at": time.time(),
+        }
+        with patch.object(ci, "_get_carbon_data", return_value=data):
+            out = ci.generate(cfg)
+        assert os.path.exists(out)
+        img = Image.open(out)
+        assert img.size == (ci.WIDTH, ci.HEIGHT)
+
+    def test_with_data_no_forecast_skips_sparkline(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        data = {
+            "intensity": 90.0,
+            "region": "UK National",
+            "provider": "UK Carbon Intensity API",
+            "forecast": [],
+            "fetched_at": time.time(),
+        }
+        with patch.object(ci, "_get_carbon_data", return_value=data):
+            with patch.object(ci, "_draw_sparkline") as mock_spark:
+                out = ci.generate(cfg)
+        mock_spark.assert_not_called()
+        assert os.path.exists(out)
+
+    def test_default_output_path_used_when_config_missing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(ci, "_get_carbon_data", return_value=None):
+            out = ci.generate({})
+        assert out == "images/carbon_display.bmp"
+        assert os.path.exists(out)

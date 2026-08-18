@@ -201,3 +201,49 @@ class TestWrapText:
         font = ImageFont.load_default()
         lines = nh._wrap_text(draw, "short", font, 1000)
         assert lines == ["short"]
+
+
+class TestGenerate:
+    def test_uses_cache_without_fetching(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nh, "CACHE_DIR", str(tmp_path))
+        nh._save_cache([{"title": "Cached Headline", "pub_date": "now"}], "BBC News")
+        output_path = str(tmp_path / "out.bmp")
+        with patch("modules.news_headlines._fetch_headlines") as mock_fetch:
+            result = nh.generate({"news_headlines": {"output_path": output_path}})
+        mock_fetch.assert_not_called()
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_fetch_success_saves_cache_and_renders(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nh, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        headlines = [{"title": "Fresh Headline", "pub_date": "now"}]
+        with patch("modules.news_headlines._fetch_headlines", return_value=(headlines, "NPR News")):
+            result = nh.generate({"news_headlines": {"output_path": output_path}})
+        assert result == output_path
+        cached = nh._load_cache()
+        assert cached["source"] == "NPR News"
+
+    def test_fetch_failure_falls_back_to_offline_headlines(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nh, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        with patch("modules.news_headlines._fetch_headlines", return_value=(None, None)):
+            result = nh.generate({"news_headlines": {"output_path": output_path}})
+        assert result == output_path
+        assert os.path.exists(output_path)
+        # Offline fallback shouldn't be persisted as if it were a real fetch.
+        assert nh._load_cache() is None
+
+
+class TestRender:
+    def test_render_creates_output_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        headlines = [{"title": "A Headline About Something", "pub_date": "Mon, 01 Jan 2024 12:00:00 GMT"}]
+        result = nh._render(headlines, "BBC News", "2024-01-01T00:00:00+00:00", output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_render_with_no_headlines_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        nh._render([], "BBC News", "2024-01-01T00:00:00+00:00", output_path)
+        assert os.path.exists(output_path)

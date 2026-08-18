@@ -22,6 +22,8 @@ from modules.iss_tracker import (
     _lonlat_to_xy,
     _get_data,
     _cache_path,
+    _fetch_iss,
+    generate,
     EARTH_RADIUS_KM,
 )
 
@@ -158,3 +160,103 @@ class TestGetData:
         mock_get.side_effect = Exception("network down")
         result = _get_data(str(tmp_path))
         assert result is None
+
+
+class TestFetchIss:
+    @patch("modules.iss_tracker.requests.get")
+    def test_success_returns_normalized_dict(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "latitude": "10.5", "longitude": "-20.25", "altitude": "408.1",
+            "velocity": "27600.2", "visibility": "eclipsed", "timestamp": 111,
+        }
+        mock_get.return_value = resp
+        result = _fetch_iss()
+        assert result["latitude"] == 10.5
+        assert result["longitude"] == -20.25
+        assert result["visibility"] == "eclipsed"
+        assert result["timestamp"] == 111
+        assert "fetched_at" in result
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_missing_visibility_defaults_to_empty_string(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "latitude": "1.0", "longitude": "2.0", "altitude": "400.0", "velocity": "27000.0",
+        }
+        mock_get.return_value = resp
+        result = _fetch_iss()
+        assert result["visibility"] == ""
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_missing_required_key_raises(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"latitude": "1.0"}  # missing longitude/altitude/velocity
+        mock_get.return_value = resp
+        with pytest.raises(KeyError):
+            _fetch_iss()
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_http_error_propagates(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = Exception("500")
+        mock_get.return_value = resp
+        with pytest.raises(Exception):
+            _fetch_iss()
+
+
+class TestGenerate:
+    def _config(self, tmp_path):
+        return {
+            "iss_tracker": {
+                "output_path": str(tmp_path / "out.bmp"),
+                "cache_dir": str(tmp_path / "cache"),
+            },
+            "forecast_location": {"latitude": 35.9251, "longitude": -86.8689},
+        }
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_unavailable_still_produces_output_file(self, mock_get, tmp_path):
+        mock_get.side_effect = Exception("network down")
+        config = self._config(tmp_path)
+        result = generate(config)
+        assert result == config["iss_tracker"]["output_path"]
+        assert os.path.exists(result)
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_successful_fetch_produces_full_size_image(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "latitude": 10.0, "longitude": 20.0, "altitude": 408.0,
+            "velocity": 27600.0, "visibility": "daylight", "timestamp": 123456,
+        }
+        mock_get.return_value = resp
+        config = self._config(tmp_path)
+
+        result = generate(config)
+
+        assert os.path.exists(result)
+        from PIL import Image
+        from modules.iss_tracker import WIDTH, HEIGHT
+        img = Image.open(result)
+        assert img.size == (WIDTH, HEIGHT)
+
+    @patch("modules.iss_tracker.requests.get")
+    def test_default_observer_location_when_unconfigured(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {
+            "latitude": 0.0, "longitude": 0.0, "altitude": 400.0,
+            "velocity": 27000.0, "visibility": "", "timestamp": 1,
+        }
+        mock_get.return_value = resp
+        config = {"iss_tracker": {
+            "output_path": str(tmp_path / "out.bmp"),
+            "cache_dir": str(tmp_path / "cache"),
+        }}
+        result = generate(config)
+        assert os.path.exists(result)

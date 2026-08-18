@@ -215,3 +215,99 @@ class TestGetPrediction:
         with patch("modules.parking_garage.os.path.exists", return_value=True), \
              patch.object(pd, "read_parquet", side_effect=Exception("corrupt")):
             assert pg._get_prediction(history_file, "Garage A") is None
+
+
+class TestRenderAndErrorImage:
+    def test_error_image_creates_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = pg._error_image(output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_render_creates_file_with_requested_dimensions(self, tmp_path):
+        from PIL import Image
+        output_path = str(tmp_path / "out.bmp")
+        garages = pg._parse_garages(SAMPLE_API_DATA)
+        result = pg._render(garages, {"TotalBays": 1000, "OccupiedBays": 400}, {}, output_path,
+                             width=400, height=300)
+        assert result == output_path
+        img = Image.open(output_path)
+        assert img.size == (400, 300)
+
+    def test_render_with_predictions_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        garages = pg._parse_garages(SAMPLE_API_DATA)
+        predictions = {"Garage A": 0.62}
+        result = pg._render(garages, {"TotalBays": 1000, "OccupiedBays": 400}, predictions, output_path)
+        assert os.path.exists(result)
+
+    def test_render_zero_total_bays_does_not_divide_by_zero(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        garages = [{"name": "Empty Garage", "total": 0, "occupied": 0, "available": 0, "levels": []}]
+        result = pg._render(garages, {"TotalBays": 0, "OccupiedBays": 0}, {}, output_path)
+        assert os.path.exists(result)
+
+    def test_render_more_than_two_garages_only_draws_first_two(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        garages = pg._parse_garages(SAMPLE_API_DATA) + [
+            {"name": "Garage C", "total": 100, "occupied": 50, "available": 50, "levels": []}
+        ]
+        # Two-column layout only ever draws garages[:2] -- must not raise for a 3rd.
+        result = pg._render(garages, {"TotalBays": 1000, "OccupiedBays": 400}, {}, output_path)
+        assert os.path.exists(result)
+
+    def test_render_more_than_two_garages_notes_the_overflow(self, tmp_path):
+        """Regression: garages beyond the first 2 used to be dropped with no
+        on-screen indication at all -- now a small note flags the overflow
+        instead of silently discarding it."""
+        output_path = str(tmp_path / "out.bmp")
+        garages = pg._parse_garages(SAMPLE_API_DATA) + [
+            {"name": "Garage C", "total": 100, "occupied": 50, "available": 50, "levels": []}
+        ]
+        from PIL import Image
+
+        img_before = pg._render(garages[:2], {"TotalBays": 1000, "OccupiedBays": 400}, {}, output_path)
+        pixels_before = list(Image.open(img_before).convert("RGB").getdata())
+
+        result = pg._render(garages, {"TotalBays": 1000, "OccupiedBays": 400}, {}, output_path)
+        pixels_after = list(Image.open(result).convert("RGB").getdata())
+
+        assert pixels_before != pixels_after
+
+
+class TestGenerate:
+    def _config(self, tmp_path):
+        return {
+            "parking_garage": {
+                "output_path": str(tmp_path / "out.bmp"),
+                "history_file": str(tmp_path / "history.parquet"),
+            },
+        }
+
+    @patch("modules.parking_garage.requests.get")
+    def test_fetch_failure_produces_error_image(self, mock_get, tmp_path):
+        mock_get.side_effect = ConnectionError("boom")
+        result = pg.generate(self._config(tmp_path))
+        assert os.path.exists(result)
+
+    @patch("modules.parking_garage.requests.get")
+    def test_no_garages_produces_error_image(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = {"Zones": []}
+        mock_get.return_value = resp
+        result = pg.generate(self._config(tmp_path))
+        assert os.path.exists(result)
+
+    @patch("modules.parking_garage.requests.get")
+    def test_success_renders_and_saves_history(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = SAMPLE_API_DATA
+        mock_get.return_value = resp
+
+        result = pg.generate(self._config(tmp_path))
+
+        assert os.path.exists(result)
+        if pd is not None:
+            assert os.path.exists(str(tmp_path / "history.parquet"))

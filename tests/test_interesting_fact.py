@@ -16,7 +16,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import modules.interesting_fact as interesting_fact
-from modules.interesting_fact import _load_facts, _pick_fact, _wrap
+from modules.interesting_fact import _load_facts, _pick_fact, _wrap, _render, _render_fallback, generate
 
 
 def _write_csv(path, rows):
@@ -121,3 +121,78 @@ class TestWrap:
         draw = self._draw()
         font = ImageFont.load_default()
         assert _wrap("", font, draw, max_width=500) == ""
+
+
+class TestRender:
+    def test_creates_image_of_requested_size(self, tmp_path):
+        output = str(tmp_path / "fact.bmp")
+        result = _render("A short fact.", 60, output, width=800, height=480)
+        assert result == output
+        assert Image.open(output).size == (800, 480)
+
+    def test_long_fact_shrinks_font_without_raising(self, tmp_path):
+        output = str(tmp_path / "fact.bmp")
+        long_fact = " ".join(["word"] * 200)
+        result = _render(long_fact, 60, output)
+        assert os.path.exists(result)
+
+    def test_footer_mentions_interval(self, tmp_path):
+        """Not pixel-checkable, but the interval must not crash formatting
+        for an unusual value like 0 or a very large number."""
+        output = str(tmp_path / "fact.bmp")
+        _render("fact", 1440, output)
+        assert os.path.exists(output)
+
+    def test_creates_parent_directories(self, tmp_path):
+        output = str(tmp_path / "a" / "b" / "fact.bmp")
+        _render("fact", 60, output)
+        assert os.path.exists(output)
+
+
+class TestRenderFallback:
+    def test_creates_default_size_image(self, tmp_path):
+        output = str(tmp_path / "fallback.bmp")
+        result = _render_fallback(output)
+        assert result == output
+        assert Image.open(output).size == (800, 480)
+
+
+class TestGenerate:
+    def setup_method(self):
+        interesting_fact._facts_cache = []
+        interesting_fact._facts_cache_path = ""
+
+    def test_no_facts_renders_fallback(self, tmp_path):
+        output = str(tmp_path / "fact.bmp")
+        config = {
+            "interesting_fact": {
+                "output_path": output,
+                "csv_file": str(tmp_path / "missing.csv"),
+            }
+        }
+        result = generate(config)
+        assert result == output
+        assert os.path.exists(output)
+
+    def test_with_facts_renders_fact_image(self, tmp_path):
+        csv_path = str(tmp_path / "facts.csv")
+        _write_csv(csv_path, [("science", "Water boils at 100C")])
+        output = str(tmp_path / "fact.bmp")
+        config = {
+            "interesting_fact": {"output_path": output, "csv_file": csv_path, "interval_minutes": 30},
+        }
+        result = generate(config)
+        assert result == output
+        assert os.path.exists(output)
+
+    def test_uses_configured_dimensions(self, tmp_path):
+        csv_path = str(tmp_path / "facts.csv")
+        _write_csv(csv_path, [("t", "fact")])
+        output = str(tmp_path / "fact.bmp")
+        config = {
+            "interesting_fact": {"output_path": output, "csv_file": csv_path},
+            "width": 400,
+            "height": 300,
+        }
+        generate(config)
+        assert Image.open(output).size == (400, 300)

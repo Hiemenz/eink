@@ -153,3 +153,133 @@ class TestGenerateCacheAndFallback:
         assert os.path.exists(output_path)
         img = Image.open(output_path)
         assert img.size == (800, 480)
+
+    def test_image_download_failure_renders_error_image(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nasa_apod, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        config = self._config(output_path)
+
+        apod_resp = MagicMock()
+        apod_resp.raise_for_status.return_value = None
+        apod_resp.json.return_value = {
+            "media_type": "image", "title": "Broken link", "url": "http://example.com/img.jpg",
+        }
+        img_resp = MagicMock()
+        img_resp.raise_for_status.side_effect = Exception("404")
+
+        with patch("modules.nasa_apod.requests.get", side_effect=[apod_resp, img_resp]):
+            result = nasa_apod.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_hdurl_preferred_over_url(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nasa_apod, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        config = self._config(output_path)
+
+        apod_resp = MagicMock()
+        apod_resp.raise_for_status.return_value = None
+        apod_resp.json.return_value = {
+            "media_type": "image", "title": "HD nebula",
+            "url": "http://example.com/sd.jpg", "hdurl": "http://example.com/hd.jpg",
+        }
+        import io
+        buf = io.BytesIO()
+        Image.new("RGB", (600, 400), "red").save(buf, format="JPEG")
+        img_resp = MagicMock()
+        img_resp.raise_for_status.return_value = None
+        img_resp.content = buf.getvalue()
+
+        with patch("modules.nasa_apod.requests.get", side_effect=[apod_resp, img_resp]) as mock_get:
+            nasa_apod.generate(config)
+        # second call is the image download; assert it hit the hdurl, not url
+        assert mock_get.call_args_list[1][0][0] == "http://example.com/hd.jpg"
+
+    def test_same_cache_and_output_path_skips_copy(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(nasa_apod, "CACHE_DIR", str(tmp_path))
+        cached_path = nasa_apod._today_cache_path()
+        os.makedirs(os.path.dirname(cached_path), exist_ok=True)
+        Image.new("RGB", (800, 480), "blue").save(cached_path)
+
+        config = self._config(cached_path)
+        with patch("modules.nasa_apod.shutil.copy2") as mock_copy:
+            result = nasa_apod.generate(config)
+            mock_copy.assert_not_called()
+        assert result == cached_path
+
+
+class TestDownloadImage:
+    @patch("modules.nasa_apod.requests.get")
+    def test_successful_download_returns_rgb_image(self, mock_get):
+        import io
+        buf = io.BytesIO()
+        Image.new("RGB", (100, 100), "purple").save(buf, format="JPEG")
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.content = buf.getvalue()
+        mock_get.return_value = resp
+
+        img = nasa_apod._download_image("http://example.com/x.jpg")
+        assert img is not None
+        assert img.mode == "RGB"
+
+    @patch("modules.nasa_apod.requests.get")
+    def test_network_failure_returns_none(self, mock_get):
+        mock_get.side_effect = Exception("timeout")
+        assert nasa_apod._download_image("http://example.com/x.jpg") is None
+
+    @patch("modules.nasa_apod.requests.get")
+    def test_corrupt_image_bytes_returns_none(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.content = b"not an image"
+        mock_get.return_value = resp
+        assert nasa_apod._download_image("http://example.com/x.jpg") is None
+
+
+class TestRenderImage:
+    def test_output_matches_requested_canvas_size(self, tmp_path):
+        img = Image.new("RGB", (1600, 900), "green")
+        output_path = str(tmp_path / "out.bmp")
+        nasa_apod._render_image(img, "A Title", output_path, width=800, height=480)
+        result = Image.open(output_path)
+        assert result.size == (800, 480)
+
+    def test_empty_title_does_not_crash(self, tmp_path):
+        img = Image.new("RGB", (800, 480), "black")
+        output_path = str(tmp_path / "out.bmp")
+        result = nasa_apod._render_image(img, "", output_path)
+        assert os.path.exists(result)
+
+    def test_very_long_title_does_not_crash(self, tmp_path):
+        img = Image.new("RGB", (800, 480), "black")
+        output_path = str(tmp_path / "out.bmp")
+        title = "A very long astronomy picture title " * 10
+        result = nasa_apod._render_image(img, title, output_path)
+        assert os.path.exists(result)
+
+
+class TestRenderTextFallback:
+    def test_short_explanation_not_truncated(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        nasa_apod._render_text_fallback("Title", "Short explanation.", output_path)
+        assert os.path.exists(output_path)
+
+    def test_long_explanation_truncated_with_ellipsis(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        long_explanation = "word " * 100
+        result = nasa_apod._render_text_fallback("Title", long_explanation, output_path)
+        img = Image.open(result)
+        assert img.size == (800, 480)
+
+    def test_empty_explanation_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = nasa_apod._render_text_fallback("Video title", "", output_path)
+        assert os.path.exists(result)
+
+
+class TestErrorImageCustomMessage:
+    def test_custom_message_used(self, tmp_path):
+        output_path = str(tmp_path / "err.bmp")
+        result = nasa_apod._error_image(output_path, message="Custom error")
+        assert os.path.exists(result)

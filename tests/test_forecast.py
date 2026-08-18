@@ -22,6 +22,8 @@ from modules.forecast import (
     calculate_total_height,
     find_best_font_size,
     get_detailed_forecast,
+    generate_forecast_image,
+    generate,
 )
 
 
@@ -200,3 +202,81 @@ class TestGetDetailedForecast:
         points_resp.json.return_value = {"properties": {}}  # missing 'forecast'
         mock_get.return_value = points_resp
         assert get_detailed_forecast(35.9, -86.8) is None
+
+
+class TestGenerateForecastImage:
+    def _forecast_data(self):
+        return {
+            "location": "Franklin, TN",
+            "periods": [
+                {"name": "Tonight", "temperature": 60, "temperatureUnit": "F",
+                 "shortForecast": "Clear", "detailedForecast": "Clear skies overnight."},
+                {"name": "Monday", "temperature": 75, "temperatureUnit": "F",
+                 "shortForecast": "Sunny", "detailedForecast": "Sunny all day."},
+            ],
+        }
+
+    def test_no_forecast_data_returns_none(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        assert generate_forecast_image({}, None, out) is None
+        assert not os.path.exists(out)
+
+    def test_empty_periods_still_writes_blank_image(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        result = generate_forecast_image({}, {"periods": []}, out)
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_writes_image_with_configured_dimensions(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        config = {"width": 800, "height": 480, "font_path": "/no/such/font.ttf"}
+        result = generate_forecast_image(config, self._forecast_data(), out)
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (800, 480)
+
+    def test_uses_output_path_from_config_when_arg_omitted(self, tmp_path):
+        out = str(tmp_path / "from_config.bmp")
+        config = {"output_path": out, "font_path": "/no/such/font.ttf"}
+        result = generate_forecast_image(config, self._forecast_data())
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_draws_location_label_without_raising(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        config = {"font_path": "/no/such/font.ttf"}
+        data = self._forecast_data()
+        assert data["location"]
+        result = generate_forecast_image(config, data, out)
+        assert os.path.exists(result)
+
+
+class TestGenerate:
+    def test_missing_coordinates_returns_none(self):
+        assert generate({"forecast_location": {}}) is None
+
+    def test_missing_forecast_location_key_returns_none(self):
+        assert generate({}) is None
+
+    @patch("modules.forecast.get_detailed_forecast")
+    def test_fetch_failure_returns_none(self, mock_fetch):
+        mock_fetch.return_value = None
+        result = generate({"forecast_location": {"latitude": 35.9, "longitude": -86.8}})
+        assert result is None
+
+    @patch("modules.forecast.get_detailed_forecast")
+    def test_success_returns_output_path(self, mock_fetch, tmp_path):
+        out = str(tmp_path / "forecast.bmp")
+        mock_fetch.return_value = {
+            "location": "Franklin, TN",
+            "periods": [{"name": "Tonight", "temperature": 60, "temperatureUnit": "F",
+                         "shortForecast": "Clear", "detailedForecast": "Clear."}],
+        }
+        config = {
+            "forecast_location": {"latitude": 35.9, "longitude": -86.8},
+            "forecast_display": {"output_path": out},
+            "font_path": "/no/such/font.ttf",
+        }
+        result = generate(config)
+        assert result == out
+        assert os.path.exists(out)

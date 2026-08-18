@@ -10,6 +10,7 @@ import time
 from unittest.mock import patch, MagicMock
 
 import pytest
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -192,3 +193,101 @@ class TestGetData:
         with patch.object(aurora, "_fetch_current_kp", return_value=None):
             data = aurora._get_data(cache_dir)
         assert data is None
+
+
+class TestFitFont:
+    def test_shrinks_to_fit_narrow_width(self):
+        img = Image.new("RGB", (800, 480))
+        draw = ImageDraw.Draw(img)
+        long_text = "This verdict text is much too long to fit at full size"
+        font = aurora._fit_font(draw, long_text, max_w=100, start_size=40, config={})
+        assert aurora._text_w(draw, long_text, font) <= aurora._text_w(
+            draw, long_text, aurora.get_font(40, bold=True, config={})
+        )
+
+    def test_returns_start_size_when_text_already_fits(self):
+        img = Image.new("RGB", (800, 480))
+        draw = ImageDraw.Draw(img)
+        font = aurora._fit_font(draw, "Hi", max_w=800, start_size=40, config={})
+        assert aurora._text_w(draw, "Hi", font) <= 800
+
+    def test_never_shrinks_below_min_size(self):
+        img = Image.new("RGB", (800, 480))
+        draw = ImageDraw.Draw(img)
+        # Even an absurdly long string must bottom out at min_size, not loop forever.
+        font = aurora._fit_font(draw, "X" * 500, max_w=10, start_size=40, config={}, min_size=14)
+        assert font is not None
+
+
+class TestGenerate:
+    def _config(self, out, latitude=60.0):
+        return {
+            "aurora": {"output_path": out, "cache_dir": os.path.dirname(out) or "."},
+            "forecast_location": {"latitude": latitude, "name": "Test City"},
+        }
+
+    def test_unavailable_when_no_data(self, tmp_path):
+        out = str(tmp_path / "aurora.bmp")
+        with patch.object(aurora, "_get_data", return_value=None):
+            result = aurora.generate(self._config(out))
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (aurora.WIDTH, aurora.HEIGHT)
+
+    def test_renders_with_data_no_forecast(self, tmp_path):
+        out = str(tmp_path / "aurora.bmp")
+        data = {"current_kp": 3.0, "forecast": None, "fetched_at": time.time()}
+        with patch.object(aurora, "_get_data", return_value=data):
+            result = aurora.generate(self._config(out))
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_renders_with_three_day_forecast(self, tmp_path):
+        out = str(tmp_path / "aurora.bmp")
+        data = {
+            "current_kp": 5.0,
+            "forecast": [
+                {"day": "Jul 21", "kp": 3.0},
+                {"day": "Jul 22", "kp": 5.0},
+                {"day": "Jul 23", "kp": 2.0},
+            ],
+            "fetched_at": time.time(),
+        }
+        with patch.object(aurora, "_get_data", return_value=data):
+            result = aurora.generate(self._config(out))
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_high_latitude_low_kp_marked_visible(self, tmp_path):
+        # threshold for lat=67 is 1, so even Kp=2 should read as "may be visible".
+        out = str(tmp_path / "aurora.bmp")
+        data = {"current_kp": 2.0, "forecast": None, "fetched_at": time.time()}
+        with patch.object(aurora, "_get_data", return_value=data):
+            result = aurora.generate(self._config(out, latitude=67.0))
+        assert os.path.exists(result)
+
+    def test_low_latitude_low_kp_marked_not_visible(self, tmp_path):
+        out = str(tmp_path / "aurora.bmp")
+        data = {"current_kp": 2.0, "forecast": None, "fetched_at": time.time()}
+        with patch.object(aurora, "_get_data", return_value=data):
+            result = aurora.generate(self._config(out, latitude=20.0))
+        assert os.path.exists(result)
+
+    def test_missing_fetched_at_renders_unknown_footer(self, tmp_path):
+        out = str(tmp_path / "aurora.bmp")
+        data = {"current_kp": 3.0, "forecast": None, "fetched_at": 0}
+        with patch.object(aurora, "_get_data", return_value=data):
+            result = aurora.generate(self._config(out))
+        assert os.path.exists(result)
+
+    def test_creates_output_directory(self, tmp_path):
+        out = str(tmp_path / "nested" / "dir" / "aurora.bmp")
+        with patch.object(aurora, "_get_data", return_value=None):
+            result = aurora.generate(self._config(out))
+        assert os.path.exists(result)
+
+    def test_default_latitude_when_missing_location(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(aurora, "_get_data", return_value=None):
+            result = aurora.generate({"aurora": {"output_path": "aurora.bmp"}})
+        assert os.path.exists(result)

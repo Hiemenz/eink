@@ -205,6 +205,7 @@ def generate(config):
     output_path = art_cfg.get("output_path", "art_display.bmp")
     width = config.get("width", 800)
     height = config.get("height", 480)
+    os.makedirs(CACHE_DIR, exist_ok=True)
 
     # Return cached BMP if already generated today
     cached = _today_bmp_path()

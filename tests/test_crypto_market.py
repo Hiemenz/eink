@@ -93,3 +93,90 @@ class TestSignalLabel:
 
     def test_unknown_defaults_to_hold(self):
         assert cm._signal_label("WHATEVER") == "-- HOLD"
+
+
+class TestGenerate:
+    """generate()'s own branching (fetch failure / empty analysis / render) —
+    fetch_all_market_data and analyze_all are mocked at the module boundary,
+    their internals stay out of scope per this file's docstring."""
+
+    def _coin(self, rank=1, symbol="BTC", price=65000.0, signal="BUY", ma="GOLDEN"):
+        return {
+            "market_cap_rank": rank,
+            "symbol": symbol,
+            "current_price": price,
+            "ma_signal": ma,
+            "signal": signal,
+            "timeframes": {
+                label: {"bullish": True, "pct": 1.5}
+                for label in ["1D", "2D", "3D", "1W", "2W"]
+            },
+        }
+
+    def test_fetch_exception_renders_error_screen(self, tmp_path):
+        from unittest.mock import patch
+        from PIL import Image
+        output_path = str(tmp_path / "crypto.bmp")
+        config = {"crypto_market": {"output_path": output_path}}
+        with patch("modules.crypto_market.fetch_all_market_data", side_effect=Exception("API down")):
+            result = cm.generate(config)
+        assert result == output_path
+        img = Image.open(result)
+        assert img.size == (cm.WIDTH, cm.HEIGHT)
+
+    def test_empty_analysis_renders_no_data_screen(self, tmp_path):
+        from unittest.mock import patch
+        output_path = str(tmp_path / "crypto.bmp")
+        config = {"crypto_market": {"output_path": output_path}}
+        with patch("modules.crypto_market.fetch_all_market_data", return_value=[]), \
+             patch("modules.crypto_market.analyze_all", return_value=[]):
+            result = cm.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_successful_fetch_renders_coin_grid(self, tmp_path):
+        from unittest.mock import patch
+        from PIL import Image
+        output_path = str(tmp_path / "crypto.bmp")
+        config = {"crypto_market": {"output_path": output_path, "num_coins": 3}}
+        coins = [self._coin(rank=i + 1, symbol=s) for i, s in enumerate(["BTC", "ETH", "SOL"])]
+        with patch("modules.crypto_market.fetch_all_market_data", return_value=coins) as mock_fetch, \
+             patch("modules.crypto_market.analyze_all", return_value=coins):
+            result = cm.generate(config)
+        mock_fetch.assert_called_once_with(limit=3)
+        assert result == output_path
+        img = Image.open(result)
+        assert img.size == (cm.WIDTH, cm.HEIGHT)
+
+    def test_default_output_path_and_num_coins_used(self, tmp_path, monkeypatch):
+        from unittest.mock import patch
+        monkeypatch.chdir(tmp_path)
+        config = {}
+        with patch("modules.crypto_market.fetch_all_market_data", return_value=[]) as mock_fetch, \
+             patch("modules.crypto_market.analyze_all", return_value=[]):
+            result = cm.generate(config)
+        mock_fetch.assert_called_once_with(limit=10)
+        assert result == "images/crypto_market.bmp"
+        assert os.path.exists(result)
+
+    def test_fetch_exception_creates_missing_output_dir(self, tmp_path):
+        """Regression: the error-screen branch used to save() without ever
+        creating the output directory, unlike the success branch — it would
+        crash with FileNotFoundError if the dir didn't already exist."""
+        from unittest.mock import patch
+        output_path = str(tmp_path / "nested" / "does" / "not" / "exist" / "crypto.bmp")
+        config = {"crypto_market": {"output_path": output_path}}
+        with patch("modules.crypto_market.fetch_all_market_data", side_effect=Exception("API down")):
+            result = cm.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_empty_analysis_creates_missing_output_dir(self, tmp_path):
+        from unittest.mock import patch
+        output_path = str(tmp_path / "nested" / "does" / "not" / "exist" / "crypto.bmp")
+        config = {"crypto_market": {"output_path": output_path}}
+        with patch("modules.crypto_market.fetch_all_market_data", return_value=[]), \
+             patch("modules.crypto_market.analyze_all", return_value=[]):
+            result = cm.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)

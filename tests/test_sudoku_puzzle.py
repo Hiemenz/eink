@@ -9,6 +9,8 @@ into a puzzle with the requested number of clues.
 import sys
 import os
 import random
+from datetime import date
+from unittest.mock import patch
 
 import pytest
 
@@ -16,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from modules.sudoku_puzzle import _is_valid, _solve, _generate_puzzle
+from modules.sudoku_puzzle import _is_valid, _solve, _generate_puzzle, _render, generate
 
 
 def _count_clues(puzzle):
@@ -151,3 +153,85 @@ class TestGeneratePuzzle:
     def test_num_clues_zero_produces_empty_puzzle(self):
         puzzle, _solution = _generate_puzzle(seed=1, num_clues=0)
         assert _count_clues(puzzle) == 0
+
+    def test_num_clues_81_produces_full_grid(self):
+        puzzle, solution = _generate_puzzle(seed=1, num_clues=81)
+        assert puzzle == solution
+        assert _count_clues(puzzle) == 81
+
+    def test_num_clues_above_81_still_produces_full_grid(self):
+        """Regression: num_clues > 81 used to make cells_to_remove negative,
+        and cells[:negative] slices from the end -- stripping nearly the
+        whole grid instead of leaving it full."""
+        puzzle, solution = _generate_puzzle(seed=1, num_clues=200)
+        assert puzzle == solution
+        assert _count_clues(puzzle) == 81
+
+
+class TestRender:
+    def _puzzle(self):
+        puzzle, _ = _generate_puzzle(seed=42, num_clues=35)
+        return puzzle
+
+    def test_render_creates_output_file_at_default_size(self, tmp_path):
+        from PIL import Image
+        out = str(tmp_path / "sudoku.bmp")
+        result = _render(self._puzzle(), out)
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (800, 480)
+
+    def test_render_handles_full_grid_no_blanks(self, tmp_path):
+        puzzle, solution = _generate_puzzle(seed=1, num_clues=81)
+        out = str(tmp_path / "sudoku.bmp")
+        _render(solution, out)  # must not raise
+        assert os.path.exists(out)
+
+    def test_render_handles_empty_puzzle(self, tmp_path):
+        empty = [[0] * 9 for _ in range(9)]
+        out = str(tmp_path / "sudoku.bmp")
+        _render(empty, out)  # must not raise
+        assert os.path.exists(out)
+
+    def test_render_respects_custom_dimensions(self, tmp_path):
+        from PIL import Image
+        out = str(tmp_path / "sudoku.bmp")
+        _render(self._puzzle(), out, width=400, height=300)
+        assert Image.open(out).size == (400, 300)
+
+
+class TestGenerate:
+    def test_generate_default_output_path(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        output_path = generate({})
+        assert output_path == "sudoku_display.bmp"
+        assert os.path.exists(output_path)
+
+    def test_generate_respects_custom_output_path_and_num_clues(self, tmp_path):
+        from PIL import Image
+        out = str(tmp_path / "custom.bmp")
+        config = {"sudoku_puzzle": {"output_path": out, "num_clues": 45}}
+        result = generate(config)
+        assert result == out
+        assert Image.open(out).size == (800, 480)
+
+    def test_generate_is_deterministic_within_the_same_day(self, tmp_path):
+        out1 = str(tmp_path / "a.bmp")
+        out2 = str(tmp_path / "b.bmp")
+        generate({"sudoku_puzzle": {"output_path": out1, "num_clues": 30}})
+        generate({"sudoku_puzzle": {"output_path": out2, "num_clues": 30}})
+        with open(out1, "rb") as f1, open(out2, "rb") as f2:
+            assert f1.read() == f2.read()
+
+    def test_generate_differs_across_simulated_days(self, tmp_path):
+        out1 = str(tmp_path / "day1.bmp")
+        out2 = str(tmp_path / "day2.bmp")
+        with patch("modules.sudoku_puzzle.date") as mock_date:
+            mock_date.today.return_value = date(2024, 1, 1)
+            generate({"sudoku_puzzle": {"output_path": out1, "num_clues": 30}})
+
+            mock_date.today.return_value = date(2024, 6, 15)
+            generate({"sudoku_puzzle": {"output_path": out2, "num_clues": 30}})
+
+        with open(out1, "rb") as f1, open(out2, "rb") as f2:
+            assert f1.read() != f2.read()

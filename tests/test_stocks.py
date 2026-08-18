@@ -28,6 +28,9 @@ from modules.stocks import (
     _cache_path,
     _load_cache,
     _save_cache,
+    _truncate,
+    generate,
+    DEFAULT_SYMBOLS,
 )
 
 
@@ -168,3 +171,102 @@ class TestGetData:
         mock_fetch.return_value = None
         result = _get_data(["AAPL"], str(tmp_path))
         assert result == {}
+
+
+class TestLoadCache:
+    def test_missing_file_returns_none(self, tmp_path):
+        assert _load_cache(str(tmp_path)) is None
+
+    def test_corrupt_file_returns_none(self, tmp_path):
+        with open(_cache_path(str(tmp_path)), "w") as f:
+            f.write("{not valid json")
+        assert _load_cache(str(tmp_path)) is None
+
+
+class TestTruncate:
+    def _draw(self):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (10, 10))
+        return ImageDraw.Draw(img)
+
+    def test_empty_text_returns_empty_string(self):
+        from PIL import ImageFont
+        assert _truncate(self._draw(), "", ImageFont.load_default(), 100) == ""
+
+    def test_short_text_unchanged(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        assert _truncate(draw, "AAPL", font, 1000) == "AAPL"
+
+    def test_long_text_truncated_with_ellipsis(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        text = "Some Very Long Company Name Incorporated"
+        result = _truncate(draw, text, font, 50)
+        assert result.endswith("…")
+        assert draw.textlength(result, font=font) <= 50
+
+
+class TestGenerate:
+    @patch("modules.stocks._get_data")
+    def test_unavailable_when_no_quotes(self, mock_get_data, tmp_path):
+        mock_get_data.return_value = {}
+        output = str(tmp_path / "stocks.bmp")
+        config = {"stocks": {"output_path": output, "cache_dir": str(tmp_path)}}
+        result = generate(config)
+        assert result == output
+        assert os.path.exists(output)
+        from PIL import Image
+        assert Image.open(output).size == (800, 480)
+
+    @patch("modules.stocks._get_data")
+    def test_full_watchlist_renders(self, mock_get_data, tmp_path):
+        mock_get_data.return_value = {
+            "AAPL": {"symbol": "AAPL", "name": "Apple Inc.", "price": 150.0,
+                     "change": 1.5, "change_pct": 1.0, "market_state": "REGULAR"},
+        }
+        output = str(tmp_path / "stocks.bmp")
+        config = {"stocks": {"output_path": output, "symbols": ["AAPL"], "cache_dir": str(tmp_path)}}
+        result = generate(config)
+        from PIL import Image
+        assert Image.open(result).size == (800, 480)
+
+    @patch("modules.stocks._get_data")
+    def test_missing_symbol_gets_placeholder_row(self, mock_get_data, tmp_path):
+        """A configured symbol absent from the fetched quotes must still render
+        (as a placeholder row) rather than being dropped or raising."""
+        mock_get_data.return_value = {}
+        mock_get_data.return_value = {"AAPL": {"symbol": "AAPL", "name": "Apple", "price": 1,
+                                                "change": 0, "change_pct": 0}}
+        output = str(tmp_path / "stocks.bmp")
+        config = {"stocks": {"output_path": output, "symbols": ["AAPL", "ZZZZ"], "cache_dir": str(tmp_path)}}
+        result = generate(config)
+        assert os.path.exists(result)
+
+    @patch("modules.stocks._get_data")
+    def test_symbols_capped_at_ten(self, mock_get_data, tmp_path):
+        many_symbols = [f"SYM{i}" for i in range(15)]
+        mock_get_data.return_value = {"SYM0": {"symbol": "SYM0", "name": "X", "price": 1,
+                                                "change": 0, "change_pct": 0}}
+
+        def _capture(symbols, cache_dir):
+            assert len(symbols) == 10
+            return mock_get_data.return_value
+
+        mock_get_data.side_effect = _capture
+        output = str(tmp_path / "stocks.bmp")
+        config = {"stocks": {"output_path": output, "symbols": many_symbols, "cache_dir": str(tmp_path)}}
+        generate(config)
+
+    @patch("modules.stocks._get_data")
+    def test_no_symbols_configured_uses_defaults(self, mock_get_data, tmp_path):
+        def _capture(symbols, cache_dir):
+            assert symbols == DEFAULT_SYMBOLS
+            return {}
+
+        mock_get_data.side_effect = _capture
+        output = str(tmp_path / "stocks.bmp")
+        config = {"stocks": {"output_path": output, "cache_dir": str(tmp_path)}}
+        generate(config)

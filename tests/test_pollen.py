@@ -196,3 +196,61 @@ class TestFmtValue:
 
     def test_large_value_has_no_decimal(self):
         assert pollen._fmt_value(123.7) == "124"
+
+
+class TestGenerate:
+    """End-to-end generate() — no prior test exercised the public entry point."""
+
+    def _config(self, tmp_path):
+        return {
+            "pollen": {
+                "output_path": str(tmp_path / "pollen.bmp"),
+                "cache_dir": str(tmp_path / "cache"),
+            },
+            "forecast_location": {"latitude": 35.9251, "longitude": -86.8689, "name": "Nashville"},
+        }
+
+    def test_no_data_renders_failure_screen(self, tmp_path):
+        config = self._config(tmp_path)
+        with patch("modules.pollen._get_pollen_data", return_value=None):
+            result = pollen.generate(config)
+        assert result == config["pollen"]["output_path"]
+        assert os.path.exists(result)
+        from PIL import Image
+        img = Image.open(result)
+        assert img.size == (pollen.WIDTH, pollen.HEIGHT)
+
+    def test_all_species_present_renders_full_card_grid(self, tmp_path):
+        config = self._config(tmp_path)
+        data = {key: 12.5 for key, _name in pollen.SPECIES}
+        data["fetched_at"] = time.time()
+        with patch("modules.pollen._get_pollen_data", return_value=data):
+            result = pollen.generate(config)
+        from PIL import Image
+        img = Image.open(result)
+        assert img.size == (pollen.WIDTH, pollen.HEIGHT)
+
+    def test_all_species_null_renders_no_data_note(self, tmp_path):
+        config = self._config(tmp_path)
+        data = {key: None for key, _name in pollen.SPECIES}
+        data["fetched_at"] = time.time()
+        with patch("modules.pollen._get_pollen_data", return_value=data):
+            result = pollen.generate(config)
+        assert os.path.exists(result)
+
+    def test_missing_forecast_location_uses_default_coords(self, tmp_path):
+        config = {"pollen": {"output_path": str(tmp_path / "pollen.bmp"),
+                              "cache_dir": str(tmp_path / "cache")}}
+        with patch("modules.pollen._get_pollen_data", return_value=None) as mock_get:
+            pollen.generate(config)
+        args, _ = mock_get.call_args
+        assert args[0] == 35.9251
+        assert args[1] == -86.8689
+
+    def test_default_output_path_used_when_not_configured(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = {"pollen": {"cache_dir": str(tmp_path / "cache")}}
+        with patch("modules.pollen._get_pollen_data", return_value=None):
+            result = pollen.generate(config)
+        assert result == "images/pollen_display.bmp"
+        assert os.path.exists(result)

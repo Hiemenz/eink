@@ -135,10 +135,85 @@ class TestTruncateLines:
         assert len(result) == 3
 
 
+class TestCachePath:
+    def test_cache_path_includes_todays_date(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
+        from datetime import date
+        today = date.today().isoformat()
+        assert today in pod._cache_path()
+
+    def test_cache_path_under_cache_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
+        assert pod._cache_path().startswith(str(tmp_path))
+
+
+class TestRender:
+    def test_render_creates_output_file_at_default_size(self, tmp_path):
+        from PIL import Image
+        out = str(tmp_path / "poem.bmp")
+        result = pod._render("A Title", "An Author", ["line one", "line two"], out)
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (800, 480)
+
+    def test_render_handles_all_blank_lines(self, tmp_path):
+        out = str(tmp_path / "poem.bmp")
+        pod._render("Title", "Author", ["", "  ", ""], out)  # must not raise
+        assert os.path.exists(out)
+
+    def test_render_strips_leading_and_trailing_blank_lines(self, tmp_path):
+        out = str(tmp_path / "poem.bmp")
+        # Should behave the same as without the blank padding — just verifying
+        # this doesn't crash and still produces a normal-sized image.
+        pod._render("Title", "Author", ["", "real line", ""], out)
+        from PIL import Image
+        assert Image.open(out).size == (800, 480)
+
+    def test_render_handles_very_long_title(self, tmp_path):
+        """Title wider than the canvas at every size down to 16 must still render
+        (exercises the for/else fallback when no title_size ever fits)."""
+        out = str(tmp_path / "poem.bmp")
+        long_title = "A Very Long Title That Will Never Fit On One Line No Matter The Font Size Chosen"
+        pod._render(long_title, "Author", ["line"], out)  # must not raise
+        assert os.path.exists(out)
+
+    def test_render_handles_many_lines_triggering_truncation(self, tmp_path):
+        out = str(tmp_path / "poem.bmp")
+        lines = [f"line {i}" for i in range(60)]
+        pod._render("Title", "Author", lines, out)
+        assert os.path.exists(out)
+
+
 class TestGenerateFallback:
     def test_generate_uses_hardcoded_fallback_on_total_failure(self, tmp_path, monkeypatch):
         monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
         monkeypatch.chdir(tmp_path)
         with patch("modules.poem_of_day._fetch_poem", return_value=None):
             output_path = pod.generate({"poem_of_day": {"output_path": str(tmp_path / "out.bmp")}})
+        assert os.path.exists(output_path)
+
+    def test_generate_uses_fresh_cache_without_fetching(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        cached = {"title": "Cached", "author": "Cacher", "lines": ["l1"]}
+        pod._save_cache(cached)
+        with patch("modules.poem_of_day._fetch_poem") as mock_fetch:
+            output_path = pod.generate({"poem_of_day": {"output_path": str(tmp_path / "out.bmp")}})
+        mock_fetch.assert_not_called()
+        assert os.path.exists(output_path)
+
+    def test_generate_saves_cache_on_successful_fetch(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        fetched = {"title": "Fresh", "author": "Fetcher", "lines": ["l1"]}
+        with patch("modules.poem_of_day._fetch_poem", return_value=fetched):
+            pod.generate({"poem_of_day": {"output_path": str(tmp_path / "out.bmp")}})
+        assert pod._load_cache() == fetched
+
+    def test_generate_default_output_path(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(pod, "CACHE_DIR", str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        with patch("modules.poem_of_day._fetch_poem", return_value=None):
+            output_path = pod.generate({})
+        assert output_path == "poem_display.bmp"
         assert os.path.exists(output_path)

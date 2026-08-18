@@ -71,6 +71,7 @@ from modules.weather import (
     _classify_trend,
     _draw_dashed_polyline,
     _fetch_admin_boundaries,
+    _draw_storm_motion_overlay,
 )
 
 
@@ -1159,3 +1160,125 @@ class TestFetchAdminBoundaries:
             _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
             _fetch_admin_boundaries(36.0, -86.8, 7, 512, 100, 100)
         assert len(calls) == 1, "second call should have hit the 24h disk cache"
+
+
+class TestDrawStormMotionOverlay:
+    """_draw_storm_motion_overlay ties together clustering, arrow drawing, and
+    the caption line — none of which had an integration-level test before,
+    despite this being the exact function two prior bugs shipped in (arrow
+    direction negation, invisible thin arrows). Sub-helpers (clustering,
+    bearing, speed) are covered separately above; these tests exercise the
+    function that actually calls them and paints the canvas."""
+
+    @staticmethod
+    def _empty_mask(size=(200, 200)):
+        return Image.new("RGBA", size, (0, 0, 0, 0))
+
+    @staticmethod
+    def _mask_block(size, box):
+        h, w = size
+        alpha = np.zeros((h, w), dtype=np.uint8)
+        y0, x0, y1, x1 = box
+        alpha[y0:y1, x0:x1] = 255
+        return Image.fromarray(np.dstack([np.zeros((h, w, 3), np.uint8), alpha]), "RGBA")
+
+    def test_weak_motion_returns_none_and_leaves_canvas_untouched(self):
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        result = _draw_storm_motion_overlay(
+            img, (0.5, 0.2), self._empty_mask(), {}, km_per_px=0.5, frame_interval_min=10,
+        )
+        assert result is None
+        assert set(img.getdata()) == {(255, 255, 255)}
+
+    def test_zero_frame_interval_returns_none_despite_real_motion(self):
+        # _storm_speed_kmh guards div-by-zero -> 0 km/h -> overlay bails out,
+        # even though the displacement itself is well above the weak-signal gate.
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        vectors = [(100 + i * 20, 100, 10.0, 0.0) for i in range(5)]
+        result = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask(), {}, km_per_px=0.5, frame_interval_min=0,
+            vectors=vectors,
+        )
+        assert result is None
+
+    def test_single_cluster_draws_arrow_with_white_halo_and_black_core(self):
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        vectors = [(100 + i * 20, 100, 10.0, 0.0) for i in range(5)]
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask(), {}, km_per_px=0.5, frame_interval_min=10,
+            vectors=vectors,
+        )
+        assert lines is not None
+        assert lines[0].startswith("Storm ")  # singular label, one cluster
+        colors = set(img.getdata())
+        assert (0, 0, 0) in colors, "arrow core must be drawn"
+        assert (255, 255, 255) in colors, "white halo must still leave background visible"
+
+    def test_direction_is_not_negated_in_fallback_path(self):
+        # No vectors supplied -> falls back to the raw motion vector directly,
+        # exercising the same (dx, dy) convention the fallback path uses rather
+        # than a cluster-derived heading. Motion is east + north (dy<0).
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        mask = self._mask_block((200, 200), (80, 80, 120, 120))  # ample interior blob
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, -6.0), mask, {}, km_per_px=0.5, frame_interval_min=10, vectors=[],
+        )
+        assert lines is not None
+        assert "NE" in lines[0], f"expected a north-easterly heading, got: {lines[0]!r}"
+
+    def test_multiple_diverging_clusters_get_separate_arrows_and_plural_label(self):
+        img = Image.new("RGB", (300, 200), (255, 255, 255))
+        east = [(80 + i * 15, 100, 10.0, 0.0) for i in range(5)]
+        west = [(220 - i * 15, 100, -10.0, 0.0) for i in range(5)]
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask((200, 300)), {}, km_per_px=0.5,
+            frame_interval_min=10, vectors=east + west,
+        )
+        assert lines is not None
+        assert lines[0].startswith("Storms "), "two live clusters should pluralize the label"
+
+    def test_caption_describes_dominant_cluster_not_an_average(self):
+        # Dominant (6-member) cluster heads due east; a smaller (3-member)
+        # cluster heads due north. Averaging would report something like NE —
+        # the caption must instead describe the largest cluster only.
+        img = Image.new("RGB", (300, 300), (255, 255, 255))
+        east = [(80 + i * 15, 150, 10.0, 0.0) for i in range(6)]
+        north = [(220, 80 + i * 15, 0.0, -10.0) for i in range(3)]
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask((300, 300)), {}, km_per_px=0.5,
+            frame_interval_min=10, vectors=east + north,
+        )
+        assert lines is not None
+        assert " E " in f" {lines[0]} ", f"expected the dominant (east) cluster's heading, got: {lines[0]!r}"
+
+    def test_arrival_line_present_when_precip_reaches_home(self):
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        vectors = [(100 + i * 20, 100, 10.0, 0.0) for i in range(5)]
+        # Precip sits just upwind of the canvas centre (100, 100).
+        mask = self._mask_block((200, 200), (90, 70, 110, 90))
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), mask, {}, km_per_px=0.5, frame_interval_min=10, vectors=vectors,
+        )
+        assert lines is not None
+        assert any("Rain here" in line for line in lines)
+
+    def test_arrival_line_omitted_when_no_precip_in_mask(self):
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        vectors = [(100 + i * 20, 100, 10.0, 0.0) for i in range(5)]
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask(), {}, km_per_px=0.5, frame_interval_min=10,
+            vectors=vectors,
+        )
+        assert lines is not None
+        assert not any("Rain here" in line for line in lines)
+
+    def test_metric_units_reported_when_configured(self):
+        img = Image.new("RGB", (200, 200), (255, 255, 255))
+        vectors = [(100 + i * 20, 100, 10.0, 0.0) for i in range(5)]
+        lines = _draw_storm_motion_overlay(
+            img, (10.0, 0.0), self._empty_mask(), {"radar_speed_units": "kmh"},
+            km_per_px=0.5, frame_interval_min=10, vectors=vectors,
+        )
+        assert lines is not None
+        assert "km/h" in lines[0]
+        assert "mph" not in lines[0]

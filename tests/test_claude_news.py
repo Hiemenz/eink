@@ -169,3 +169,82 @@ class TestTruncate:
         result = cn._truncate("a" * 200, font, draw, 50)
         assert result.endswith("…")
         assert len(result) < 200
+
+
+class TestRender:
+    def test_creates_file_and_returns_path(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        releases = [{"version": "v1.0.0", "items": ["Did a thing", "Fixed another"]}]
+        result = cn._render(releases, output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    def test_empty_releases_list_still_writes_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = cn._render([], output_path)
+        assert os.path.exists(result)
+
+    def test_many_releases_truncated_to_max(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        releases = [{"version": f"v{i}.0.0", "items": ["x"]} for i in range(20)]
+        # Should not raise despite far exceeding MAX_RELEASES — generate() slices explicitly.
+        result = cn._render(releases, output_path)
+        assert os.path.exists(result)
+
+    def test_custom_dimensions_respected(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        cn._render([{"version": "v1.0.0", "items": ["x"]}], output_path, width=400, height=240)
+        img = Image.open(output_path)
+        assert img.size == (400, 240)
+
+    def test_creates_output_directory_if_missing(self, tmp_path):
+        output_path = str(tmp_path / "nested" / "dir" / "out.bmp")
+        cn._render([{"version": "v1.0.0", "items": ["x"]}], output_path)
+        assert os.path.exists(output_path)
+
+
+class TestRenderFallback:
+    def test_creates_file_and_returns_path(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = cn._render_fallback(output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+
+class TestGenerate:
+    def test_writes_output_file_using_releases(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"claude_news": {"output_path": output_path}}
+        with patch.object(cn, "_get_releases", return_value=[{"version": "v1.0.0", "items": ["x"]}]):
+            result = cn.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_render_error_falls_back_to_static_screen(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"claude_news": {"output_path": output_path}}
+        with patch.object(cn, "_get_releases", return_value=[{"version": "v1.0.0", "items": ["x"]}]), \
+             patch.object(cn, "_render", side_effect=RuntimeError("boom")):
+            result = cn.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_get_releases_error_falls_back_to_static_screen(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"claude_news": {"output_path": output_path}}
+        with patch.object(cn, "_get_releases", side_effect=RuntimeError("boom")):
+            result = cn.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_uses_configured_dimensions(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"claude_news": {"output_path": output_path}, "width": 400, "height": 240}
+        with patch.object(cn, "_get_releases", return_value=[{"version": "v1.0.0", "items": ["x"]}]):
+            cn.generate(config)
+        img = Image.open(output_path)
+        assert img.size == (400, 240)

@@ -60,6 +60,16 @@ class TestMakeQrImage:
         assert img.mode == "RGB"
         assert img.width > 0 and img.height > 0
 
+    def test_unicode_text_encodes_without_error(self):
+        img = qd._make_qr_image("café ☕ 日本語")
+        assert img.mode == "RGB"
+
+    def test_very_long_text_raises(self):
+        # QR version 40 (max) with ERROR_CORRECT_H tops out well under 2000
+        # alphanumeric/byte chars -- this should exceed capacity and raise.
+        with pytest.raises(ValueError):
+            qd._make_qr_image("x" * 5000)
+
 
 class TestGenerateIntegration:
     def test_generate_placeholder_when_unconfigured(self, tmp_path):
@@ -80,3 +90,51 @@ class TestGenerateIntegration:
         monkeypatch.chdir(tmp_path)
         result = qd.generate({"qrcode_display": None})
         assert os.path.exists(result)
+
+    def test_generate_missing_section_uses_default_output_path(self, tmp_path, monkeypatch):
+        """No qrcode_display key at all in config -- falls back to images/qrcode_display.bmp."""
+        monkeypatch.chdir(tmp_path)
+        result = qd.generate({})
+        assert result == "images/qrcode_display.bmp"
+        assert os.path.exists(result)
+
+    def test_generate_sublabel_without_label(self, tmp_path):
+        """Sublabel-only branch: cursor_y math must not reference an unset label height."""
+        output_path = str(tmp_path / "out.bmp")
+        result = qd.generate({
+            "qrcode_display": {"output_path": output_path, "text": "hello", "sublabel": "small print"}
+        })
+        assert os.path.exists(result)
+
+    def test_generate_label_and_sublabel_together(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = qd.generate({
+            "qrcode_display": {
+                "output_path": output_path,
+                "text": "hello",
+                "label": "Scan me",
+                "sublabel": "small print",
+            }
+        })
+        assert os.path.exists(result)
+
+    def test_generate_wifi_missing_password_key(self, tmp_path):
+        """wifi_ssid set but wifi_password entirely absent -- must not KeyError."""
+        output_path = str(tmp_path / "out.bmp")
+        result = qd.generate({
+            "qrcode_display": {"output_path": output_path, "wifi_ssid": "MyNet"}
+        })
+        assert os.path.exists(result)
+
+    def test_generate_creates_output_directory(self, tmp_path):
+        output_path = str(tmp_path / "nested" / "dir" / "out.bmp")
+        result = qd.generate({"qrcode_display": {"output_path": output_path, "text": "hi"}})
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_generate_image_has_expected_canvas_size(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        qd.generate({"qrcode_display": {"output_path": output_path, "text": "hi"}})
+        from PIL import Image
+        img = Image.open(output_path)
+        assert img.size == (qd.CANVAS_W, qd.CANVAS_H)

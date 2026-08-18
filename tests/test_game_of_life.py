@@ -8,6 +8,7 @@ import os
 import json
 
 import pytest
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -19,6 +20,7 @@ from modules.game_of_life import (
     _count_alive,
     _load_state,
     _save_state,
+    generate,
 )
 
 
@@ -176,3 +178,70 @@ class TestStatePersistence:
         with open(state_file) as f:
             data = json.load(f)
         assert data["generation"] == 1
+
+
+class TestGenerate:
+    def _config(self, tmp_path, **overrides):
+        cfg = {
+            "width": 40,
+            "height": 40,
+            "game_of_life": {
+                "output_path": str(tmp_path / "out.bmp"),
+                "state_file": str(tmp_path / "state.json"),
+                "cell_size": 10,
+                "initial_density": 0.5,
+                "random_seed": 7,
+            },
+        }
+        cfg["game_of_life"].update(overrides)
+        return cfg
+
+    def test_first_run_creates_output_and_state(self, tmp_path):
+        config = self._config(tmp_path)
+        result = generate(config)
+        assert result == config["game_of_life"]["output_path"]
+        assert os.path.exists(result)
+        state = _load_state(config["game_of_life"]["state_file"])
+        assert state["generation"] == 1
+
+    def test_second_run_resumes_and_advances_generation(self, tmp_path):
+        config = self._config(tmp_path)
+        generate(config)
+        generate(config)
+        state = _load_state(config["game_of_life"]["state_file"])
+        assert state["generation"] == 2
+
+    def test_start_new_ignores_existing_state(self, tmp_path):
+        config = self._config(tmp_path)
+        generate(config)
+        generate(config)  # generation now 2
+
+        config["game_of_life"]["start_new"] = True
+        generate(config)
+        state = _load_state(config["game_of_life"]["state_file"])
+        assert state["generation"] == 1  # restarted, not 3
+
+    def test_mismatched_grid_dimensions_starts_fresh(self, tmp_path):
+        config = self._config(tmp_path)
+        generate(config)  # 4x4 grid (40/10)
+
+        config["game_of_life"]["cell_size"] = 20  # now 2x2 grid — dims no longer match
+        generate(config)
+        state = _load_state(config["game_of_life"]["state_file"])
+        assert state["generation"] == 1  # treated as a fresh start
+
+    def test_output_image_has_configured_dimensions(self, tmp_path):
+        config = self._config(tmp_path)
+        generate(config)
+        img = Image.open(config["game_of_life"]["output_path"])
+        assert img.size == (40, 40)
+
+    def test_show_gen_and_pop_false_does_not_crash(self, tmp_path):
+        config = self._config(tmp_path, show_generation=False, show_population=False)
+        result = generate(config)
+        assert os.path.exists(result)
+
+    def test_empty_grid_color_disables_outline_without_crash(self, tmp_path):
+        config = self._config(tmp_path, grid_color=None)
+        result = generate(config)
+        assert os.path.exists(result)

@@ -20,6 +20,11 @@ import modules.terminal as terminal
 
 
 @pytest.fixture
+def output_path(tmp_path):
+    return str(tmp_path / "terminal.bmp")
+
+
+@pytest.fixture
 def state_path(tmp_path, monkeypatch):
     path = str(tmp_path / "terminal_state.json")
     monkeypatch.setattr(terminal, "STATE_PATH", path)
@@ -86,3 +91,77 @@ class TestWrapLine:
         assert len(lines) > 1
         # Reassembling should reproduce all the words (order preserved).
         assert " ".join(lines).split() == text.split()
+
+    def test_single_word_exceeding_max_width_not_split(self):
+        """A single word longer than max_width is emitted whole (character-level
+        wrapping isn't attempted) rather than dropped or raising."""
+        draw = self._draw()
+        font = terminal._font(14)
+        long_word = "x" * 500
+        lines = terminal._wrap_line(long_word, font, draw, 50)
+        assert lines == [long_word]
+
+
+class TestRender:
+    def test_empty_history_shows_placeholder(self, output_path):
+        terminal._render({"history": []}, output_path)
+        assert os.path.exists(output_path)
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    def test_render_with_history_produces_correct_size(self, output_path):
+        state = {
+            "history": [
+                {"command": "ls -la", "output": "file1\nfile2", "exit_code": 0, "timestamp": "12:00:00"},
+                {"command": "false", "output": "", "exit_code": 1, "timestamp": "12:00:05"},
+            ]
+        }
+        terminal._render(state, output_path)
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    def test_custom_dimensions_respected(self, output_path):
+        terminal._render({"history": []}, output_path, width=400, height=200)
+        img = Image.open(output_path)
+        assert img.size == (400, 200)
+
+    def test_creates_parent_directories(self, tmp_path):
+        nested = str(tmp_path / "a" / "b" / "terminal.bmp")
+        terminal._render({"history": []}, nested)
+        assert os.path.exists(nested)
+
+    def test_history_truncated_to_lines_that_fit(self, output_path):
+        """With a tiny canvas, only the most recent lines should render —
+        _render must not raise even when history overflows the visible area."""
+        state = {
+            "history": [
+                {"command": f"cmd{i}", "output": f"output line {i}", "exit_code": 0, "timestamp": "12:00:00"}
+                for i in range(terminal.MAX_HISTORY)
+            ]
+        }
+        terminal._render(state, output_path, width=800, height=60)
+        img = Image.open(output_path)
+        assert img.size == (800, 60)
+
+
+class TestGenerate:
+    def test_generate_uses_default_output_path(self, tmp_path, monkeypatch, state_path):
+        monkeypatch.chdir(tmp_path)
+        config = {"terminal": {}, "width": 800, "height": 480}
+        result = terminal.generate(config)
+        assert result == "images/terminal_display.bmp"
+        assert os.path.exists(result)
+
+    def test_generate_uses_configured_output_path(self, tmp_path, state_path):
+        out = str(tmp_path / "custom" / "term.bmp")
+        config = {"terminal": {"output_path": out}, "width": 800, "height": 480}
+        result = terminal.generate(config)
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_generate_reads_saved_history(self, tmp_path, state_path):
+        terminal.save_entry("echo hi", "hi", 0)
+        out = str(tmp_path / "term.bmp")
+        config = {"terminal": {"output_path": out}, "width": 800, "height": 480}
+        result = terminal.generate(config)
+        assert os.path.exists(result)

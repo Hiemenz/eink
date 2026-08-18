@@ -111,36 +111,30 @@ def _draw_moon(fraction, radius=180):
     )
 
     if fraction >= 0.0625 and fraction <= 0.9375:
-        # Draw the lit portion
-        draw.ellipse(
-            [cx - r, cy - r, cx + r, cy + r],
-            fill=dark_color if lit_side == "right" else lit_color
-        )
-
         # Terminator ellipse x-radius varies with phase
         # At quarter: terminator is vertical (x_r = 0)
         # At crescent: terminator curves toward lit side
-        terminator_x = int(r * abs(math.cos(fraction * math.pi * 2)))
+        angle = fraction * math.pi * 2
+        cos_val = math.cos(angle)
+        terminator_x = int(r * abs(cos_val))
 
+        # Base: full disc dark, then the lit_side half becomes the 50%-lit
+        # baseline (correct exactly at the quarter phases, terminator_x == 0).
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dark_color)
         if lit_side == "right":
-            # Right half is lit; overlay dark ellipse on left with curved terminator
-            # Draw the full disc dark
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dark_color)
-            # Cover right half with lit rectangle
             draw.rectangle([cx, cy - r - 1, cx + r + 1, cy + r + 1], fill=lit_color)
-            # Draw terminator ellipse (lit side bulge) on right
-            draw.ellipse(
-                [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
-                fill=lit_color
-            )
         else:
-            # Left half is lit; overlay dark ellipse on right
-            draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=dark_color)
             draw.rectangle([cx - r - 1, cy - r - 1, cx, cy + r + 1], fill=lit_color)
-            draw.ellipse(
-                [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
-                fill=dark_color
-            )
+
+        # The terminator bulges toward the crescent side (cos_val > 0, less
+        # than half the cycle from the nearest new moon) by eating into the
+        # lit half, or toward the gibbous side (cos_val < 0) by extending
+        # into the dark half — this holds for both waxing and waning, so the
+        # ellipse color depends only on cos_val's sign, never on lit_side.
+        draw.ellipse(
+            [cx - terminator_x, cy - r, cx + terminator_x, cy + r],
+            fill=dark_color if cos_val > 0 else lit_color,
+        )
     elif fraction < 0.0625 or fraction > 0.9375:
         # New moon: nearly dark (white background, dark disc)
         draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(40, 40, 50, 255))

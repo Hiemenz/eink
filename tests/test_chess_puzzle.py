@@ -193,3 +193,112 @@ class TestFetchPuzzle:
     def test_network_failure_returns_none(self):
         with patch.object(cp.requests, "get", side_effect=Exception("timeout")):
             assert cp._fetch_puzzle() is None
+
+
+class TestApplySanExtra:
+    def test_capture_removes_defender(self):
+        fen = "8/8/8/3p4/4P3/8/8/8 w - - 0 1"
+        board, side, castling, ep, half, full = cp._parse_fen(fen)
+        new_board, _, _ = cp._apply_san(board, "exd5", side, castling, ep)
+        assert new_board[3][3] == "P"
+
+    def test_en_passant_capture_removes_captured_pawn(self):
+        # White pawn on e5, black just double-pushed to d5 (ep square d6).
+        fen = "8/8/8/3pP3/8/8/8/8 w - d6 0 1"
+        board, side, castling, ep, half, full = cp._parse_fen(fen)
+        new_board, _, _ = cp._apply_san(board, "exd6", side, castling, ep)
+        assert new_board[2][3] == "P"
+        assert new_board[3][3] is None  # captured black pawn removed
+
+    def test_disambiguation_by_file(self):
+        fen = "8/8/8/8/8/8/8/R6R w - - 0 1"
+        board, side, castling, ep, half, full = cp._parse_fen(fen)
+        new_board, _, _ = cp._apply_san(board, "Rhe1", side, castling, ep)
+        assert new_board[7][4] == "R"
+        assert new_board[7][7] is None
+        assert new_board[7][0] == "R"  # untouched rook stays put
+
+    def test_rook_move_from_h1_clears_kingside_castling(self):
+        fen = "8/8/8/8/8/8/8/R3K2R w KQ - 0 1"
+        board, side, castling, ep, half, full = cp._parse_fen(fen)
+        # "Rhh2": file disambiguator forces the h1 rook (not the a1 rook,
+        # which _find_piece would otherwise match first in scan order).
+        _, new_castling, _ = cp._apply_san(board, "Rhh2", side, castling, ep)
+        assert "K" not in new_castling
+        assert "Q" in new_castling
+
+
+class TestCache:
+    def test_load_missing_cache_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "CACHE_DIR", str(tmp_path))
+        assert cp._load_cache() is None
+
+    def test_save_then_load_roundtrip(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "CACHE_DIR", str(tmp_path))
+        data = {"fen": STARTING_FEN, "side_to_move": "White", "rating": 1200, "puzzle_id": "xyz"}
+        cp._save_cache(data)
+        assert cp._load_cache() == data
+
+    def test_save_creates_cache_dir(self, tmp_path, monkeypatch):
+        cache_dir = str(tmp_path / "nested")
+        monkeypatch.setattr(cp, "CACHE_DIR", cache_dir)
+        cp._save_cache({"fen": STARTING_FEN})
+        assert os.path.exists(cache_dir)
+
+
+class TestRender:
+    def test_render_creates_output_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        data = {"fen": STARTING_FEN, "side_to_move": "White", "rating": 1500, "puzzle_id": "abc"}
+        result = cp._render(data, output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_render_with_empty_fen_uses_blank_board(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        cp._render({"fen": "", "rating": 0, "puzzle_id": ""}, output_path)
+        assert os.path.exists(output_path)
+
+    def test_render_letter_fallback_when_no_glyph_font(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "_piece_font_path", lambda: None)
+        output_path = str(tmp_path / "out.bmp")
+        data = {"fen": STARTING_FEN, "side_to_move": "White", "rating": 1000, "puzzle_id": "x"}
+        cp._render(data, output_path)
+        assert os.path.exists(output_path)
+
+
+class TestRenderFallback:
+    def test_creates_output_file(self, tmp_path):
+        output_path = str(tmp_path / "fallback.bmp")
+        result = cp._render_fallback(output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+
+class TestGenerate:
+    def test_uses_cached_puzzle_without_fetching(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "CACHE_DIR", str(tmp_path))
+        cp._save_cache({"fen": STARTING_FEN, "side_to_move": "White", "rating": 1400, "puzzle_id": "c1"})
+        output_path = str(tmp_path / "out.bmp")
+        with patch.object(cp, "_fetch_puzzle") as mock_fetch:
+            result = cp.generate({"chess_puzzle": {"output_path": output_path}})
+        mock_fetch.assert_not_called()
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_fetches_and_caches_when_no_cache(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        fetched = {"fen": STARTING_FEN, "side_to_move": "White", "rating": 1300, "puzzle_id": "d2"}
+        with patch.object(cp, "_fetch_puzzle", return_value=fetched):
+            result = cp.generate({"chess_puzzle": {"output_path": output_path}})
+        assert result == output_path
+        assert cp._load_cache() == fetched
+
+    def test_fetch_failure_renders_fallback(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(cp, "CACHE_DIR", str(tmp_path))
+        output_path = str(tmp_path / "out.bmp")
+        with patch.object(cp, "_fetch_puzzle", return_value=None):
+            result = cp.generate({"chess_puzzle": {"output_path": output_path}})
+        assert result == output_path
+        assert os.path.exists(output_path)

@@ -76,6 +76,21 @@ class TestFetchSnapshot:
         assert any(u.startswith("https://") for u in called_urls)
         assert any(u.startswith("http://") for u in called_urls)
 
+    @patch("modules.franklin_cam.requests.get")
+    def test_alias_http_error_falls_through_to_stream_url(self, mock_get):
+        alias_resp = MagicMock()
+        alias_resp.raise_for_status.side_effect = Exception("404")
+
+        stream_resp = MagicMock()
+        stream_resp.raise_for_status.return_value = None
+        stream_resp.headers = {"Content-Type": "image/jpeg"}
+        stream_resp.content = _jpeg_bytes()
+
+        mock_get.side_effect = [alias_resp, stream_resp]
+        img = _fetch_snapshot("badalias", "host.example.com", "stream123")
+        assert img is not None
+        assert mock_get.call_count == 2
+
 
 class TestRender:
     def test_output_matches_requested_canvas_size(self, tmp_path):
@@ -119,3 +134,29 @@ class TestGenerateFallback:
         result = generate(config)
         assert result == output_path
         assert os.path.exists(output_path)
+
+    @patch("modules.franklin_cam.requests.get")
+    def test_generate_success_renders_camera_snapshot(self, mock_get, tmp_path):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.headers = {"Content-Type": "image/jpeg"}
+        resp.content = _jpeg_bytes()
+        mock_get.return_value = resp
+
+        output_path = str(tmp_path / "out.bmp")
+        config = {"franklin_cam": {"output_path": output_path, "label": "Test Cam"},
+                   "width": 800, "height": 480}
+        result = generate(config)
+        assert result == output_path
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    @patch("modules.franklin_cam.requests.get")
+    def test_generate_uses_default_config_values(self, mock_get, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mock_get.side_effect = Exception("no network")
+        result = generate({})
+        assert result == "images/franklin_cam.bmp"
+        assert os.path.exists(result)
+        called_url = mock_get.call_args_list[0][0][0]
+        assert "alias=603e9a4490992" in called_url

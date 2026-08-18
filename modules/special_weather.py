@@ -6,7 +6,11 @@ URL = "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC
 
 def get_special_weather_messages(url=URL):
     print('checking special weather message')
-    response = requests.get(url)
+    try:
+        response = requests.get(url, timeout=15)
+    except Exception as e:
+        print(f"Failed to retrieve data: {e}")
+        return None
     if response.status_code != 200:
         print(f"Failed to retrieve data. Status code: {response.status_code}")
         return None

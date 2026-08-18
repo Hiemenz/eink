@@ -413,6 +413,133 @@ class TestGetEvents:
         assert cached["events"] == [{"summary": "New"}]
 
 
+class TestTruncate:
+    def _draw(self):
+        from PIL import Image, ImageDraw
+        img = Image.new("RGB", (10, 10))
+        return ImageDraw.Draw(img)
+
+    def test_short_text_returned_unchanged(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        assert agenda._truncate(draw, "hi", font, 1000) == "hi"
+
+    def test_long_text_gets_ellipsis(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        text = "a very long event summary that will not fit in a narrow column"
+        result = agenda._truncate(draw, text, font, 30)
+        assert result.endswith("…")
+        assert agenda._text_w(draw, result, font) <= 30
+
+    def test_empty_text_returns_empty(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        assert agenda._truncate(draw, "", font, 1000) == ""
+
+    def test_impossibly_narrow_width_returns_bare_ellipsis(self):
+        from PIL import ImageFont
+        draw = self._draw()
+        font = ImageFont.load_default()
+        result = agenda._truncate(draw, "some text", font, 1)
+        assert result == "…" or result == ""
+
+
+class TestFinalizeEvent:
+    def test_no_start_returns_none(self):
+        assert agenda._finalize_event({"summary": "X"}) is None
+
+    def test_missing_summary_defaults_to_no_title(self):
+        ev = agenda._finalize_event({"start": date(2026, 1, 1), "all_day": True})
+        assert ev["summary"] == "(No title)"
+
+    def test_blank_summary_defaults_to_no_title(self):
+        ev = agenda._finalize_event({"start": date(2026, 1, 1), "all_day": True, "summary": ""})
+        assert ev["summary"] == "(No title)"
+
+    def test_all_day_datetime_start_not_converted(self):
+        # all_day events keep a plain date, so _to_local_naive must not run.
+        d = date(2026, 3, 5)
+        ev = agenda._finalize_event({"start": d, "all_day": True, "summary": "Trip"})
+        assert ev["start"] == d
+        assert ev["all_day"] is True
+
+    def test_timed_datetime_start_localized(self):
+        dt = datetime(2026, 3, 5, 14, 30, tzinfo=timezone.utc)
+        ev = agenda._finalize_event({"start": dt, "all_day": False, "summary": "Meeting"})
+        assert isinstance(ev["start"], datetime)
+        assert ev["start"].tzinfo is None
+
+
+class TestGenerateAgenda:
+    def test_no_ics_urls_shows_setup_screen(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"agenda": {"output_path": output_path, "ics_urls": []}}
+        result = agenda.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_unavailable_status_shows_unavailable_screen(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {
+            "agenda": {
+                "output_path": output_path,
+                "ics_urls": ["http://example.com/cal.ics"],
+                "cache_dir": str(tmp_path),
+            }
+        }
+        with patch.object(agenda, "_get_events", return_value=([], "unavailable")):
+            result = agenda.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_zero_events_shows_no_events_screen(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {
+            "agenda": {
+                "output_path": output_path,
+                "ics_urls": ["http://example.com/cal.ics"],
+                "cache_dir": str(tmp_path),
+            }
+        }
+        with patch.object(agenda, "_get_events", return_value=([], "ok")):
+            result = agenda.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_events_present_renders_agenda(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {
+            "agenda": {
+                "output_path": output_path,
+                "ics_urls": ["http://example.com/cal.ics"],
+                "cache_dir": str(tmp_path),
+            }
+        }
+        today = date.today()
+        events = [
+            {
+                "summary": "Team sync",
+                "location": "Room 1",
+                "day": today.isoformat(),
+                "all_day": False,
+                "sort_key": "09:00",
+                "time_label": "9:00 AM",
+                "source_index": 0,
+            }
+        ]
+        with patch.object(agenda, "_get_events", return_value=(events, "ok")):
+            result = agenda.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+        from PIL import Image
+        img = Image.open(output_path)
+        assert img.size == (agenda.WIDTH, agenda.HEIGHT)
+
+
 class TestCollectEvents:
     def test_fetch_failure_skips_source(self):
         with patch.object(agenda.requests, "get", side_effect=Exception("network down")):

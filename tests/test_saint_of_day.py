@@ -195,3 +195,86 @@ class TestGenerateFallback:
              patch("modules.saint_of_day._fetch_portrait", return_value=None):
             output_path = sod.generate({"saint_of_day": {"output_path": str(tmp_path / "out.bmp")}})
         assert os.path.exists(output_path)
+
+
+class TestCachePath:
+    def test_includes_todays_date(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sod, "CACHE_DIR", str(tmp_path))
+        from datetime import date
+        assert date.today().isoformat() in sod._cache_path()
+
+    def test_lives_under_cache_dir(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sod, "CACHE_DIR", str(tmp_path))
+        assert sod._cache_path().startswith(str(tmp_path))
+
+
+class TestRender:
+    SAMPLE_DATA = {
+        "name": "St. Example the Confessor",
+        "feast_day": "January 15",
+        "bio": "A sufficiently long biography paragraph describing the saint's life and works in some detail.",
+        "image_url": "https://example.com/portrait.jpg",
+    }
+
+    def test_with_portrait_creates_file_and_uses_split_layout(self, tmp_path):
+        from PIL import Image
+        portrait = Image.new("RGB", (300, 400), "blue")
+        output_path = str(tmp_path / "out.bmp")
+        result = sod._render(self.SAMPLE_DATA, portrait, output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    def test_without_portrait_creates_file_full_width(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = sod._render(self.SAMPLE_DATA, None, output_path)
+        assert os.path.exists(result)
+
+    def test_empty_bio_does_not_crash(self, tmp_path):
+        data = dict(self.SAMPLE_DATA, bio="")
+        output_path = str(tmp_path / "out.bmp")
+        result = sod._render(data, None, output_path)
+        assert os.path.exists(result)
+
+    def test_custom_dimensions_respected(self, tmp_path):
+        from PIL import Image
+        output_path = str(tmp_path / "out.bmp")
+        sod._render(self.SAMPLE_DATA, None, output_path, width=400, height=240)
+        img = Image.open(output_path)
+        assert img.size == (400, 240)
+
+    def test_very_long_name_wraps_without_crashing(self, tmp_path):
+        data = dict(self.SAMPLE_DATA, name="St. " + "Very " * 30 + "Long Name")
+        output_path = str(tmp_path / "out.bmp")
+        result = sod._render(data, None, output_path)
+        assert os.path.exists(result)
+
+
+class TestGenerateCaching:
+    def test_uses_cache_and_skips_scrape(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(sod, "CACHE_DIR", str(tmp_path))
+        cached = {"name": "Cached Saint", "feast_day": "Jan 1", "bio": "bio", "image_url": None}
+        sod._save_cache(cached)
+        with patch("modules.saint_of_day._scrape_franciscan") as mock_scrape, \
+             patch("modules.saint_of_day._fetch_portrait", return_value=None):
+            output_path = sod.generate({"saint_of_day": {"output_path": str(tmp_path / "out.bmp")}})
+        mock_scrape.assert_not_called()
+        assert os.path.exists(output_path)
+
+    def test_scrape_success_fetches_portrait_and_renders(self, tmp_path, monkeypatch):
+        from PIL import Image
+        monkeypatch.setattr(sod, "CACHE_DIR", str(tmp_path))
+        scraped = {
+            "name": "St. Fresh",
+            "feast_day": "Feb 2",
+            "bio": "A brand new bio for today's saint, freshly scraped from the source site.",
+            "image_url": "https://example.com/p.jpg",
+        }
+        portrait = Image.new("RGB", (100, 100), "red")
+        with patch("modules.saint_of_day._scrape_franciscan", return_value=scraped), \
+             patch("modules.saint_of_day._fetch_portrait", return_value=portrait) as mock_fetch:
+            output_path = sod.generate({"saint_of_day": {"output_path": str(tmp_path / "out.bmp")}})
+        mock_fetch.assert_called_once_with("https://example.com/p.jpg")
+        assert os.path.exists(output_path)
+        assert sod._load_cache() == scraped
