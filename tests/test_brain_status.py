@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timedelta
 
 import pytest
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -182,3 +183,72 @@ class TestBrainReader:
         assert result is not None
         assert hasattr(result, "year")
         reader.close()
+
+
+class TestGenerate:
+    """Exercise the generate() entry point end to end — its own file I/O and
+    DB-open logic are not covered by any of the helper-level tests above."""
+
+    def _full_db(self, tmp_path):
+        import duckdb
+        path = str(tmp_path / "brain.db")
+        conn = duckdb.connect(path)
+        conn.execute(
+            "CREATE TABLE tasks (task_id INTEGER, description VARCHAR, "
+            "assigned_to VARCHAR, status VARCHAR, updated_at TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO tasks VALUES (1, 'Fix bug', 'AgentA', 'in_progress', '2026-07-21 10:00:00')"
+        )
+        conn.execute("CREATE TABLE events (timestamp TIMESTAMP, agent VARCHAR, action VARCHAR)")
+        conn.execute("INSERT INTO events VALUES ('2026-07-21 09:55:00', 'brain', 'startup')")
+        conn.execute(
+            "CREATE TABLE objectives (id INTEGER, objective VARCHAR, source VARCHAR, "
+            "status VARCHAR, created_at TIMESTAMP)"
+        )
+        conn.execute(
+            "INSERT INTO objectives VALUES (1, 'Ship feature X', 'discord', 'active', '2026-07-01 00:00:00')"
+        )
+        conn.execute("CREATE TABLE thoughts (timestamp TIMESTAMP, reasoning VARCHAR)")
+        conn.execute("INSERT INTO thoughts VALUES ('2026-07-21 10:06:00', 'Thinking')")
+        conn.close()
+        return path
+
+    def test_missing_db_renders_placeholder_and_writes_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        config = {"brain_status": {"output_path": output_path, "db_path": str(tmp_path / "nope.db")}}
+        result = brain_status.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+        img = Image.open(output_path)
+        assert img.size == (brain_status.W, brain_status.H)
+
+    def test_present_db_renders_full_layout_and_writes_file(self, tmp_path):
+        db_path = self._full_db(tmp_path)
+        output_path = str(tmp_path / "out.bmp")
+        config = {"brain_status": {"output_path": output_path, "db_path": db_path}}
+        result = brain_status.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_corrupt_db_falls_back_to_offline_render_without_crashing(self, tmp_path):
+        db_path = tmp_path / "corrupt.db"
+        db_path.write_text("not a real duckdb file")
+        output_path = str(tmp_path / "out.bmp")
+        config = {"brain_status": {"output_path": output_path, "db_path": str(db_path)}}
+        result = brain_status.generate(config)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_creates_output_directory_if_missing(self, tmp_path):
+        output_path = str(tmp_path / "nested" / "dir" / "out.bmp")
+        config = {"brain_status": {"output_path": output_path, "db_path": str(tmp_path / "nope.db")}}
+        brain_status.generate(config)
+        assert os.path.exists(output_path)
+
+    def test_default_output_path_used_when_not_configured(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = {"brain_status": {"db_path": str(tmp_path / "nope.db")}}
+        result = brain_status.generate(config)
+        assert result == "images/brain_status.bmp"
+        assert os.path.exists(result)

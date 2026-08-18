@@ -15,7 +15,18 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from modules.forecast_graph import _slice_hours, fetch_forecast, _cache_path, HOURS
+from modules.forecast_graph import (
+    _slice_hours,
+    fetch_forecast,
+    _cache_path,
+    _read_cache,
+    _render_unavailable,
+    render_graph,
+    generate,
+    HOURS,
+    WIDTH,
+    HEIGHT,
+)
 
 
 def _sample_config(tmp_path, lat=35.9, lon=-86.8):
@@ -171,3 +182,120 @@ class TestFetchForecast:
         with open(cache_file) as f:
             saved = json.load(f)
         assert saved["hourly"]["time"] == ["new"]
+
+
+class TestReadCache:
+    def test_missing_file_returns_none(self, tmp_path):
+        assert _read_cache(str(tmp_path / "missing.json")) is None
+
+    def test_corrupt_file_returns_none(self, tmp_path):
+        path = tmp_path / "corrupt.json"
+        path.write_text("{not valid json")
+        assert _read_cache(str(path)) is None
+
+
+def _two_hour_data():
+    return {
+        "hourly": {
+            "time": ["2026-01-01T00:00", "2026-01-01T01:00"],
+            "temperature_2m": [40, 55],
+            "precipitation_probability": [10, 80],
+        }
+    }
+
+
+class TestRenderUnavailable:
+    def test_creates_image_of_correct_size(self, tmp_path):
+        output = str(tmp_path / "out.bmp")
+        result = _render_unavailable(output)
+        assert result == output
+        from PIL import Image
+        assert Image.open(output).size == (WIDTH, HEIGHT)
+
+
+class TestRenderGraph:
+    def test_renders_correct_size_image(self, tmp_path):
+        output = str(tmp_path / "graph.bmp")
+        config = {"forecast_location": {"name": "Franklin, TN"}}
+        result = render_graph(config, _two_hour_data(), output)
+        from PIL import Image
+        assert Image.open(result).size == (WIDTH, HEIGHT)
+
+    def test_empty_data_falls_back_to_unavailable(self, tmp_path):
+        output = str(tmp_path / "graph.bmp")
+        result = render_graph({}, {"hourly": {"time": [], "temperature_2m": []}}, output)
+        from PIL import Image
+        assert Image.open(result).size == (WIDTH, HEIGHT)
+
+    def test_single_hour_does_not_raise(self, tmp_path):
+        """n == 1 hits the ellipse-point branch instead of draw.line, and
+        x_at()/mark() must not divide by zero when n <= 1."""
+        output = str(tmp_path / "graph.bmp")
+        data = {
+            "hourly": {
+                "time": ["2026-01-01T00:00"],
+                "temperature_2m": [50],
+                "precipitation_probability": [0],
+            }
+        }
+        result = render_graph({}, data, output)
+        assert os.path.exists(result)
+
+    def test_constant_temperature_does_not_raise(self, tmp_path):
+        """tmax == tmin must not produce a zero-width y-scale division."""
+        output = str(tmp_path / "graph.bmp")
+        data = {
+            "hourly": {
+                "time": ["2026-01-01T00:00", "2026-01-01T01:00"],
+                "temperature_2m": [50, 50],
+                "precipitation_probability": [0, 0],
+            }
+        }
+        result = render_graph({}, data, output)
+        assert os.path.exists(result)
+
+    def test_no_location_name_omits_label_without_raising(self, tmp_path):
+        output = str(tmp_path / "graph.bmp")
+        result = render_graph({}, _two_hour_data(), output)
+        assert os.path.exists(result)
+
+
+class TestGenerate:
+    @patch("modules.forecast_graph.fetch_forecast")
+    def test_no_data_renders_unavailable(self, mock_fetch, tmp_path):
+        mock_fetch.return_value = None
+        output = str(tmp_path / "graph.bmp")
+        config = {"forecast_graph": {"output_path": output}}
+        result = generate(config)
+        assert result == output
+        from PIL import Image
+        assert Image.open(result).size == (WIDTH, HEIGHT)
+
+    @patch("modules.forecast_graph.fetch_forecast")
+    def test_success_renders_graph(self, mock_fetch, tmp_path):
+        mock_fetch.return_value = _two_hour_data()
+        output = str(tmp_path / "graph.bmp")
+        config = {"forecast_graph": {"output_path": output}, "forecast_location": {"name": "Franklin, TN"}}
+        result = generate(config)
+        assert result == output
+        assert os.path.exists(output)
+
+    @patch("modules.forecast_graph.render_graph")
+    @patch("modules.forecast_graph.fetch_forecast")
+    def test_render_exception_falls_back_to_unavailable(self, mock_fetch, mock_render, tmp_path):
+        mock_fetch.return_value = _two_hour_data()
+        mock_render.side_effect = RuntimeError("boom")
+        output = str(tmp_path / "graph.bmp")
+        config = {"forecast_graph": {"output_path": output}}
+        result = generate(config)
+        assert result == output
+        from PIL import Image
+        assert Image.open(result).size == (WIDTH, HEIGHT)
+
+    @patch("modules.forecast_graph.fetch_forecast")
+    def test_creates_output_parent_directory(self, mock_fetch, tmp_path):
+        mock_fetch.return_value = None
+        output = str(tmp_path / "nested" / "dir" / "graph.bmp")
+        config = {"forecast_graph": {"output_path": output}}
+        generate(config)
+        assert os.path.exists(output)

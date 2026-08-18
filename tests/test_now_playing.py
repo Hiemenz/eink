@@ -285,3 +285,58 @@ class TestGetTrack:
              patch("modules.now_playing._download_art") as mock_dl:
             np._get_track("key", "user", str(tmp_path))
             mock_dl.assert_not_called()
+
+
+class TestGenerate:
+    """End-to-end generate() — no prior test exercised the public entry point."""
+
+    def _config(self, tmp_path, **overrides):
+        cfg = {
+            "output_path": str(tmp_path / "now_playing.bmp"),
+            "cache_dir": str(tmp_path / "cache"),
+            "api_key": "APIKEY",
+            "username": "someuser",
+        }
+        cfg.update(overrides)
+        return {"now_playing": cfg}
+
+    def test_missing_credentials_renders_configure_screen(self, tmp_path):
+        config = self._config(tmp_path, api_key="", username="")
+        with patch("modules.now_playing._get_track") as mock_get:
+            result = np.generate(config)
+            mock_get.assert_not_called()
+        assert result == config["now_playing"]["output_path"]
+        assert os.path.exists(result)
+
+    def test_no_track_no_cache_renders_unavailable_screen(self, tmp_path):
+        config = self._config(tmp_path)
+        with patch("modules.now_playing._get_track", return_value=(None, False)):
+            result = np.generate(config)
+        assert result == config["now_playing"]["output_path"]
+        assert os.path.exists(result)
+
+    def test_track_found_renders_card(self, tmp_path):
+        config = self._config(tmp_path)
+        track = {
+            "name": "Gravity", "artist": "John Mayer", "album": "Continuum",
+            "nowplaying": True, "played_uts": None,
+        }
+        with patch("modules.now_playing._get_track", return_value=(track, False)):
+            result = np.generate(config)
+        from PIL import Image
+        img = Image.open(result)
+        assert img.size == (np.WIDTH, np.HEIGHT)
+
+    def test_default_output_path_used_when_not_configured(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = {"now_playing": {"api_key": "k", "username": "u", "cache_dir": str(tmp_path / "cache")}}
+        with patch("modules.now_playing._get_track", return_value=(None, False)):
+            result = np.generate(config)
+        assert result == "images/now_playing.bmp"
+        assert os.path.exists(result)
+
+    def test_whitespace_only_credentials_treated_as_missing(self, tmp_path):
+        config = self._config(tmp_path, api_key="   ", username="  ")
+        with patch("modules.now_playing._get_track") as mock_get:
+            np.generate(config)
+            mock_get.assert_not_called()

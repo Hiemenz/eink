@@ -38,8 +38,11 @@ def _load_cache():
     path = _cache_path()
     if os.path.exists(path):
         print(f"[onthisday] Loading cached data from {path}")
-        with open(path) as f:
-            return json.load(f)
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
     return None
 
 

@@ -222,6 +222,7 @@ def generate(config: dict) -> str:
     crypto_cfg = config.get("crypto_market", {})
     output_path = crypto_cfg.get("output_path", "images/crypto_market.bmp")
     num_coins = crypto_cfg.get("num_coins", 10)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
     logger.info("Generating crypto market display...")
 
@@ -282,7 +283,6 @@ def generate(config: dict) -> str:
     _draw_legend(draw, legend_y, legend_font)
 
     # Save
-    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     img.save(output_path)
     logger.info("Saved crypto display to %s", output_path)
 

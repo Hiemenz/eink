@@ -12,6 +12,7 @@ import time
 from unittest.mock import patch, MagicMock
 
 import pytest
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -216,3 +217,73 @@ class TestLonLatToXy:
         x, y = eq._lonlat_to_xy(-180, 90)
         assert x == pytest.approx(eq.MAP_X)
         assert y == pytest.approx(eq.MAP_Y)
+
+
+class TestGenerate:
+    """generate() itself has no direct coverage above — only its building blocks do."""
+
+    def _config(self, tmp_path, feed="2.5_day", with_location=True):
+        cfg = {
+            "earthquakes": {
+                "output_path": str(tmp_path / "out.bmp"),
+                "cache_dir": str(tmp_path),
+                "feed": feed,
+            }
+        }
+        if with_location:
+            cfg["forecast_location"] = {"latitude": 35.9251, "longitude": -86.8689, "name": "Franklin, TN"}
+        return cfg
+
+    def test_no_data_renders_unavailable_and_writes_file(self, tmp_path):
+        config = self._config(tmp_path)
+        with patch.object(eq, "_get_data", return_value=None):
+            result = eq.generate(config)
+        assert result == config["earthquakes"]["output_path"]
+        assert os.path.exists(result)
+
+    def test_with_quakes_writes_file(self, tmp_path):
+        config = self._config(tmp_path)
+        data = {
+            "feed": "2.5_day",
+            "fetched_at": time.time(),
+            "quakes": [
+                {"mag": 5.5, "place": "Somewhere", "time": time.time() * 1000, "lon": -86.8, "lat": 35.9, "depth": 5.0},
+            ],
+        }
+        with patch.object(eq, "_get_data", return_value=data):
+            result = eq.generate(config)
+        assert os.path.exists(result)
+        img = Image.open(result)
+        assert img.size == (eq.WIDTH, eq.HEIGHT)
+
+    def test_empty_quakes_list_still_renders_frame(self, tmp_path):
+        """A successful fetch with zero quakes is not the same as a failed fetch."""
+        config = self._config(tmp_path)
+        data = {"feed": "2.5_day", "fetched_at": time.time(), "quakes": []}
+        with patch.object(eq, "_get_data", return_value=data):
+            result = eq.generate(config)
+        assert os.path.exists(result)
+
+    def test_missing_forecast_location_skips_observer_marker(self, tmp_path):
+        config = self._config(tmp_path, with_location=False)
+        data = {
+            "feed": "2.5_day",
+            "fetched_at": time.time(),
+            "quakes": [{"mag": 3.0, "place": "X", "time": time.time() * 1000, "lon": 0, "lat": 0, "depth": 0}],
+        }
+        with patch.object(eq, "_get_data", return_value=data):
+            result = eq.generate(config)
+        assert os.path.exists(result)
+
+    def test_creates_output_directory_if_missing(self, tmp_path):
+        config = self._config(tmp_path)
+        config["earthquakes"]["output_path"] = str(tmp_path / "nested" / "dir" / "out.bmp")
+        with patch.object(eq, "_get_data", return_value=None):
+            result = eq.generate(config)
+        assert os.path.exists(result)
+
+    def test_passes_configured_feed_through_to_get_data(self, tmp_path):
+        config = self._config(tmp_path, feed="significant_week")
+        with patch.object(eq, "_get_data", return_value=None) as mock_get:
+            eq.generate(config)
+        mock_get.assert_called_once_with(str(tmp_path), "significant_week")

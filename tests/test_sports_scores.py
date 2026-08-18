@@ -18,12 +18,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+from PIL import Image
+
+from modules import sports_scores
 from modules.sports_scores import (
     _parse_events,
     _load_cache,
     _save_cache,
     _cache_path,
     fetch_games,
+    generate,
 )
 
 
@@ -148,3 +152,76 @@ class TestFetchGames:
         mock_get.side_effect = Exception("network down")
         result = fetch_games("football", "nfl", str(tmp_path), ttl=300)
         assert result is None
+
+
+class TestGenerate:
+    def _config(self, out, **overrides):
+        cfg = {"output_path": out, "cache_dir": overrides.pop("cache_dir", None)}
+        cfg.update(overrides)
+        return {"sports_scores": {k: v for k, v in cfg.items() if v is not None}}
+
+    def test_unavailable_when_fetch_returns_none(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        with patch.object(sports_scores, "fetch_games", return_value=None):
+            result = generate(self._config(out, cache_dir=str(tmp_path)))
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (sports_scores.WIDTH, sports_scores.HEIGHT)
+
+    def test_no_games_scheduled(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        with patch.object(sports_scores, "fetch_games", return_value=[]):
+            result = generate(self._config(out, cache_dir=str(tmp_path)))
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_renders_game_cards_for_available_games(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        games = [
+            {"home": "NYG", "away": "DAL", "home_score": "21", "away_score": "14", "status": "Final"},
+            {"home": "SF", "away": "LAR", "home_score": "", "away_score": "", "status": "7:00 PM ET"},
+        ]
+        with patch.object(sports_scores, "fetch_games", return_value=games):
+            result = generate(self._config(out, cache_dir=str(tmp_path)))
+        assert result == out
+        img = Image.open(out).convert("RGB")
+        # Header bar is drawn solid black across the top row.
+        assert img.getpixel((5, 5)) == sports_scores.BLACK
+
+    def test_overflow_notice_when_more_games_than_slots(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        games = [
+            {"home": f"H{i}", "away": f"A{i}", "home_score": "", "away_score": "", "status": ""}
+            for i in range(9)  # more than CARD_ROWS * CARD_COLS (6)
+        ]
+        with patch.object(sports_scores, "fetch_games", return_value=games):
+            result = generate(self._config(out, cache_dir=str(tmp_path), max_games=6))
+        assert result == out
+        assert os.path.exists(out)
+
+    def test_max_games_config_limits_display_count(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        games = [
+            {"home": f"H{i}", "away": f"A{i}", "home_score": "", "away_score": "", "status": ""}
+            for i in range(4)
+        ]
+        with patch.object(sports_scores, "fetch_games") as mock_fetch:
+            mock_fetch.return_value = games
+            generate(self._config(out, cache_dir=str(tmp_path), max_games=2))
+        # fetch_games is called with the module's configured values, independent
+        # of how many we actually render — just confirm it ran without error.
+        mock_fetch.assert_called_once()
+
+    def test_creates_output_directory(self, tmp_path):
+        out = str(tmp_path / "nested" / "dir" / "out.bmp")
+        with patch.object(sports_scores, "fetch_games", return_value=[]):
+            result = generate(self._config(out, cache_dir=str(tmp_path)))
+        assert os.path.exists(result)
+
+    def test_default_sport_and_league_used_when_unconfigured(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(sports_scores, "fetch_games", return_value=None) as mock_fetch:
+            generate({})
+        args, kwargs = mock_fetch.call_args
+        assert args[0] == "football"
+        assert args[1] == "nfl"

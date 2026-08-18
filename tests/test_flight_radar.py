@@ -26,6 +26,7 @@ from modules.flight_radar import (
     _load_stale_cache,
     _save_cache,
     _cache_path,
+    generate,
     SQUAWK_EMERGENCY,
     SQUAWK_HIGH,
 )
@@ -42,6 +43,9 @@ class TestSquawkPriority:
     def test_normal_squawk_is_priority_two(self):
         assert _squawk_priority("1200") == 2
         assert _squawk_priority("") == 2
+
+    def test_none_squawk_is_priority_two(self):
+        assert _squawk_priority(None) == 2
 
 
 class TestSelectDisplayAircraft:
@@ -126,6 +130,13 @@ class TestPickSilhouette:
         points, is_heli = _pick_silhouette(None)
         assert is_heli is False
 
+    def test_float_category_falls_back(self):
+        """isinstance(cat, int) is False for a float, even one equal to a known category."""
+        points, is_heli = _pick_silhouette(8.0)
+        default_points, default_heli = _pick_silhouette(0)
+        assert points == default_points
+        assert is_heli == default_heli
+
 
 class TestFetchAircraft:
     def _states_response(self, states):
@@ -179,6 +190,38 @@ class TestFetchAircraft:
         result = _fetch_aircraft(35.8911, -86.8217, 1.0)
         assert result == []
 
+    @patch("modules.flight_radar.requests.get")
+    def test_short_state_row_defaults_category_to_zero(self, mock_get):
+        """OpenSky rows without a category field (< 18 elements) must not IndexError."""
+        state = ["abc123", "UAL1  ", "US", 0, 0, -86.8, 35.9, 1000, False,
+                 200, 90, 0, 0, 0, "1200", False, 0]
+        mock_get.return_value = MagicMock(
+            json=lambda: self._states_response([state]), raise_for_status=lambda: None
+        )
+        result = _fetch_aircraft(35.8911, -86.8217, 1.0)
+        assert result[0]["category"] == 0
+
+    @patch("modules.flight_radar.requests.get")
+    def test_http_error_status_returns_none(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.side_effect = Exception("503 Service Unavailable")
+        mock_get.return_value = mock_resp
+        assert _fetch_aircraft(35.8911, -86.8217, 1.0) is None
+
+    @patch("modules.flight_radar.requests.get")
+    def test_uses_auth_when_credentials_provided(self, mock_get):
+        mock_get.return_value = MagicMock(json=lambda: {"states": []}, raise_for_status=lambda: None)
+        _fetch_aircraft(35.8911, -86.8217, 1.0, username="user", password="pass")
+        _, kwargs = mock_get.call_args
+        assert kwargs["auth"] == ("user", "pass")
+
+    @patch("modules.flight_radar.requests.get")
+    def test_no_auth_when_credentials_blank(self, mock_get):
+        mock_get.return_value = MagicMock(json=lambda: {"states": []}, raise_for_status=lambda: None)
+        _fetch_aircraft(35.8911, -86.8217, 1.0)
+        _, kwargs = mock_get.call_args
+        assert kwargs["auth"] is None
+
 
 class TestCache:
     def test_save_and_load_within_ttl(self, tmp_path):
@@ -218,3 +261,103 @@ class TestCache:
         with open(path, "w") as f:
             f.write("{not json")
         assert _load_cache(cache_dir, ttl_seconds=300) is None
+
+
+class TestGenerate:
+    def _config(self, tmp_path, **overrides):
+        cfg = {
+            "flight_radar": {
+                "output_path": str(tmp_path / "flight.bmp"),
+                "cache_dir": str(tmp_path),
+                **overrides,
+            },
+            "forecast_location": {"latitude": 35.8911, "longitude": -86.8217},
+        }
+        return cfg
+
+    @patch("modules.flight_radar._fetch_aircraft", return_value=None)
+    def test_no_data_and_no_cache_renders_fallback(self, mock_fetch, tmp_path):
+        config = self._config(tmp_path)
+        output = generate(config)
+        assert output == config["flight_radar"]["output_path"]
+        assert os.path.exists(output)
+
+    @patch("modules.flight_radar._fetch_aircraft", return_value=[])
+    def test_empty_aircraft_list_renders_fallback(self, mock_fetch, tmp_path):
+        config = self._config(tmp_path)
+        output = generate(config)
+        assert os.path.exists(output)
+
+    @patch("modules.flight_radar._render_map")
+    @patch("modules.flight_radar._fetch_aircraft")
+    def test_success_renders_composite_image(self, mock_fetch, mock_render_map, tmp_path):
+        from PIL import Image
+        mock_fetch.return_value = [
+            {"icao24": "abc123", "callsign": "UAL1", "country": "US",
+             "latitude": 35.9, "longitude": -86.9, "altitude": 1000,
+             "velocity": 200, "heading": 90, "squawk": "1200",
+             "on_ground": False, "category": 3},
+        ]
+        mock_render_map.return_value = Image.new("RGB", (600, 480), "white")
+        config = self._config(tmp_path)
+
+        output = generate(config)
+
+        assert os.path.exists(output)
+        img = Image.open(output)
+        assert img.size == (800, 480)
+
+    @patch("modules.flight_radar._render_map")
+    @patch("modules.flight_radar._fetch_aircraft")
+    def test_uses_fresh_cache_and_skips_fetch(self, mock_fetch, mock_render_map, tmp_path):
+        from PIL import Image
+        mock_render_map.return_value = Image.new("RGB", (600, 480), "white")
+        config = self._config(tmp_path)
+        _save_cache(config["flight_radar"]["cache_dir"], [
+            {"icao24": "cached", "callsign": "CACHED", "country": "US",
+             "latitude": 35.9, "longitude": -86.9, "altitude": 1000,
+             "velocity": 200, "heading": 90, "squawk": "1200",
+             "on_ground": False, "category": 3},
+        ])
+
+        output = generate(config)
+
+        mock_fetch.assert_not_called()
+        assert os.path.exists(output)
+
+    @patch("modules.flight_radar._render_map")
+    @patch("modules.flight_radar._fetch_aircraft")
+    def test_falls_back_to_stale_cache_when_fetch_fails(self, mock_fetch, mock_render_map, tmp_path):
+        from PIL import Image
+        mock_render_map.return_value = Image.new("RGB", (600, 480), "white")
+        mock_fetch.return_value = None
+        config = self._config(tmp_path)
+        _save_cache(config["flight_radar"]["cache_dir"], [
+            {"icao24": "stale", "callsign": "STALE", "country": "US",
+             "latitude": 35.9, "longitude": -86.9, "altitude": 1000,
+             "velocity": 200, "heading": 90, "squawk": "1200",
+             "on_ground": False, "category": 3},
+        ])
+        # Backdate past the default cache TTL so the fresh-cache path is skipped.
+        path = _cache_path(config["flight_radar"]["cache_dir"])
+        old_time = time.time() - 100000
+        os.utime(path, (old_time, old_time))
+
+        output = generate(config)
+
+        mock_fetch.assert_called_once()
+        assert os.path.exists(output)
+
+    @patch("modules.flight_radar._fetch_aircraft", return_value=None)
+    def test_defaults_radius_and_location_when_missing(self, mock_fetch, tmp_path):
+        """No forecast_location/radius_deg configured — must fall back, not raise."""
+        config = {"flight_radar": {
+            "output_path": str(tmp_path / "flight.bmp"),
+            "cache_dir": str(tmp_path),
+        }}
+        output = generate(config)
+        assert os.path.exists(output)
+        args, kwargs = mock_fetch.call_args
+        assert args[0] == pytest.approx(35.8911)
+        assert args[1] == pytest.approx(-86.8217)
+        assert args[2] == pytest.approx(1.0)

@@ -82,11 +82,11 @@ def _extract_gif(gif_path, frames_dir):
     name = os.path.splitext(os.path.basename(gif_path))[0]
     count = 0
     try:
-        img = Image.open(gif_path)
-        while True:
-            img.copy().convert("RGB").save(os.path.join(frames_dir, f"{name}_{count:06d}.png"))
-            count += 1
-            img.seek(img.tell() + 1)
+        with Image.open(gif_path) as img:
+            while True:
+                img.copy().convert("RGB").save(os.path.join(frames_dir, f"{name}_{count:06d}.png"))
+                count += 1
+                img.seek(img.tell() + 1)
     except EOFError:
         pass
     except Exception as e:

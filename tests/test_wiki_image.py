@@ -17,7 +17,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from modules.wiki_image import _fetch_featured, _download_image, generate
+from PIL import Image
+
+from modules.wiki_image import _fetch_featured, _download_image, _render, _error_image, generate
 
 
 class TestFetchFeatured:
@@ -146,3 +148,83 @@ class TestGenerate:
             result = wiki_image.generate(config)
             mock_fetch.assert_not_called()
         assert result == cached_path
+
+    @patch("modules.wiki_image._download_image")
+    @patch("modules.wiki_image._fetch_featured")
+    def test_success_path_renders_full_image(self, mock_fetch, mock_download, tmp_path):
+        mock_fetch.return_value = ("https://example.com/img.jpg", "A nice caption")
+        mock_download.return_value = Image.new("RGB", (1600, 900), "blue")
+        output_path = str(tmp_path / "out.bmp")
+        config = {"wiki_image": {"output_path": output_path}, "width": 800, "height": 480}
+
+        result = generate(config)
+        assert result == output_path
+        img = Image.open(output_path)
+        assert img.size == (800, 480)
+
+    @patch("modules.wiki_image._download_image")
+    @patch("modules.wiki_image._fetch_featured")
+    def test_missing_caption_falls_back_to_default(self, mock_fetch, mock_download, tmp_path):
+        mock_fetch.return_value = ("https://example.com/img.jpg", None)
+        mock_download.return_value = Image.new("RGB", (800, 480), "green")
+        output_path = str(tmp_path / "out.bmp")
+        config = {"wiki_image": {"output_path": output_path}, "width": 800, "height": 480}
+
+        result = generate(config)
+        assert os.path.exists(result)
+
+
+class TestRender:
+    def test_creates_output_at_configured_size(self, tmp_path):
+        img = Image.new("RGB", (2000, 1000), "red")
+        output_path = str(tmp_path / "out.bmp")
+        result = _render(img, "A caption about this picture", output_path, width=800, height=480)
+        assert result == output_path
+        saved = Image.open(output_path)
+        assert saved.size == (800, 480)
+
+    def test_handles_portrait_source_image(self, tmp_path):
+        img = Image.new("RGB", (600, 1800), "yellow")
+        output_path = str(tmp_path / "out.bmp")
+        _render(img, "Portrait caption", output_path, width=800, height=480)
+        assert Image.open(output_path).size == (800, 480)
+
+    def test_long_caption_wraps_without_crashing(self, tmp_path):
+        img = Image.new("RGB", (800, 480), "white")
+        output_path = str(tmp_path / "out.bmp")
+        caption = "A very long caption " * 20
+        _render(img, caption, output_path, width=800, height=480)
+        assert os.path.exists(output_path)
+
+    def test_empty_caption_does_not_crash(self, tmp_path):
+        img = Image.new("RGB", (800, 480), "white")
+        output_path = str(tmp_path / "out.bmp")
+        _render(img, "", output_path, width=800, height=480)
+        assert os.path.exists(output_path)
+
+
+class TestErrorImage:
+    def test_creates_output_file(self, tmp_path):
+        output_path = str(tmp_path / "err.bmp")
+        result = _error_image(output_path, width=800, height=480)
+        assert result == output_path
+        assert Image.open(output_path).size == (800, 480)
+
+    def test_custom_message_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "err.bmp")
+        _error_image(output_path, width=800, height=480, message="Custom unavailable message")
+        assert os.path.exists(output_path)
+
+
+class TestFontPath:
+    def test_returns_linux_path_by_default(self):
+        import modules.wiki_image as wiki_image
+        with patch("modules.wiki_image.platform.system", return_value="Linux"):
+            path = wiki_image._font_path()
+        assert "liberation" in path.lower()
+
+    def test_returns_macos_path_on_darwin(self):
+        import modules.wiki_image as wiki_image
+        with patch("modules.wiki_image.platform.system", return_value="Darwin"):
+            path = wiki_image._font_path()
+        assert "Arial" in path

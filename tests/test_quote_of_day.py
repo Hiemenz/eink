@@ -140,3 +140,74 @@ class TestGenerateFallback:
         with patch("modules.quote_of_day._fetch_quote", return_value=None):
             output_path = qod.generate({"quote_of_day": {"output_path": str(tmp_path / "out.bmp")}})
         assert os.path.exists(output_path)
+
+
+class TestCacheCorruption:
+    def test_corrupt_cache_file_returns_none(self, tmp_path, monkeypatch):
+        """A corrupt cache file must degrade gracefully like _fetch_quote
+        does, not crash the whole module with a JSONDecodeError."""
+        monkeypatch.setattr(qod, "CACHE_DIR", str(tmp_path))
+        path = qod._cache_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("{not valid json")
+        assert qod._load_cache() is None
+
+
+class TestRender:
+    def test_render_creates_file(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = qod._render("A quote.", "An Author", output_path)
+        assert result == output_path
+        assert os.path.exists(output_path)
+
+    def test_render_output_has_requested_dimensions(self, tmp_path):
+        from PIL import Image
+        output_path = str(tmp_path / "out.bmp")
+        qod._render("Short quote.", "Author", output_path, width=400, height=300)
+        img = Image.open(output_path)
+        assert img.size == (400, 300)
+
+    def test_render_very_long_quote_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        long_quote = "word " * 200
+        result = qod._render(long_quote, "Author", output_path)
+        assert os.path.exists(result)
+
+    def test_render_empty_quote_does_not_crash(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        result = qod._render("", "Author", output_path)
+        assert os.path.exists(result)
+
+
+class TestGenerate:
+    def test_uses_fresh_cache_without_fetching(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(qod, "CACHE_DIR", str(tmp_path))
+        qod._save_cache({"q": "Cached quote.", "a": "Cached Author"})
+        output_path = str(tmp_path / "out.bmp")
+        with patch("modules.quote_of_day.requests.get") as mock_get:
+            result = qod.generate({"quote_of_day": {"output_path": output_path}})
+        mock_get.assert_not_called()
+        assert os.path.exists(result)
+
+    @patch("modules.quote_of_day.requests.get")
+    def test_no_cache_fetches_and_saves(self, mock_get, tmp_path, monkeypatch):
+        monkeypatch.setattr(qod, "CACHE_DIR", str(tmp_path))
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        resp.json.return_value = [{"q": "Fetched quote.", "a": "Fetched Author"}]
+        mock_get.return_value = resp
+        output_path = str(tmp_path / "out.bmp")
+
+        result = qod.generate({"quote_of_day": {"output_path": output_path}})
+
+        assert os.path.exists(result)
+        assert qod._load_cache() == {"q": "Fetched quote.", "a": "Fetched Author"}
+
+    def test_default_output_path_used_when_unconfigured(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(qod, "CACHE_DIR", str(tmp_path))
+        qod._save_cache({"q": "Cached quote.", "a": "Cached Author"})
+        monkeypatch.chdir(tmp_path)
+        result = qod.generate({})
+        assert result == "quote_display.bmp"
+        assert os.path.exists(result)

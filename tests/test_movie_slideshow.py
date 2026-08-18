@@ -7,6 +7,7 @@ advancement logic in generate().
 import sys
 import os
 import json
+from unittest.mock import patch, MagicMock
 
 import pytest
 from PIL import Image
@@ -20,6 +21,8 @@ from modules.movie_slideshow import (
     _save_state,
     _list_frames,
     _prepare_frames,
+    _extract_video,
+    _extract_gif,
     _fit_image,
     _crop_image,
     generate,
@@ -76,6 +79,91 @@ class TestPrepareFrames:
         movie_dir.mkdir()
         result = _prepare_frames(str(movie_dir), extract_fps=1)
         assert result == str(movie_dir)
+
+    def test_video_file_triggers_extraction_into_frames_subdir(self, tmp_path):
+        movie_dir = tmp_path / "movie1"
+        movie_dir.mkdir()
+        (movie_dir / "clip.mp4").write_bytes(b"fake video")
+        with patch("modules.movie_slideshow._extract_video") as mock_extract:
+            result = _prepare_frames(str(movie_dir), extract_fps=2)
+        mock_extract.assert_called_once()
+        assert result == str(movie_dir / "frames")
+        assert os.path.isdir(result)
+
+    def test_gif_file_triggers_gif_extraction(self, tmp_path):
+        movie_dir = tmp_path / "movie1"
+        movie_dir.mkdir()
+        (movie_dir / "anim.gif").write_bytes(b"fake gif")
+        with patch("modules.movie_slideshow._extract_gif") as mock_extract:
+            result = _prepare_frames(str(movie_dir), extract_fps=1)
+        mock_extract.assert_called_once()
+        assert result == str(movie_dir / "frames")
+
+    def test_already_extracted_source_is_skipped_on_second_call(self, tmp_path):
+        movie_dir = tmp_path / "movie1"
+        movie_dir.mkdir()
+        (movie_dir / "clip.mp4").write_bytes(b"fake video")
+        with patch("modules.movie_slideshow._extract_video") as mock_extract:
+            _prepare_frames(str(movie_dir), extract_fps=1)
+            _prepare_frames(str(movie_dir), extract_fps=1)
+        # Second call sees the same source mtime recorded in the marker file — no re-extract.
+        assert mock_extract.call_count == 1
+
+    def test_modified_source_is_re_extracted(self, tmp_path):
+        movie_dir = tmp_path / "movie1"
+        movie_dir.mkdir()
+        video = movie_dir / "clip.mp4"
+        video.write_bytes(b"fake video")
+        with patch("modules.movie_slideshow._extract_video") as mock_extract:
+            _prepare_frames(str(movie_dir), extract_fps=1)
+            new_time = os.path.getmtime(str(video)) + 10
+            os.utime(str(video), (new_time, new_time))
+            _prepare_frames(str(movie_dir), extract_fps=1)
+        assert mock_extract.call_count == 2
+
+
+class TestExtractVideo:
+    def test_invokes_ffmpeg_with_expected_args(self, tmp_path):
+        frames_dir = tmp_path / "frames"
+        frames_dir.mkdir()
+        video_path = str(tmp_path / "clip.mp4")
+        with patch("modules.movie_slideshow.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+            _extract_video(video_path, str(frames_dir), fps=2)
+        args = mock_run.call_args[0][0]
+        assert args[0] == "ffmpeg"
+        assert video_path in args
+        assert "fps=2" in args
+
+    def test_ffmpeg_failure_does_not_raise(self, tmp_path):
+        frames_dir = tmp_path / "frames"
+        frames_dir.mkdir()
+        with patch("modules.movie_slideshow.subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stderr="boom")
+            _extract_video(str(tmp_path / "clip.mp4"), str(frames_dir), fps=1)  # must not raise
+
+
+class TestExtractGif:
+    def _make_gif(self, path, n_frames):
+        frames = [Image.new("RGB", (10, 10), (i * 20, 0, 0)) for i in range(n_frames)]
+        frames[0].save(path, save_all=True, append_images=frames[1:], format="GIF")
+
+    def test_explodes_gif_into_numbered_png_frames(self, tmp_path):
+        gif_path = tmp_path / "anim.gif"
+        self._make_gif(str(gif_path), 4)
+        frames_dir = tmp_path / "frames"
+        frames_dir.mkdir()
+        _extract_gif(str(gif_path), str(frames_dir))
+        pngs = sorted(f for f in os.listdir(frames_dir) if f.endswith(".png"))
+        assert len(pngs) == 4
+        assert pngs[0] == "anim_000000.png"
+
+    def test_corrupt_gif_does_not_raise(self, tmp_path):
+        bad_path = tmp_path / "bad.gif"
+        bad_path.write_bytes(b"not a real gif")
+        frames_dir = tmp_path / "frames"
+        frames_dir.mkdir()
+        _extract_gif(str(bad_path), str(frames_dir))  # must not raise
 
 
 class TestFitAndCropImage:
@@ -189,3 +277,71 @@ class TestGeneratePlaylistAdvancement:
         generate(config)
         state = _load_state(movies_root)
         assert state["frame_index"] == 3
+
+    def test_zero_frame_step_clamps_to_one(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 10)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["frame_step"] = 0
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 1
+
+    def test_negative_frame_step_clamps_to_one(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 10)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["frame_step"] = -5
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 1
+
+    def test_stale_frame_index_beyond_current_frame_count_wraps(self, tmp_path):
+        """Movie was replaced with fewer frames than the saved state remembers."""
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 3)
+        _save_state(movies_root, {"movie_index": 0, "frame_index": 50})
+        config = self._config(movies_root, active_movie="movie1")
+        output = generate(config)
+        assert os.path.exists(output)
+
+    def _make_canvas_sized_movie(self, movies_root, name, width, height):
+        """A frame matching the canvas aspect ratio exactly, so _fit_image adds
+        no letterbox bars — the corner pixel then reflects only the frame
+        counter chip, not letterboxing."""
+        movie_dir = os.path.join(movies_root, name)
+        os.makedirs(movie_dir, exist_ok=True)
+        Image.new("RGB", (width, height), "white").save(os.path.join(movie_dir, "frame_000.png"))
+        return movie_dir
+
+    def test_show_frame_counter_draws_corner_chip(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_canvas_sized_movie(movies_root, "movie1", 80, 48)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["show_frame_counter"] = True
+        output = generate(config)
+        img = Image.open(output)
+        # The chip sits a few px inset from the true corner (see _draw_frame_counter's
+        # "- 4" margin) — not the white source frame.
+        assert img.getpixel((img.width - 5, img.height - 5)) == (0, 0, 0)
+
+    def test_hidden_frame_counter_leaves_corner_untouched(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_canvas_sized_movie(movies_root, "movie1", 80, 48)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["show_frame_counter"] = False
+        output = generate(config)
+        img = Image.open(output)
+        assert img.getpixel((img.width - 5, img.height - 5)) == (255, 255, 255)
+
+    def test_crop_fill_mode_wired_through_generate(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        movie_dir = os.path.join(movies_root, "movie1")
+        os.makedirs(movie_dir, exist_ok=True)
+        Image.new("RGB", (2000, 100), "blue").save(os.path.join(movie_dir, "frame_000.png"))
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["fill_mode"] = "crop"
+        output = generate(config)
+        img = Image.open(output)
+        # Crop-fill leaves no letterbox bars — corner matches the source color.
+        assert img.getpixel((0, 0)) == (0, 0, 255)

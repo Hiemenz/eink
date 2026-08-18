@@ -98,3 +98,18 @@ class TestGetSpecialWeatherMessages:
         mock_get.return_value = mock_resp
 
         assert get_special_weather_messages("http://example.com") is None
+
+    @patch("modules.special_weather.requests.get")
+    def test_network_exception_returns_none(self, mock_get):
+        """A network failure must degrade gracefully like every other fetch
+        helper in this codebase, not crash modules/weather.py's generate()
+        (which calls this unguarded) or the watchdog health tracking that
+        treats any uncaught exception as a module failure."""
+        mock_get.side_effect = ConnectionError("network unreachable")
+        assert get_special_weather_messages("http://example.com") is None
+
+    @patch("modules.special_weather.requests.get")
+    def test_request_timeout_returns_none(self, mock_get):
+        import requests
+        mock_get.side_effect = requests.exceptions.Timeout("timed out")
+        assert get_special_weather_messages("http://example.com") is None

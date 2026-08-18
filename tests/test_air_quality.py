@@ -46,6 +46,20 @@ class TestAqiColor:
     def test_extreme_high(self):
         assert air_quality._aqi_color(999) == (0, 0, 0)
 
+    def test_all_tier_boundaries(self):
+        # (aqi, expected_color) at every tier transition
+        cases = [
+            (100, (255, 255, 0)), (101, (255, 128, 0)),
+            (150, (255, 128, 0)), (151, (255, 0, 0)),
+            (200, (255, 0, 0)), (201, (150, 0, 150)),
+            (300, (150, 0, 150)), (301, (0, 0, 0)),
+        ]
+        for aqi, expected in cases:
+            assert air_quality._aqi_color(aqi) == expected, f"aqi={aqi}"
+
+    def test_zero_is_good(self):
+        assert air_quality._aqi_color(0) == (0, 255, 0)
+
 
 class TestAqiCategory:
     def test_good(self):
@@ -174,3 +188,59 @@ class TestGetAqiData:
         with patch.object(air_quality, "_fetch_aqi", return_value=None):
             data = air_quality._get_aqi_data("37064", "key", cache_dir)
         assert data is None
+
+
+class TestGenerate:
+    def _config(self, tmp_path, **overrides):
+        cfg = {"air_quality": {
+            "output_path": str(tmp_path / "aqi.bmp"),
+            "cache_dir": str(tmp_path / "cache"),
+            "zip_code": "37064",
+            **overrides,
+        }}
+        return cfg
+
+    def test_no_api_key_renders_unavailable(self, tmp_path):
+        from PIL import Image
+        config = self._config(tmp_path, api_key="")
+        output = air_quality.generate(config)
+        assert os.path.exists(output)
+        img = Image.open(output)
+        assert img.size == (800, 480)
+
+    def test_data_unavailable_renders_unavailable_screen(self, tmp_path):
+        config = self._config(tmp_path, api_key="fakekey")
+        with patch.object(air_quality, "_get_aqi_data", return_value=None):
+            output = air_quality.generate(config)
+        assert os.path.exists(output)
+
+    def test_with_data_renders_full_display(self, tmp_path):
+        from PIL import Image
+        config = self._config(tmp_path, api_key="fakekey")
+        data = {"aqi": 42, "category": "Good", "parameter": "PM2.5", "fetched_at": time.time()}
+        with patch.object(air_quality, "_get_aqi_data", return_value=data):
+            output = air_quality.generate(config)
+        assert os.path.exists(output)
+        img = Image.open(output)
+        assert img.size == (800, 480)
+
+    def test_calls_get_aqi_data_with_configured_zip_and_key(self, tmp_path):
+        config = self._config(tmp_path, api_key="fakekey", zip_code="90210")
+        with patch.object(air_quality, "_get_aqi_data", return_value=None) as mock_get:
+            air_quality.generate(config)
+        args, _ = mock_get.call_args
+        assert args[0] == "90210"
+        assert args[1] == "fakekey"
+
+    def test_creates_output_and_cache_directories(self, tmp_path):
+        nested_output = tmp_path / "nested" / "out" / "aqi.bmp"
+        nested_cache = tmp_path / "nested" / "cache"
+        config = {"air_quality": {
+            "output_path": str(nested_output),
+            "cache_dir": str(nested_cache),
+            "zip_code": "37064",
+            "api_key": "",
+        }}
+        air_quality.generate(config)
+        assert nested_output.exists()
+        assert nested_cache.is_dir()

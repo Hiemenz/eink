@@ -13,6 +13,7 @@ import time
 from unittest.mock import patch, MagicMock
 
 import pytest
+from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -338,3 +339,109 @@ class TestFetchNwsStages:
         }
         mock_get.return_value = resp
         assert rh._fetch_nws_stages("FKLT1") == {}
+
+
+class TestFitNumber:
+    def _draw(self):
+        return ImageDraw.Draw(Image.new("RGB", (rh.WIDTH, rh.HEIGHT)))
+
+    def test_returns_font_fitting_within_bounds(self):
+        draw = self._draw()
+        font = rh._fit_number(draw, "3.25", {}, max_w=200, max_h=100)
+        bb = draw.textbbox((0, 0), "3.25", font=font)
+        assert (bb[2] - bb[0]) <= 200
+        assert (bb[3] - bb[1]) <= 100
+
+    def test_smaller_box_yields_smaller_font(self):
+        draw = self._draw()
+        big = rh._fit_number(draw, "5.5", {}, max_w=700, max_h=300)
+        small = rh._fit_number(draw, "5.5", {}, max_w=60, max_h=40)
+        assert small.size <= big.size
+
+
+class TestDrawHistoryChart:
+    def _draw(self):
+        return ImageDraw.Draw(Image.new("RGB", (rh.WIDTH, rh.HEIGHT)))
+
+    def test_fewer_than_two_points_is_noop(self):
+        draw = self._draw()
+        # Must not raise even with a single point.
+        rh._draw_history_chart(draw, [{"ft": 3.0, "ts": "2024-01-01T00:00:00.000-06:00"}], {}, {}, 100, 400)
+
+    def test_flat_history_does_not_raise_on_zero_span(self):
+        draw = self._draw()
+        history = [{"ft": 3.0, "ts": "2024-01-01T00:00:00.000-06:00"} for _ in range(3)]
+        rh._draw_history_chart(draw, history, {}, {}, 100, 400)
+
+    def test_draws_threshold_line_within_range(self):
+        draw = self._draw()
+        history = [
+            {"ft": 1.0, "ts": "2024-01-01T00:00:00.000-06:00"},
+            {"ft": 5.0, "ts": "2024-01-01T01:00:00.000-06:00"},
+            {"ft": 3.0, "ts": "2024-01-01T02:00:00.000-06:00"},
+        ]
+        thresholds = {"action_stage": 2.5}
+        # Must not raise while drawing the in-range threshold line + label.
+        rh._draw_history_chart(draw, history, thresholds, {}, 100, 400)
+
+    def test_malformed_timestamps_do_not_raise(self):
+        draw = self._draw()
+        history = [{"ft": 1.0, "ts": "bad"}, {"ft": 2.0, "ts": "bad"}]
+        rh._draw_history_chart(draw, history, {}, {}, 100, 400)
+
+
+class TestGenerate:
+    def _cfg(self, tmp_path, **overrides):
+        return {
+            "river_height": {
+                "output_path": str(tmp_path / "river.bmp"),
+                "cache_dir": str(tmp_path / "cache"),
+                "site_number": "03430500",
+                **overrides,
+            }
+        }
+
+    def test_no_data_writes_unavailable_message(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        with patch.object(rh, "_get_river_data", return_value=None):
+            out = rh.generate(cfg)
+        assert out == cfg["river_height"]["output_path"]
+        assert os.path.exists(out)
+
+    def test_with_data_and_history_writes_image(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        data = {
+            "current_ft": 4.2,
+            "history": [
+                {"ft": 3.0, "ts": "2024-01-01T00:00:00.000-06:00"},
+                {"ft": 4.2, "ts": "2024-01-01T01:00:00.000-06:00"},
+            ],
+            "fetched_at": time.time(),
+        }
+        with patch.object(rh, "_get_river_data", return_value=data), \
+             patch.object(rh, "_resolve_thresholds", return_value={}):
+            out = rh.generate(cfg)
+        assert os.path.exists(out)
+        img = Image.open(out)
+        assert img.size == (rh.WIDTH, rh.HEIGHT)
+
+    def test_with_data_single_point_skips_chart(self, tmp_path):
+        cfg = self._cfg(tmp_path)
+        data = {
+            "current_ft": 4.2,
+            "history": [{"ft": 4.2, "ts": "2024-01-01T00:00:00.000-06:00"}],
+            "fetched_at": time.time(),
+        }
+        with patch.object(rh, "_get_river_data", return_value=data), \
+             patch.object(rh, "_resolve_thresholds", return_value={}), \
+             patch.object(rh, "_draw_history_chart") as mock_chart:
+            out = rh.generate(cfg)
+        mock_chart.assert_not_called()
+        assert os.path.exists(out)
+
+    def test_default_output_path_used_when_config_missing(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(rh, "_get_river_data", return_value=None):
+            out = rh.generate({})
+        assert out == "images/river_display.bmp"
+        assert os.path.exists(out)

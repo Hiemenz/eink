@@ -137,3 +137,54 @@ class TestGenerateCycling:
             config["module_cycler"]["state_file"] = state_file
             result = generate(config)
         assert result == "out.bmp"
+
+    def test_last_module_recorded_in_state(self, tmp_path):
+        fake_mod = MagicMock()
+        fake_mod.generate.return_value = "out.bmp"
+        with patch("modules.module_cycler.MODULE_MAP", {"weather": "fake.weather"}), \
+             patch("modules.module_cycler.importlib.import_module", return_value=fake_mod):
+            config = self._config(tmp_path, ["weather"])
+            generate(config)
+        state = _load_state(config["module_cycler"]["state_file"])
+        assert state["last_module"] == "weather"
+
+    def test_single_module_list_advances_without_error(self, tmp_path):
+        """With only one module, an elapsed interval still re-selects it (index wraps to itself)."""
+        state_file = str(tmp_path / "cycler_state.json")
+        _save_state(state_file, {"index": 0, "last_switched": time.time() - 4000})
+        fake_mod = MagicMock()
+        fake_mod.generate.return_value = "out.bmp"
+        with patch("modules.module_cycler.MODULE_MAP", {"a": "fake.a"}), \
+             patch("modules.module_cycler.importlib.import_module", return_value=fake_mod):
+            config = self._config(tmp_path, ["a"], interval_minutes=60)
+            config["module_cycler"]["state_file"] = state_file
+            result = generate(config)
+        assert result == "out.bmp"
+        state = _load_state(state_file)
+        assert state["index"] == 0
+
+    def test_zero_interval_minutes_advances_on_next_call(self, tmp_path):
+        state_file = str(tmp_path / "cycler_state.json")
+        _save_state(state_file, {"index": 0, "last_switched": time.time()})
+        fake_mod = MagicMock()
+        fake_mod.generate.return_value = "out.bmp"
+        with patch("modules.module_cycler.MODULE_MAP", {"a": "fake.a", "b": "fake.b"}), \
+             patch("modules.module_cycler.importlib.import_module", return_value=fake_mod):
+            config = self._config(tmp_path, ["a", "b"], interval_minutes=0)
+            config["module_cycler"]["state_file"] = state_file
+            generate(config)
+        state = _load_state(state_file)
+        assert state["index"] == 1  # 0-minute interval means every call advances
+
+    def test_string_interval_minutes_from_config_is_accepted(self, tmp_path):
+        """YAML/JSON overrides may hand back a numeric string; float() must accept it."""
+        state_file = str(tmp_path / "cycler_state.json")
+        _save_state(state_file, {"index": 0, "last_switched": time.time() - 4000})
+        fake_mod = MagicMock()
+        fake_mod.generate.return_value = "out.bmp"
+        with patch("modules.module_cycler.MODULE_MAP", {"a": "fake.a", "b": "fake.b"}), \
+             patch("modules.module_cycler.importlib.import_module", return_value=fake_mod):
+            config = self._config(tmp_path, ["a", "b"], interval_minutes="60")
+            config["module_cycler"]["state_file"] = state_file
+            result = generate(config)
+        assert result == "out.bmp"

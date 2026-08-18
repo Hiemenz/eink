@@ -9,6 +9,7 @@ import sys
 import time
 
 import pytest
+from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -178,3 +179,78 @@ class TestGenerateStateTransitions:
         assert os.path.exists(result)
         # No state should have been written since we short-circuited to fallback.
         assert not os.path.exists(cfg["questions"]["state_file"])
+
+    def test_stale_index_out_of_range_picks_new_question(self, tmp_path):
+        cfg = self._base_config(tmp_path)
+        questions.generate(cfg)
+        state = questions._load_state(cfg["questions"]["state_file"])
+        state["current_index"] = 999
+        state["last_updated"] = time.time()
+        questions._save_state(cfg["questions"]["state_file"], state)
+
+        questions.generate(cfg)
+        new_state = questions._load_state(cfg["questions"]["state_file"])
+        assert new_state["current_index"] in (0, 1, 2)
+
+    def test_recent_indices_buffer_gets_trimmed(self, tmp_path):
+        cfg = self._base_config(tmp_path)
+        state_file = cfg["questions"]["state_file"]
+        # Pre-seed a recent_indices buffer already past the trim threshold
+        # (max(10, len(questions)//2) == 10 for a 3-question pool).
+        questions._save_state(state_file, {
+            "current_index": 0,
+            "last_updated": 0,
+            "recent_indices": list(range(15)),
+        })
+        questions.generate(cfg)
+        state = questions._load_state(state_file)
+        # Trimmed to the last len(questions)//2 == 1 entries once over threshold.
+        assert len(state["recent_indices"]) == 1
+
+    def test_force_new_clears_bot_state_flag(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        cfg = self._base_config(tmp_path, force_new=True)
+        bot_state_path = tmp_path / "bot_state.json"
+        bot_state_path.write_text(json.dumps({"questions": {"force_new": True}}))
+
+        questions.generate(cfg)
+
+        bs = json.loads(bot_state_path.read_text())
+        assert bs["questions"]["force_new"] is False
+
+
+class TestRender:
+    def test_writes_image_with_configured_dimensions(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        result = questions._render("Science", "Why is the sky blue?", 15, out, width=800, height=480)
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (800, 480)
+
+    def test_long_question_shrinks_font_to_fit(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        long_question = " ".join(["word"] * 200)
+        # Must not raise even when the text is far too long to fit at 42px.
+        questions._render("Topic", long_question, 15, out)
+        assert os.path.exists(out)
+
+    def test_renders_without_topic(self, tmp_path):
+        out = str(tmp_path / "out.bmp")
+        questions._render("", "A short question?", 15, out)
+        assert os.path.exists(out)
+
+
+class TestRenderFallback:
+    def test_writes_default_sized_image(self, tmp_path):
+        out = str(tmp_path / "fallback.bmp")
+        result = questions._render_fallback(out)
+        assert result == out
+        img = Image.open(out)
+        assert img.size == (800, 480)
+
+
+class TestLoadFont:
+    def test_falls_back_to_default_when_no_fonts_exist(self, monkeypatch):
+        monkeypatch.setattr(questions.os.path, "exists", lambda p: False)
+        font = questions._load_font(20)
+        assert font is not None

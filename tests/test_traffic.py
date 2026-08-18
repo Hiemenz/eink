@@ -29,6 +29,10 @@ from modules.traffic import (
     _save_cache,
     _fetch_incidents,
     _get_traffic_data,
+    _draw_incident_rows,
+    generate,
+    WIDTH,
+    HEIGHT,
 )
 
 
@@ -197,3 +201,96 @@ class TestGetTrafficData:
         mock_fetch.return_value = None
         result = _get_traffic_data("key", 35.9, -86.8, 0.15, str(tmp_path))
         assert result is None
+
+
+class TestDrawIncidentRows:
+    def _draw(self):
+        return ImageDraw.Draw(Image.new("RGB", (WIDTH, HEIGHT)))
+
+    def test_empty_incidents_shows_no_incidents_message(self):
+        draw = self._draw()
+        # Should not raise, and takes the "no incidents" branch (visually
+        # verified elsewhere -- here we just assert it completes cleanly).
+        _draw_incident_rows(draw, 100, 400, [], {})
+
+    def test_missing_description_uses_placeholder(self):
+        draw = self._draw()
+        _draw_incident_rows(draw, 100, 400, [{"magnitude": 2, "delay": 60}], {})
+
+    def test_more_than_max_rows_does_not_raise(self):
+        draw = self._draw()
+        incidents = [{"magnitude": i % 5, "delay": 60 * i, "description": f"inc {i}"} for i in range(20)]
+        _draw_incident_rows(draw, 100, 400, incidents, {})
+
+
+class TestGenerateIntegration:
+    def test_no_api_key_renders_config_prompt(self, tmp_path):
+        output_path = str(tmp_path / "out.bmp")
+        with patch("modules.traffic._get_traffic_data") as mock_data:
+            result = generate({"traffic": {"output_path": output_path, "api_key": ""}})
+            mock_data.assert_not_called()
+        assert result == output_path
+        img = Image.open(output_path)
+        assert img.size == (WIDTH, HEIGHT)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_fetch_and_cache_failure_renders_failure_screen(self, mock_data, tmp_path):
+        mock_data.return_value = None
+        output_path = str(tmp_path / "out.bmp")
+        result = generate({"traffic": {"output_path": output_path, "api_key": "key123"}})
+        assert os.path.exists(result)
+        img = Image.open(result)
+        assert img.size == (WIDTH, HEIGHT)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_successful_render_with_incidents(self, mock_data, tmp_path):
+        mock_data.return_value = {
+            "incidents": [
+                {"description": "Crash on I-65", "magnitude": 4, "delay": 600, "icon_category": 1},
+                {"description": "Roadwork", "magnitude": 1, "delay": 60, "icon_category": 7},
+            ],
+            "fetched_at": time.time(),
+        }
+        output_path = str(tmp_path / "out.bmp")
+        result = generate({
+            "traffic": {"output_path": output_path, "api_key": "key123"},
+            "forecast_location": {"latitude": 36.0, "longitude": -87.0, "name": "Test City"},
+        })
+        assert os.path.exists(result)
+        img = Image.open(result)
+        assert img.size == (WIDTH, HEIGHT)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_no_incidents_renders_successfully(self, mock_data, tmp_path):
+        mock_data.return_value = {"incidents": [], "fetched_at": time.time()}
+        output_path = str(tmp_path / "out.bmp")
+        result = generate({"traffic": {"output_path": output_path, "api_key": "key123"}})
+        assert os.path.exists(result)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_passes_default_location_and_radius(self, mock_data, tmp_path):
+        mock_data.return_value = {"incidents": [], "fetched_at": time.time()}
+        output_path = str(tmp_path / "out.bmp")
+        generate({"traffic": {"output_path": output_path, "api_key": "key123"}})
+
+        args, kwargs = mock_data.call_args
+        # (key, lat, lon, radius_deg, cache_dir)
+        assert args[1] == pytest.approx(35.9251)
+        assert args[2] == pytest.approx(-86.8689)
+        assert args[3] == pytest.approx(0.15)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_default_output_path(self, mock_data, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        mock_data.return_value = {"incidents": [], "fetched_at": time.time()}
+        result = generate({"traffic": {"api_key": "key123"}})
+        assert result == "images/traffic_display.bmp"
+        assert os.path.exists(result)
+
+    @patch("modules.traffic._get_traffic_data")
+    def test_api_key_is_stripped(self, mock_data, tmp_path):
+        mock_data.return_value = {"incidents": [], "fetched_at": time.time()}
+        output_path = str(tmp_path / "out.bmp")
+        generate({"traffic": {"output_path": output_path, "api_key": "  key123  "}})
+        args, _ = mock_data.call_args
+        assert args[0] == "key123"
