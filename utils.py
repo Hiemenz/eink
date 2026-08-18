@@ -5,9 +5,12 @@ Centralizes MODULE_MAP, font loading, logging, and config validation
 so every module uses a single source of truth.
 """
 
+import json
 import logging
+import os
 import platform
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from typing import Dict, List, Optional
 
@@ -200,3 +203,46 @@ def validate_config(config: dict) -> bool:
         if key not in config:
             logger.warning("Missing optional config key: %s", key)
     return ok
+
+
+HEALTH_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "health.json")
+
+
+def load_health(health_path: str = HEALTH_PATH) -> Dict[str, dict]:
+    """Return the per-module health dict, or {} if no health file exists yet."""
+    try:
+        with open(health_path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def record_health(
+    module: str,
+    success: bool,
+    error: Optional[str] = None,
+    health_path: str = HEALTH_PATH,
+) -> None:
+    """Persist a module's refresh outcome for watchdog/health-check purposes.
+
+    Tracks last-attempt and last-success timestamps plus a consecutive-failure
+    count per module, so a module that starts silently crashing (but whose
+    generate() is called inside a process that otherwise keeps running, e.g.
+    the Discord bot's auto-refresh loop) shows up as stale instead of going
+    unnoticed.
+    """
+    health = load_health(health_path)
+    entry = health.setdefault(module, {})
+    now = time.time()
+    entry["last_attempt_ts"] = now
+    if success:
+        entry["last_success_ts"] = now
+        entry["consecutive_failures"] = 0
+        entry["last_error"] = None
+    else:
+        entry["consecutive_failures"] = entry.get("consecutive_failures", 0) + 1
+        entry["last_error"] = error
+
+    os.makedirs(os.path.dirname(health_path), exist_ok=True)
+    with open(health_path, "w") as f:
+        json.dump(health, f, indent=2)

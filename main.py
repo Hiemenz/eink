@@ -23,7 +23,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from utils import MODULE_MAP, MODULE_INTERVALS, get_logger, validate_config
+from utils import MODULE_MAP, MODULE_INTERVALS, get_logger, record_health, validate_config
 
 logger = get_logger("main")
 
@@ -110,28 +110,46 @@ def main() -> None:
     config["_effective_interval"] = interval
     logger.info("Running module: %s (interval: %ds)", active, interval)
     mod = importlib.import_module(module_path)
-    output_path = mod.generate(config)
 
-    if output_path:
-        logger.info("Generated image: %s", output_path)
-        new_hash = _compute_hash(output_path)
-        if new_hash and _is_unchanged(output_path, new_hash):
-            logger.info("Image unchanged — skipping display push.")
-        else:
-            if platform.system() == "Linux":
-                from display import display_color_image
-                display_color_image(
-                    output_path,
-                    model=config.get("display_model", "epd7in5_V2"),
-                    full_clear_interval=int(config.get("full_clear_interval", 0)),
-                )
-                logger.info("Displayed on e-ink hardware.")
-                if new_hash:
-                    _save_hash(output_path, new_hash)
+    refresh_ok = True
+    refresh_error = None
+    try:
+        output_path = mod.generate(config)
+
+        if output_path:
+            logger.info("Generated image: %s", output_path)
+            new_hash = _compute_hash(output_path)
+            if new_hash and _is_unchanged(output_path, new_hash):
+                logger.info("Image unchanged — skipping display push.")
             else:
-                logger.info("macOS — skipping hardware display. Image at: %s", output_path)
-    else:
-        logger.info("Module returned no output (no change or error).")
+                if platform.system() == "Linux":
+                    from display import display_color_image
+                    pushed = display_color_image(
+                        output_path,
+                        model=config.get("display_model", "epd7in5_V2"),
+                        full_clear_interval=int(config.get("full_clear_interval", 0)),
+                    )
+                    if pushed:
+                        logger.info("Displayed on e-ink hardware.")
+                        if new_hash:
+                            _save_hash(output_path, new_hash)
+                    else:
+                        # Hash intentionally not saved, so the next run retries the push.
+                        logger.error("Display push failed for module '%s' — see log above for hardware error.", active)
+                        refresh_ok = False
+                        refresh_error = "Display push failed (hardware error, see eink.log)"
+                else:
+                    logger.info("macOS — skipping hardware display. Image at: %s", output_path)
+        else:
+            logger.info("Module returned no output (no change or error).")
+    except Exception as exc:
+        logger.exception("Module '%s' crashed during refresh.", active)
+        record_health(active, success=False, error=str(exc))
+        raise
+
+    record_health(active, success=refresh_ok, error=refresh_error)
+    if not refresh_ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

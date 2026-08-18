@@ -31,8 +31,14 @@ from PIL import Image
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 CONFIG_PATH = os.path.join(ROOT, "config.yml")
 BOT_STATE_PATH = os.path.join(ROOT, "bot_state.json")
+
+from utils import get_logger, load_health
+
+logger = get_logger("discord_bot")
 
 # ---------------------------------------------------------------------------
 # Module registry
@@ -1212,6 +1218,50 @@ async def cmd_status(ctx: commands.Context):
 
 
 @channel_guard()
+async def cmd_health(ctx: commands.Context):
+    """Show per-module refresh health — last success age and any failing modules.
+
+    Reads data/health.json, written by main.py on every module run (whether
+    triggered by auto-refresh, !refresh, or a manual `poetry run python main.py`).
+    """
+    import time as _time
+    health = load_health()
+    if not health:
+        await ctx.send("No health data recorded yet — run `!refresh` or wait for auto-refresh.")
+        return
+
+    def _age_str(ts: float) -> str:
+        age = int(_time.time() - ts)
+        if age >= 3600:
+            return f"{age // 3600}h {(age % 3600) // 60}min ago"
+        if age >= 60:
+            return f"{age // 60}min ago"
+        return f"{age}s ago"
+
+    embed = discord.Embed(title="Module Health", color=discord.Color.og_blurple())
+
+    failing = {m: e for m, e in health.items() if e.get("consecutive_failures", 0) > 0}
+    if failing:
+        lines = []
+        for m, e in sorted(failing.items(), key=lambda kv: -kv[1].get("consecutive_failures", 0)):
+            fails = e.get("consecutive_failures", 0)
+            err = (e.get("last_error") or "?")[:80]
+            lines.append(f"`{m}` — {fails} failure(s): {err}")
+        embed.add_field(name="⚠️ Failing", value="\n".join(lines)[:1024], inline=False)
+    else:
+        embed.add_field(name="Status", value="✅ No modules currently failing", inline=False)
+
+    recent = sorted(health.items(), key=lambda kv: kv[1].get("last_attempt_ts", 0), reverse=True)[:10]
+    lines = []
+    for m, e in recent:
+        success_ts = e.get("last_success_ts")
+        lines.append(f"`{m}`: {_age_str(success_ts) if success_ts else 'never succeeded'}")
+    embed.add_field(name="Recent activity", value="\n".join(lines)[:1024], inline=False)
+
+    await ctx.send(embed=embed)
+
+
+@channel_guard()
 async def cmd_modules(ctx: commands.Context):
     """List all available modules with numbers; keep typing numbers to switch."""
     numbered = "\n".join(f"{i+1:2}. {m}" for i, m in enumerate(ALL_MODULES))
@@ -1277,6 +1327,7 @@ async def cmd_help_display(ctx: commands.Context):
     embed.add_field(name=f"{prefix}set <key> <value>", value="Update a config value (dot notation). Does not auto-refresh.", inline=False)
     embed.add_field(name=f"{prefix}refresh", value="Force display refresh with current module", inline=False)
     embed.add_field(name=f"{prefix}status", value="Show current display state", inline=False)
+    embed.add_field(name=f"{prefix}health", value="Show per-module refresh health — last success age, failing modules", inline=False)
     embed.add_field(name=f"{prefix}modules", value="List all modules and their configurable args", inline=False)
     embed.add_field(name=f"{prefix}video <url>", value="Download a YouTube video, extract frames, and display as movie slideshow. Prompts for name, interval, start offset, and fill mode.", inline=False)
     embed.add_field(name=f"{prefix}movie skip/back/goto/reset/status", value="Control the movie slideshow — skip frames, jump to a frame, or restart", inline=False)
@@ -1371,7 +1422,18 @@ def main():
 
     @tasks.loop(seconds=60)
     async def auto_refresh():
-        """Poll every minute; fire when the active module's interval has elapsed."""
+        """Poll every minute; fire when the active module's interval has elapsed.
+
+        The body is wrapped in try/except so a bug in any one iteration (e.g. the
+        alert-override block, a flaky NWS call) can't silently kill the loop —
+        it logs, records the failure, and waits for the next tick instead.
+        """
+        try:
+            await _auto_refresh_tick()
+        except Exception:
+            logger.exception("[auto_refresh] iteration crashed — will retry next tick")
+
+    async def _auto_refresh_tick():
         import time
         cfg_now = load_config()
 
@@ -1476,6 +1538,7 @@ def main():
     bot.command(name="set")(cmd_set)
     bot.command(name="refresh")(cmd_refresh)
     bot.command(name="status")(cmd_status)
+    bot.command(name="health")(cmd_health)
     bot.command(name="modules")(cmd_modules)
     bot.command(name="help_display")(cmd_help_display)
     bot.command(name="help")(cmd_help_display)

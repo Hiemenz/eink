@@ -79,11 +79,16 @@ def _write_refresh_count(n: int) -> None:
         pass
 
 
-def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int = 0):
+def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int = 0) -> bool:
     """Display an image on the e-ink screen using the configured driver model.
 
     full_clear_interval: if > 0, run an extra deep-clear cycle every N refreshes
     to reduce ACeP 7-color ghosting. Has no effect on the B/W V2 driver.
+
+    Never raises — hardware errors are caught and logged so a flaky panel can't
+    crash the caller. Returns True if the image actually reached the panel,
+    False otherwise (lock contention or a hardware error), so callers that
+    track refresh health (e.g. main.py) can tell a real push from a no-op.
     """
     from waveshare_epd import epd7in5_V2, epd7in3f
     driver_map = {
@@ -97,7 +102,7 @@ def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int
     except (BlockingIOError, OSError):
         print("[display] Another display operation in progress, skipping.")
         lock_fd.close()
-        return
+        return False
 
     epd = None
     try:
@@ -120,6 +125,7 @@ def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int
         epd.display(epd.getbuffer(image))
         epd.sleep()
         print(f'display is sleeping... (model: {model})')
+        return True
     except Exception as e:
         print(f"[display] Error during display: {e}")
         if epd:
@@ -127,6 +133,7 @@ def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int
                 epd.sleep()
             except Exception:
                 pass
+        return False
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
