@@ -80,6 +80,7 @@ eink/
 │   ├── xkcd.py              # XKCD comic of the day (keyless)
 │   ├── carbon_intensity.py  # Electricity grid carbon intensity (ElectricityMaps)
 │   ├── now_playing.py       # Last.fm recent track + album art
+│   ├── siriusxm_now_playing.py  # SiriusXM now-playing card with Spotify QR/art
 │   ├── traffic.py           # Local traffic incidents (TomTom)
 │   ├── agenda.py            # Calendar / agenda from iCal/ICS URLs
 │   ├── river_height.py      # USGS river gauge chart with flood-stage thresholds
@@ -106,7 +107,9 @@ eink/
 
 2. **`discord_bot.py`** is the primary interface. It runs continuously, handles user commands, and owns the refresh schedule. When a command changes the active module or any config key, it writes to `bot_state.json` then spawns `main.py` as a subprocess to regenerate and push.
 
-3. **`display.py`** uses `fcntl` file locking so that concurrent refresh requests (cron + Discord command) never corrupt the EPD hardware. If a display operation is already in progress, the second caller logs a skip and returns cleanly.
+3. **`display.py`** uses `fcntl` file locking so that concurrent refresh requests (cron + Discord command) never corrupt the EPD hardware. If a display operation is already in progress, the second caller logs a skip and returns cleanly. It never raises — hardware errors are caught and turned into a `True`/`False` return instead.
+
+4. **`main.py`** records every run's outcome — success or failure, with the error — to `data/health.json`, so a module that starts silently failing shows up instead of going unnoticed. See [Watchdog & health checks](#watchdog--health-checks).
 
 ---
 
@@ -263,6 +266,16 @@ poetry run python server/app.py
 ```
 
 Access at `http://<pi-hostname>.local:5000`. It supports switching modules, triggering refreshes, managing the movie slideshow, and downloading generated images. The Discord bot covers the same functionality — the web dashboard is optional.
+
+---
+
+## Testing
+
+```bash
+poetry run pytest tests/
+```
+
+1,644 tests across all 46 display modules (one `tests/test_<module>.py` per module, plus `test_module_contracts.py` for cross-cutting checks and `test_health.py` for the watchdog helpers). None hit real network or hardware — external HTTP calls are mocked with `unittest.mock`, and file state uses pytest's `tmp_path`. Coverage goes beyond pure helpers to the actual `generate()`/`_render()` entry points, since that's the code path a real display refresh takes.
 
 ---
 
