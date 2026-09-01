@@ -35,7 +35,32 @@ _CONDITIONS_TTL = 300  # seconds
 # Last-known-good conditions (survives TTL expiry; used as stale fallback)
 _last_good_conditions: Dict[str, Any] = {"data": None, "ts": 0}
 
+# On-disk mirror of _last_good_conditions. Each 5-min refresh cycle runs as its
+# own process (main.py has no daemon loop), so the in-memory dict above is
+# always empty on startup — without this, a single transient API hiccup shows
+# "No data" instead of falling back to the last successful fetch.
+_CONDITIONS_DISK_CACHE = os.path.join("data", "conditions_cache.json")
+
 _RETRY_WAIT = 60  # seconds to wait before a retry on failure
+
+
+def _load_last_good_conditions_from_disk() -> Tuple[Optional[Dict[str, Any]], float]:
+    """Read the persisted last-good conditions. Returns (data, ts); (None, 0) if absent/corrupt."""
+    try:
+        with open(_CONDITIONS_DISK_CACHE) as f:
+            saved = json.load(f)
+        return saved.get("data"), saved.get("ts", 0)
+    except (OSError, ValueError):
+        return None, 0
+
+
+def _save_last_good_conditions_to_disk(data: Dict[str, Any], ts: float) -> None:
+    try:
+        os.makedirs(os.path.dirname(_CONDITIONS_DISK_CACHE) or ".", exist_ok=True)
+        with open(_CONDITIONS_DISK_CACHE, "w") as f:
+            json.dump({"data": data, "ts": ts}, f)
+    except OSError:
+        pass
 
 
 def _deg_to_compass(deg: float) -> str:
@@ -276,8 +301,12 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
 
     if result is None:
         stale = _last_good_conditions.get("data")
+        stale_ts = _last_good_conditions.get("ts", 0)
+        if stale is None:
+            # In-memory fallback is empty on a fresh process — each 5-min cycle
+            # is its own process, so this is the common case, not just cold start.
+            stale, stale_ts = _load_last_good_conditions_from_disk()
         if stale is not None:
-            stale_ts = _last_good_conditions.get("ts", 0)
             stale_label = _dt.fromtimestamp(stale_ts).strftime("%-I:%M %p") if stale_ts else "unknown"
             logger.warning(
                 "Conditions still unavailable — displaying last known-good data from %s.", stale_label
@@ -288,11 +317,13 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
             logger.error("Conditions unavailable and no cached data to fall back on.")
         return stale
 
-    # Success — update both the TTL cache and the persistent last-good store
+    # Success — update the in-memory TTL cache and last-good store, and mirror
+    # the last-good store to disk so it survives the next process's cold start.
     _conditions_cache["data"] = result
     _conditions_cache["ts"] = now
     _last_good_conditions["data"] = result
     _last_good_conditions["ts"] = now
+    _save_last_good_conditions_to_disk(result, now)
     logger.info("Conditions fetched: %d°F, %s", result["temp"], result["weather_desc"])
     return result
 
@@ -3032,6 +3063,22 @@ def generate(config):
     now = time.time()
     full_scan_interval = config.get('full_scan_interval', 3600)
 
+    # radar_source: "alternate" flips between the NWS RIDGE GIF and the
+    # RainViewer/PIL composite every cycle, instead of pinning one source.
+    # Persisted in radar_state.json so the alternation survives restarts
+    # (each invocation of main.py is a fresh process).
+    configured_radar_source = config.get("radar_source", "")
+    if str(configured_radar_source).lower() == "alternate":
+        sources = ["ridge", "rainviewer"]
+        idx = state.get("radar_source_idx", 0) % len(sources)
+        config["radar_source"] = sources[idx]
+        state["radar_source_idx"] = (idx + 1) % len(sources)
+        logger.info("Alternating radar source — this cycle: %s", config["radar_source"])
+        # Persist the advanced index now — the alternation must keep moving even
+        # if this cycle's fetch fails below (an early return would otherwise skip
+        # the later save_state() call and repeat the same source next time).
+        save_state(STATE_FILE, state)
+
     top5_data = state.get("top5", [])
     if top5_data:
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
@@ -3043,6 +3090,10 @@ def generate(config):
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
     default_image_path, default_updated, default_region = generate_weather_image(config, special_msg=special_msg)
+    if str(configured_radar_source).lower() == "alternate":
+        # Put the "alternate" marker back — config["radar_source"] was resolved
+        # to a concrete source only for the generate_weather_image() call above.
+        config["radar_source"] = configured_radar_source
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous
         # render if there is one. On a cold start (or after `radar/` is cleaned)

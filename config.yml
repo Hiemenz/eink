@@ -361,9 +361,10 @@ game_of_life:
   show_population: true      # overlay live-cell count
 
 # ── Radar source ─────────────────────────────────────────────────────────────
-# radar_source: "ridge"        # default — NWS RIDGE single-station GIF
-# radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution)
-radar_source: rainviewer
+# radar_source: "ridge"        # NWS RIDGE single-station GIF, pulled as-is
+# radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution), built with PIL
+# radar_source: "alternate"    # flip between "ridge" and "rainviewer" every refresh cycle
+radar_source: alternate
 rainviewer_zoom: 7             # zoom level: free tier max is 7 (regional, ~1.2km/px); 8+ returns "zoom not supported"
 rainviewer_map_overlay: true   # overlay OSM interstate/trunk highways for geographic orientation
 rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
