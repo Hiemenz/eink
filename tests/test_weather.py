@@ -37,6 +37,7 @@ from modules.weather import (
     calculate_non_bw_percentage,
     _compute_storm_motion,
     _do_fetch_conditions,
+    fetch_current_conditions,
     _fetch_lightning_strikes,
     _draw_lightning_overlay,
     _draw_status_badges,
@@ -355,6 +356,65 @@ class TestPrecipTypeClassification:
 
         result = _do_fetch_conditions("http://fake", 35.9, -86.8, {})
         assert result["precip_type"] is None
+
+
+class TestFetchCurrentConditionsDiskFallback:
+    """Each 5-min refresh cycle is a fresh process, so the in-memory
+    _last_good_conditions dict is always empty on startup. A transient API
+    failure must fall back to the on-disk mirror instead of returning None
+    (which the panel renders as "No data")."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_module_state(self, tmp_path, monkeypatch):
+        # Isolate the on-disk cache path per test and simulate a fresh process
+        # by clearing the in-memory caches too.
+        monkeypatch.chdir(tmp_path)
+        W_MOD._conditions_cache = {"data": None, "ts": 0}
+        W_MOD._last_good_conditions = {"data": None, "ts": 0}
+        yield
+        W_MOD._conditions_cache = {"data": None, "ts": 0}
+        W_MOD._last_good_conditions = {"data": None, "ts": 0}
+
+    @patch("modules.weather.requests.get")
+    def test_successful_fetch_persists_to_disk(self, mock_get):
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = _open_meteo_response(weather_code=0, freezing_level_m=2000.0)
+        mock_get.return_value = resp
+
+        result = fetch_current_conditions(35.9, -86.8, {})
+        assert result is not None
+        assert os.path.exists(W_MOD._CONDITIONS_DISK_CACHE)
+
+        on_disk, ts = W_MOD._load_last_good_conditions_from_disk()
+        assert on_disk["temp"] == result["temp"]
+        assert ts > 0
+
+    @patch("modules.weather.requests.get")
+    def test_fetch_failure_falls_back_to_disk_cache_from_a_prior_process(self, mock_get):
+        # Simulate a prior successful process: nothing in memory, but a
+        # last-good result already saved to disk.
+        good = _open_meteo_response(weather_code=0, freezing_level_m=2000.0)
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = good
+        mock_get.return_value = resp
+        parsed = _do_fetch_conditions("http://fake", 35.9, -86.8, {})
+        W_MOD._save_last_good_conditions_to_disk(parsed, time.time() - 600)
+
+        # This process's in-memory caches are empty (fresh process), and the
+        # live fetch fails both attempts.
+        mock_get.side_effect = ConnectionError("network down")
+        result = fetch_current_conditions(35.9, -86.8, {})
+
+        assert result is not None
+        assert result["temp"] == parsed["temp"]
+        assert "stale_as_of" in result
+
+    @patch("modules.weather.requests.get")
+    def test_fetch_failure_with_no_disk_cache_returns_none(self, mock_get):
+        mock_get.side_effect = ConnectionError("network down")
+        assert fetch_current_conditions(35.9, -86.8, {}) is None
 
 
 class TestFetchLightningStrikes:
@@ -774,6 +834,36 @@ class TestDrawStaleBanner:
         banner = _draw_stale_banner(img, 5.0, {})
         below = banner.crop((0, _STALE_BANNER_H, banner.width, banner.height))
         assert set(below.getdata()) == {(0, 0, 0)}
+
+
+class TestRadarSourceAlternation:
+    def test_alternates_ridge_and_rainviewer_across_cycles(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+        seen_sources = []
+
+        def fake_generate_weather_image(config, special_msg=None):
+            seen_sources.append(config["radar_source"])
+            return None, False, None
+
+        with patch("modules.weather.generate_weather_image", side_effect=fake_generate_weather_image), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            config = {"station": {"name": "KOHX"}, "radar_source": "alternate"}
+            W_MOD.generate(config)
+            W_MOD.generate(config)
+            W_MOD.generate(config)
+
+        assert seen_sources == ["ridge", "rainviewer", "ridge"]
+
+    def test_non_alternate_source_is_left_untouched(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)) as fake, \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            W_MOD.generate({"station": {"name": "KOHX"}, "radar_source": "rainviewer"})
+
+        assert fake.call_args[0][0]["radar_source"] == "rainviewer"
 
 
 class TestGenerateStaleFallback:
