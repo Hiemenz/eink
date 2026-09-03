@@ -140,6 +140,36 @@ class TestImagesAreEqual:
         img2 = Image.new("RGB", (10, 10), (0, 255, 0))
         assert images_are_equal(img1, img2) is False
 
+    def test_ignore_region_none_behaves_as_before(self):
+        img1 = Image.new("RGB", (10, 10), (255, 0, 0))
+        img2 = Image.new("RGB", (10, 10), (0, 255, 0))
+        assert images_are_equal(img1, img2, ignore_region=None) is False
+
+    def test_difference_inside_ignore_region_is_ignored(self):
+        img1 = Image.new("RGB", (10, 10), (255, 255, 255))
+        img2 = img1.copy()
+        draw = ImageDraw.Draw(img2)
+        draw.rectangle([(1, 1), (4, 4)], fill=(0, 0, 0))
+
+        assert images_are_equal(img1, img2) is False
+        assert images_are_equal(img1, img2, ignore_region=(0, 0, 5, 5)) is True
+
+    def test_difference_outside_ignore_region_still_detected(self):
+        img1 = Image.new("RGB", (10, 10), (255, 255, 255))
+        img2 = img1.copy()
+        draw = ImageDraw.Draw(img2)
+        draw.rectangle([(8, 8), (9, 9)], fill=(0, 0, 0))
+
+        # A small ignore box elsewhere doesn't mask this difference.
+        assert images_are_equal(img1, img2, ignore_region=(0, 0, 5, 5)) is False
+
+    def test_ignore_region_does_not_mutate_source_images(self):
+        img1 = Image.new("RGB", (10, 10), (255, 255, 255))
+        img2 = img1.copy()
+        images_are_equal(img1, img2, ignore_region=(0, 0, 5, 5))
+        assert img1.getpixel((0, 0)) == (255, 255, 255)
+        assert img2.getpixel((0, 0)) == (255, 255, 255)
+
 
 class TestQuantizeToSevenColors:
     def test_near_white_snaps_to_white(self, tmp_path):
@@ -752,6 +782,24 @@ class TestDrawCornerLabels:
         assert (0, 0, 0) in colors
         assert _STALE_COLOR not in colors
 
+    def test_returns_bounding_box_of_drawn_caption(self):
+        img = Image.new("RGB", (200, 100), (255, 255, 255))
+        box = _draw_corner_labels(img, ["Radar: 3:14 PM", "Trend: steady"], {})
+        assert box is not None
+        x0, y0, x1, y1 = box
+        assert x1 > x0
+        assert y1 > y0
+        # The box sits in the bottom-left corner and stays within the canvas.
+        assert 0 <= x0 < x1 <= img.width
+        assert 0 <= y0 < y1 <= img.height
+        assert y1 > img.height // 2
+        # Every drawn (non-background) pixel is contained within the box.
+        arr = np.array(img)
+        drawn = np.any(arr != 255, axis=-1)
+        ys, xs = np.nonzero(drawn)
+        assert xs.min() >= x0 and xs.max() < x1
+        assert ys.min() >= y0 and ys.max() < y1
+
     def test_colored_tuple_line_survives_the_box_snap(self):
         img = Image.new("RGB", (200, 100), (255, 255, 255))
         _draw_corner_labels(img, [("Radar: 43 min old", _STALE_COLOR)], {})
@@ -773,8 +821,9 @@ class TestDrawCornerLabels:
 
     def test_no_lines_draws_nothing(self):
         img = Image.new("RGB", (200, 100), (255, 255, 255))
-        _draw_corner_labels(img, [], {})
+        result = _draw_corner_labels(img, [], {})
         assert set(img.getdata()) == {(255, 255, 255)}
+        assert result is None
 
 
 class TestRadarStaleness:
@@ -891,6 +940,130 @@ class TestGenerateStaleFallback:
         with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
              patch("modules.weather.get_special_weather_messages", return_value=None):
             assert W_MOD.generate({"station": {"name": "KOHX"}}) is None
+
+
+class TestGenerateSkipsPushWhenUnchanged:
+    """generate_weather_image() returning (None, False, <a real region>) means it
+    built a full composite and found it unchanged — a real success, not a
+    failure. generate() must not treat this like a fetch failure (no stale
+    banner, no forced push)."""
+
+    def test_unchanged_region_skips_push_without_stale_banner(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+        # calculate_non_bw_percentage() runs unconditionally after the
+        # unchanged/failure branch, so the quantized file must exist.
+        cached = tmp_path / "radar" / "eink_quantized_display_KOHX.bmp"
+        Image.new("RGB", (300, 100), (255, 255, 255)).save(cached, format="bmp")
+
+        with patch("modules.weather.generate_weather_image",
+                   return_value=(None, False, (10, 20, 100, 200))), \
+             patch("modules.weather.get_special_weather_messages", return_value=None), \
+             patch("modules.weather._draw_stale_banner") as mock_banner:
+            result = W_MOD.generate({"station": {"name": "KOHX"}})
+
+        assert result is None
+        mock_banner.assert_not_called()
+        assert not (tmp_path / "radar" / "eink_stale_display_KOHX.bmp").exists()
+
+    def test_failure_path_is_unaffected_by_the_new_branch(self, tmp_path, monkeypatch):
+        """Regression guard: a genuine failure (region=None) must still get
+        the stale-banner fallback, unchanged by the new branch above it."""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "radar").mkdir()
+        cached = tmp_path / "radar" / "eink_quantized_display_KOHX.bmp"
+        Image.new("RGB", (300, 100), (255, 255, 255)).save(cached, format="bmp")
+
+        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
+             patch("modules.weather.get_special_weather_messages", return_value=None):
+            result = W_MOD.generate({"station": {"name": "KOHX"}})
+
+        assert result is not None
+        assert os.path.basename(result) == "eink_stale_display_KOHX.bmp"
+
+
+class TestGenerateWeatherImageRadarUnchangedDetection:
+    """generate_weather_image() itself (not the generate() wrapper) — the
+    radar_caption_rect plumbing and the crop-mode primary_region fix."""
+
+    def _config(self, tmp_path, radar_mode):
+        radar_dir = tmp_path / "radar"
+        radar_dir.mkdir(exist_ok=True)
+        return {
+            "width": 80, "height": 48,
+            "station": {"name": "KOHX", "location": "Nashville"},
+            "radar_source": "rainviewer",
+            "radar_mode": radar_mode,
+            "forecast_location": {"latitude": 36.0, "longitude": -86.8},
+            "output_path": str(radar_dir / "eink_display_KOHX.bmp"),
+            "quantized_path": str(radar_dir / "eink_quantized_display_KOHX.bmp"),
+            "check_special_weather": False,
+        }
+
+    def test_crop_mode_sets_primary_region_on_success(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config = self._config(tmp_path, "crop")
+        fake_radar = Image.new("RGB", (80, 48), (0, 200, 0))
+
+        with patch("modules.weather._fetch_rainviewer_image",
+                   return_value=(fake_radar, 1_700_000_000, None)):
+            _, _, region = W_MOD.generate_weather_image(config)
+
+        assert region == (0, 0, 80, 48)
+
+    def test_caption_only_difference_is_treated_as_unchanged(self, tmp_path, monkeypatch):
+        """The end-to-end case this whole change exists for: two renders whose
+        radar pixels are identical but whose caption box (a stand-in for the
+        real wall-clock nowcast countdown) differs must still be detected as
+        'nothing to push' on the second call."""
+        monkeypatch.chdir(tmp_path)
+        config = self._config(tmp_path, "crop")
+
+        def make_radar(caption_text):
+            img = Image.new("RGB", (80, 48), (0, 200, 0))
+            rect = _draw_corner_labels(img, [caption_text], config)
+            return img, rect
+
+        img1, rect1 = make_radar("Dashes: +15 min")
+        with patch("modules.weather._fetch_rainviewer_image",
+                   return_value=(img1, 1_700_000_000, rect1)):
+            path1, updated1, region1 = W_MOD.generate_weather_image(config)
+        assert updated1 is True
+        assert path1 is not None
+
+        img2, rect2 = make_radar("Dashes: +10 min")
+        with patch("modules.weather._fetch_rainviewer_image",
+                   return_value=(img2, 1_700_000_000, rect2)):
+            path2, updated2, region2 = W_MOD.generate_weather_image(config)
+
+        assert path2 is None
+        assert updated2 is False
+        assert region2 is not None  # a real "unchanged", not a failure
+
+    def test_real_pixel_difference_outside_caption_is_still_detected(self, tmp_path, monkeypatch):
+        """Regression guard: masking the caption box must not hide a real
+        change elsewhere in the radar image."""
+        monkeypatch.chdir(tmp_path)
+        config = self._config(tmp_path, "crop")
+
+        def make_radar(caption_text, radar_color):
+            img = Image.new("RGB", (80, 48), radar_color)
+            rect = _draw_corner_labels(img, [caption_text], config)
+            return img, rect
+
+        img1, rect1 = make_radar("Dashes: +15 min", (0, 200, 0))
+        with patch("modules.weather._fetch_rainviewer_image",
+                   return_value=(img1, 1_700_000_000, rect1)):
+            W_MOD.generate_weather_image(config)
+
+        # Same caption text, but the radar pixels themselves changed.
+        img2, rect2 = make_radar("Dashes: +15 min", (200, 0, 0))
+        with patch("modules.weather._fetch_rainviewer_image",
+                   return_value=(img2, 1_700_000_000, rect2)):
+            path2, updated2, _ = W_MOD.generate_weather_image(config)
+
+        assert path2 is not None
+        assert updated2 is True
 
 
 class TestNowcastArrival:
