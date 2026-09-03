@@ -125,7 +125,7 @@ Modules are self-contained. They read their own config section, fetch data (HTTP
 | Finance | `stocks`, `crypto_market` |
 | Local / Live | `franklin_cam`, `parking_garage`, `flight_radar`, `traffic`, `sports_scores` |
 | Utilities | `text_display`, `qrcode_display`, `terminal`, `countdown`, `agenda`, `movie_slideshow` |
-| Meta | `module_cycler`, `brain_status` |
+| Meta | `module_cycler`, `brain_status`, `system_health` |
 
 **Adding a module** — four steps:
 

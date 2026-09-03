@@ -67,6 +67,7 @@ eink/
 │   ├── movie_slideshow.py   # Sequential image frame player
 │   ├── module_cycler.py     # Cycles through a configured list of modules
 │   ├── brain_status.py      # AI brain / knowledge base status display
+│   ├── system_health.py     # Pi vitals (CPU/mem/disk/uptime) + module watchdog summary
 │   ├── forecast_graph.py    # 48-hour temp + precip graph (Open-Meteo, keyless)
 │   ├── aurora.py            # Aurora forecast — Kp-index gauge (NOAA SWPC, keyless)
 │   ├── pollen.py            # Pollen count by species (Open-Meteo, keyless)

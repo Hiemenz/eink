@@ -53,13 +53,17 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
 #          | sudoku_puzzle | poem_of_day | news_headlines | crypto_market
 #          | franklin_cam | parking_garage | module_cycler | brain_status
-#          | game_of_life | river_height
+#          | game_of_life | river_height | system_health
 active_module: weather
 
 # ── AI Brain Status Display ───────────────────────────────────────────────────
 brain_status:
   output_path: images/brain_status.bmp
   db_path: brain.db            # path to brain.db (relative to project root)
+
+# ── System Health Display ──────────────────────────────────────────────────
+system_health:
+  output_path: images/system_health.bmp
 # Fallback refresh interval for modules not listed in MODULE_INTERVALS.
 # Each module can also define its own update_interval in its config section below.
 update_interval: 21600   # 6 hours fallback

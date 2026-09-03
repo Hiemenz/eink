@@ -64,6 +64,7 @@ ALL_MODULES = [
     "parking_garage",
     "module_cycler",
     "brain_status",
+    "system_health",
     "interesting_fact",
     "qrcode_display",
     "claude_news",
