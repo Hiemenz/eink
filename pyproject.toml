@@ -4,6 +4,7 @@ version = "0.1.0"
 description = ""
 authors = ["hiemenz <kevinhiemenz1@gmail.com>"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -21,7 +22,7 @@ pyarrow = ">=16.0.0"
 pandas = "^2.2.0"
 astral = "^3.2"
 qrcode = "^8.2"
-discord-py = ">=2.3"
+"discord.py" = "^2.3.2"
 python-dotenv = ">=1.0"
 yt-dlp = ">=2024.0.0"
 
@@ -29,14 +30,11 @@ yt-dlp = ">=2024.0.0"
 duckdb = "^1.1.0"
 anthropic = "^0.40.0"
 openai = {version = "^1.0.0", optional = true}
-"discord.py" = {version = "^2.3.2", optional = true}
 psutil = "^6.0.0"
 pyyaml = "^6.0"
 
 [tool.poetry.extras]
 openai = ["openai"]
-discord = ["discord.py"]
-all = ["openai", "discord.py"]
 
 
 [tool.poetry.group.dev.dependencies]
