@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from utils import MODULE_MAP, MODULE_INTERVALS, get_font, validate_config
+from utils import MODULE_MAP, MODULE_INTERVALS, get_font, get_module_interval, validate_config
 
 
 class TestModuleRegistrations:
@@ -33,6 +33,32 @@ class TestModuleRegistrations:
             assert MODULE_INTERVALS.get(name) == 86400, (
                 f"{name} should be 86400s (24h)"
             )
+
+
+class TestGetModuleInterval:
+    def test_per_module_override_wins_over_table(self):
+        config = {"weather": {"update_interval": 999}}
+        assert get_module_interval("weather", config) == 999
+
+    def test_falls_back_to_module_intervals_table(self):
+        config = {}
+        assert get_module_interval("weather", config) == MODULE_INTERVALS["weather"]
+
+    def test_falls_back_to_global_update_interval(self):
+        config = {"update_interval": 1234}
+        assert get_module_interval("not_a_real_module", config) == 1234
+
+    def test_falls_back_to_hardcoded_default(self):
+        config = {}
+        assert get_module_interval("not_a_real_module", config) == 21600
+
+    def test_module_cfg_without_update_interval_key_falls_through_to_table(self):
+        config = {"weather": {"some_other_key": "value"}}
+        assert get_module_interval("weather", config) == MODULE_INTERVALS["weather"]
+
+    def test_module_cfg_that_is_not_a_dict_falls_through_to_table(self):
+        config = {"weather": "not-a-dict"}
+        assert get_module_interval("weather", config) == MODULE_INTERVALS["weather"]
 
 
 class TestGetFont:

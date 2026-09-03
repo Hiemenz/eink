@@ -23,7 +23,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from utils import MODULE_MAP, MODULE_INTERVALS, get_logger, record_health, validate_config
+from utils import MODULE_MAP, get_logger, get_module_interval, record_health, validate_config
 
 logger = get_logger("main")
 
@@ -105,8 +105,8 @@ def main() -> None:
         logger.error("Unknown module '%s'. Valid options: %s", active, list(MODULE_MAP))
         sys.exit(1)
 
-    # Per-module update interval — prefer MODULE_INTERVALS over the global fallback
-    interval = MODULE_INTERVALS.get(active, config.get("update_interval", 21600))
+    # Per-module update interval — see utils.get_module_interval() for precedence
+    interval = get_module_interval(active, config)
     config["_effective_interval"] = interval
     logger.info("Running module: %s (interval: %ds)", active, interval)
     mod = importlib.import_module(module_path)

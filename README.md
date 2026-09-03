@@ -165,12 +165,12 @@ Intervals are defined in `MODULE_INTERVALS` in `utils.py` and apply automaticall
 |---|---|
 | 1 min | `now_playing` |
 | 2 min | `franklin_cam` |
-| 5 min | `weather`, `flight_radar`, `sports_scores`, `brain_status`, `iss_tracker`, `stocks` |
+| 5 min | `weather`, `flight_radar`, `sports_scores`, `brain_status`, `system_health`, `iss_tracker`, `stocks`, `business_idea` |
 | 10 min | `parking_garage`, `crypto_market`, `earthquakes`, `traffic` |
 | 15 min | `questions`, `agenda` |
 | 30 min | `forecast_graph`, `aurora`, `news_headlines`, `claude_news`, `carbon_intensity` |
 | 1 hr | `air_quality`, `moon_phase`, `pollen`, `countdown`, `interesting_fact` |
-| 24 hr | `xkcd`, `word_of_day`, `nasa_apod`, `chess_puzzle`, `business_idea`, and all other daily modules |
+| 24 hr | `xkcd`, `word_of_day`, `nasa_apod`, `chess_puzzle`, and all other daily modules |
 
 ---
 
@@ -276,7 +276,7 @@ Access at `http://<pi-hostname>.local:5000`. It supports switching modules, trig
 poetry run pytest tests/
 ```
 
-1,644 tests across all 46 display modules (one `tests/test_<module>.py` per module, plus `test_module_contracts.py` for cross-cutting checks and `test_health.py` for the watchdog helpers). None hit real network or hardware — external HTTP calls are mocked with `unittest.mock`, and file state uses pytest's `tmp_path`. Coverage goes beyond pure helpers to the actual `generate()`/`_render()` entry points, since that's the code path a real display refresh takes.
+1,693 tests across all 47 display modules (one `tests/test_<module>.py` per module, plus `test_module_contracts.py` for cross-cutting checks and `test_health.py` for the watchdog helpers). None hit real network or hardware — external HTTP calls are mocked with `unittest.mock`, and file state uses pytest's `tmp_path`. Coverage goes beyond pure helpers to the actual `generate()`/`_render()` entry points, since that's the code path a real display refresh takes.
 
 ---
 

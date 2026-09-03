@@ -278,7 +278,7 @@ A run counts as a success only if `generate()` didn't raise *and* the hardware p
 
 ## Testing
 
-Tests live in `tests/`, one file per module (`test_<module>.py`) — 1,644 tests across all 46 display modules as of the last full-coverage sweep, including `test_health.py` for the watchdog helpers. Conventions:
+Tests live in `tests/`, one file per module (`test_<module>.py`) — 1,693 tests across all 47 display modules as of the last full-coverage sweep, including `test_health.py` for the watchdog helpers. Conventions:
 
 - Mock external HTTP calls (`unittest.mock.patch`/`MagicMock`) so tests run offline and fast — no real network or hardware access, ever.
 - Use `tmp_path` for any file state (caches, output BMPs, `data/health.json`) so tests never touch real project files.
