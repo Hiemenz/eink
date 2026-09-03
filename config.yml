@@ -129,8 +129,13 @@ movie_slideshow:
   output_path: images/movie_display.bmp
   fill_mode: fit            # "fit" (letterbox) or "crop" (fill + center crop)
   frame_step: 1             # Frames to advance per display cycle (e.g. 30 to skip ahead faster)
+  frame_hold: 1             # Display cycles to hold each frame before advancing (e.g. 3 to slow down)
   extract_fps: 1            # FPS used when extracting frames from video files
   show_frame_counter: true  # Show "Movie  42/1200  [1/3]" chip in bottom-right corner
+  letterbox_color: black    # Bar color for "fit" mode — a name or [r, g, b]
+  movie_overrides: {}       # Per-movie overrides, e.g.:
+                             #   movie_overrides:
+                             #     interstellar: {fill_mode: crop, frame_step: 2}
 
 # ── NASA Astronomy Picture of the Day ────────────────────────────────────────
 nasa_apod:

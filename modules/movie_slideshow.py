@@ -15,9 +15,17 @@ Config keys under movie_slideshow:
   playlist:            []    list of movie folder names to cycle through
   output_path:         images/movie_display.bmp
   fill_mode:           fit   "fit" (letterbox) or "crop" (fill + center crop)
-  frame_step:          1     frames to skip per display cycle
+  frame_step:          1     frames to advance per display cycle
+  frame_hold:          1     display cycles to hold each frame before advancing
   extract_fps:         1     fps used when extracting frames from video files
   show_frame_counter:  true  draw "Movie  42/1200  [1/3]" chip in corner
+  letterbox_color:     black bar color used by "fit" mode (name or [r,g,b])
+  movie_overrides:     {}    per-movie {fill_mode, frame_step, frame_hold,
+                              extract_fps} overrides keyed by movie folder name —
+                              takes precedence over the top-level settings above
+                              for that movie only, e.g.:
+                                movie_overrides:
+                                  interstellar: {fill_mode: crop, frame_step: 2}
 """
 
 import os
@@ -45,10 +53,12 @@ def _load_state(movies_root):
     if os.path.exists(path):
         try:
             with open(path) as f:
-                return json.load(f)
+                state = json.load(f)
+                state.setdefault("hold_count", 0)
+                return state
         except (json.JSONDecodeError, OSError):
             pass
-    return {"movie_index": 0, "frame_index": 0}
+    return {"movie_index": 0, "frame_index": 0, "hold_count": 0}
 
 
 def _save_state(movies_root, state):
@@ -164,12 +174,12 @@ def _list_frames(directory):
 # Image layout
 # ---------------------------------------------------------------------------
 
-def _fit_image(img, width, height):
-    """Letterbox: fit entirely within frame, black bars on sides / top."""
+def _fit_image(img, width, height, letterbox_color="black"):
+    """Letterbox: fit entirely within frame, bars on sides / top in letterbox_color."""
     ratio = min(width / img.width, height / img.height)
     nw, nh = int(img.width * ratio), int(img.height * ratio)
     img = img.resize((nw, nh), Image.LANCZOS)
-    canvas = Image.new("RGB", (width, height), "black")
+    canvas = Image.new("RGB", (width, height), tuple(letterbox_color) if isinstance(letterbox_color, list) else letterbox_color)
     canvas.paste(img, ((width - nw) // 2, (height - nh) // 2))
     return canvas
 
@@ -229,8 +239,11 @@ def generate(config):
     playlist = cfg.get("playlist", [])
     output_path = cfg.get("output_path", "movie_display.bmp")
     fill_mode = cfg.get("fill_mode", "fit")
-    frame_step = max(1, int(cfg.get("frame_step", 1)))
-    extract_fps = max(0.1, float(cfg.get("extract_fps", 1)))
+    frame_step = cfg.get("frame_step", 1)
+    frame_hold = cfg.get("frame_hold", 1)
+    extract_fps = cfg.get("extract_fps", 1)
+    letterbox_color = cfg.get("letterbox_color", "black")
+    movie_overrides = cfg.get("movie_overrides", {})
     show_counter = cfg.get("show_frame_counter", True)
     width = config.get("width", 800)
     height = config.get("height", 480)
@@ -244,10 +257,19 @@ def generate(config):
     state = _load_state(movies_root)
     movie_idx = state.get("movie_index", 0) % len(movies)
     frame_idx = state.get("frame_index", 0)
+    hold_count = state.get("hold_count", 0)
 
     movie_name = movies[movie_idx]
     movie_dir = os.path.join(movies_root, movie_name)
-    frames_dir = _prepare_frames(movie_dir, extract_fps)
+
+    # Per-movie overrides take precedence over the top-level settings.
+    overrides = movie_overrides.get(movie_name, {})
+    eff_fill_mode = overrides.get("fill_mode", fill_mode)
+    eff_frame_step = max(1, int(overrides.get("frame_step", frame_step)))
+    eff_frame_hold = max(1, int(overrides.get("frame_hold", frame_hold)))
+    eff_extract_fps = max(0.1, float(overrides.get("extract_fps", extract_fps)))
+
+    frames_dir = _prepare_frames(movie_dir, eff_extract_fps)
     frames = _list_frames(frames_dir)
 
     if not frames:
@@ -261,7 +283,8 @@ def generate(config):
     print(f"[movie] {movie_name}  frame {frame_idx + 1}/{len(frames)}: {os.path.basename(frame_path)}")
 
     img = Image.open(frame_path).convert("RGB")
-    canvas = _crop_image(img, width, height) if fill_mode == "crop" else _fit_image(img, width, height)
+    canvas = (_crop_image(img, width, height) if eff_fill_mode == "crop"
+              else _fit_image(img, width, height, letterbox_color))
 
     if show_counter:
         _draw_frame_counter(canvas, movie_name, frame_idx, len(frames),
@@ -271,16 +294,23 @@ def generate(config):
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
     canvas.save(output_path)
 
-    # Advance; when this movie ends, move to the next in the playlist
-    next_frame = frame_idx + frame_step
-    if next_frame >= len(frames):
-        next_movie = (movie_idx + 1) % len(movies)
-        next_frame = 0
-        print(f"[movie] Finished '{movie_name}', advancing to '{movies[next_movie]}'")
+    # Hold the current frame for eff_frame_hold cycles before advancing;
+    # when this movie ends, move to the next in the playlist.
+    if hold_count + 1 >= eff_frame_hold:
+        next_hold = 0
+        next_frame = frame_idx + eff_frame_step
+        if next_frame >= len(frames):
+            next_movie = (movie_idx + 1) % len(movies)
+            next_frame = 0
+            print(f"[movie] Finished '{movie_name}', advancing to '{movies[next_movie]}'")
+        else:
+            next_movie = movie_idx
     else:
+        next_hold = hold_count + 1
+        next_frame = frame_idx
         next_movie = movie_idx
 
-    _save_state(movies_root, {"movie_index": next_movie, "frame_index": next_frame})
+    _save_state(movies_root, {"movie_index": next_movie, "frame_index": next_frame, "hold_count": next_hold})
     return output_path
 
 
