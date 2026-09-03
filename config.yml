@@ -261,7 +261,7 @@ business_idea:
   source_dir: ../business-ideas
   idea_dirs: [main-income-ideas, side-income-ideas, discovered-problems, proof-of-concepts]
   shown_cache: data/business_idea_shown.json
-  update_interval: 86400       # seconds — how often to advance to a new idea
+  update_interval: 300         # seconds — how often to advance to a new idea (5 min)
 
 # ── ISS Tracker (wheretheiss.at, keyless) ────────────────────────────────────
 iss_tracker:

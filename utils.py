@@ -58,7 +58,7 @@ MODULE_INTERVALS: Dict[str, int] = {
     "traffic":           600,    # 10 min — incident data
     "agenda":            900,    # 15 min — calendar events
     "river_height":      900,    # 15 min — USGS gauge updates
-    "business_idea":    86400,    # 24 hours — one new idea per day
+    "business_idea":      300,    # 5 min — cycle through the sibling repo's markdown ideas
     "system_health":     300,    # 5 min — local psutil/thermal read, cheap
 }
 

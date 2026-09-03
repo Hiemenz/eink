@@ -17,7 +17,7 @@ Config section (add to config.yml):
     source_dir: ../business-ideas
     idea_dirs: [main-income-ideas, side-income-ideas, discovered-problems, proof-of-concepts]
     shown_cache: data/business_idea_shown.json
-    update_interval: 86400   # seconds — how often to advance to a new idea
+    update_interval: 300      # seconds — how often to advance to a new idea
 """
 
 import glob
@@ -365,7 +365,7 @@ def generate(config):
         source_dir: ../business-ideas
         idea_dirs: [main-income-ideas, side-income-ideas, discovered-problems, proof-of-concepts]
         shown_cache: data/business_idea_shown.json
-        update_interval: 86400   # seconds — how often to advance to a new idea
+        update_interval: 300      # seconds — how often to advance to a new idea
     """
     cfg = config.get("business_idea", {})
     output_path = cfg.get("output_path", "images/business_idea.bmp")
