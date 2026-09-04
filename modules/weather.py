@@ -808,10 +808,24 @@ def save_state(state_file, state):
         json.dump(state, f)
 
 
-def images_are_equal(img1, img2):
+def images_are_equal(img1, img2, ignore_region: Optional[Tuple[int, int, int, int]] = None):
+    """Exact pixel comparison, optionally ignoring an `(x0, y0, x1, y1)` region.
+
+    Used to detect a "nothing to push" radar cycle while disregarding a
+    wall-clock-derived caption (nowcast countdown, staleness age) that ticks
+    on nearly every render regardless of whether the underlying data changed.
+    """
     if img1.mode != img2.mode or img1.size != img2.size:
         return False
-    return np.array_equal(np.asarray(img1), np.asarray(img2))
+    a1 = np.asarray(img1)
+    a2 = np.asarray(img2)
+    if ignore_region is not None:
+        x0, y0, x1, y1 = ignore_region
+        a1 = a1.copy()
+        a2 = a2.copy()
+        a1[y0:y1, x0:x1] = 0
+        a2[y0:y1, x0:x1] = 0
+    return np.array_equal(a1, a2)
 
 
 def distance(c1, c2):
@@ -1758,7 +1772,7 @@ def _draw_nowcast_outline(img: Image.Image, nowcast_rgba: Image.Image) -> bool:
 
 def _draw_corner_labels(
     img: Image.Image, lines: List, config: dict, margin: int = 6
-) -> None:
+) -> Optional[Tuple[int, int, int, int]]:
     """
     Draw a stacked white caption box in the bottom-left of the radar canvas.
 
@@ -1773,9 +1787,17 @@ def _draw_corner_labels(
     staleness warning). Non-black lines bypass the box-wide luminance snap — which
     assumes only black/white are present — and are re-snapped individually against
     white with `_snap_region_2color` per the exact-palette-in/out rule.
+
+    Returns the box's `(x0, y0, x1, y1)` bounding rect (in `img`-local
+    coordinates), or `None` if nothing was drawn — some of these lines (the
+    nowcast countdown, the "N min old" staleness line) are wall-clock-derived
+    and tick every render regardless of whether the underlying radar data
+    changed. Callers can use the returned rect to exclude this box from an
+    unchanged-image comparison so a ticking countdown alone doesn't force a
+    push.
     """
     if not lines:
-        return
+        return None
 
     entries = [line if isinstance(line, tuple) else (line, (0, 0, 0)) for line in lines]
 
@@ -1818,6 +1840,8 @@ def _draw_corner_labels(
             img, (bb[0] - 1, bb[1] - 1, bb[2] + 1, bb[3] + 1),
             (255, 255, 255), color,
         )
+
+    return box
 
 
 _RANGE_RING_KM = (25, 50, 100)
@@ -1919,7 +1943,7 @@ def _pick_adaptive_zoom(
 def _fetch_rainviewer_image(
     lat: float, lon: float, zoom: int, width: int, height: int,
     color_scheme: int, headers: dict, config: dict = None,
-) -> Tuple[Optional[Image.Image], Optional[int]]:
+) -> Tuple[Optional[Image.Image], Optional[int], Optional[Tuple[int, int, int, int]]]:
     """
     Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
 
@@ -1928,7 +1952,8 @@ def _fetch_rainviewer_image(
     projected +30 min precipitation edge from the nowcast frames, and captions the
     bottom-left corner with the frame time, storm speed/heading and arrival estimate.
 
-    Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp), or (None, None).
+    Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp,
+    caption box rect in image-local coords or None), or (None, None, None).
     """
     try:
         api_resp = requests.get(
@@ -1939,12 +1964,12 @@ def _fetch_rainviewer_image(
         data = api_resp.json()
     except Exception as e:
         logger.error("RainViewer API request failed: %s", e)
-        return None, None
+        return None, None, None
 
     radar_frames = data.get("radar", {}).get("past", [])
     if not radar_frames:
         logger.error("No radar frames in RainViewer API response")
-        return None, None
+        return None, None, None
 
     latest_frame = radar_frames[-1]
     latest_path  = latest_frame["path"]
@@ -2091,9 +2116,9 @@ def _fetch_rainviewer_image(
             caption_lines.insert(
                 0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
             )
-    _draw_corner_labels(result, caption_lines, cfg)
+    caption_rect = _draw_corner_labels(result, caption_lines, cfg)
 
-    return result, frame_ts
+    return result, frame_ts, caption_rect
 
 
 def _fetch_radar_image(radar_url: str, headers: dict):
@@ -2732,6 +2757,11 @@ def generate_weather_image(config, special_msg=None):
     # seven_color always carries the legend strip; panel mode carries it optionally.
     radar_h = (height - _LEGEND_H) if (panel_legend or radar_mode == "seven_color") else height
 
+    # Local-coordinate rect of the radar's bottom-left caption box (set below,
+    # RainViewer only) — translated to final_img coordinates after the mode
+    # dispatch, once overlay_geom confirms no scaling occurred.
+    radar_caption_rect = None
+
     if radar_source == "rainviewer":
         forecast_loc = config.get("forecast_location", {})
         rv_lat = _first_set(config.get("rainviewer_lat"), forecast_loc.get("latitude"))
@@ -2743,7 +2773,7 @@ def generate_weather_image(config, special_msg=None):
         rv_color = config.get("rainviewer_color_scheme", 4)
         # Pre-size to the exact radar canvas so mode scaling is a no-op
         rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
+        radar_img, rv_frame_ts, radar_caption_rect = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
         if radar_img is None:
             logger.error("RainViewer fetch failed — cannot generate radar image.")
             return None, False, None
@@ -2795,6 +2825,7 @@ def generate_weather_image(config, special_msg=None):
         top = (new_h - height) // 2
         processed_radar = scaled_radar.crop((left, top, left + width, top + height))
         overlay_geom = (0, 0, width, height)
+        primary_region = (0, 0, width, height)
     elif radar_mode == "fit":
         # Strip 24px NWS title bar (top) and color legend (bottom) — RIDGE GIF only.
         # A RainViewer composite has neither, so cropping it would discard 48px of
@@ -2939,6 +2970,21 @@ def generate_weather_image(config, special_msg=None):
     else:
         raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', 'panel', or 'seven_color'.")
 
+    # Translate the radar caption box (local to the RainViewer composite) into
+    # final_img coordinates, but only if overlay_geom confirms this mode pasted
+    # it unscaled — every mode fetches RainViewer pre-sized to its radar area,
+    # so this holds today, but the check fails safe (no masking) if that ever
+    # changes rather than silently mis-masking the wrong pixels.
+    radar_caption_final_rect = None
+    if (radar_caption_rect is not None and overlay_geom is not None
+            and radar_source == "rainviewer"):
+        ox, oy, ow, oh = overlay_geom
+        if ow == rv_w and oh == radar_h:
+            radar_caption_final_rect = (
+                radar_caption_rect[0] + ox, radar_caption_rect[1] + oy,
+                radar_caption_rect[2] + ox, radar_caption_rect[3] + oy,
+            )
+
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
 
@@ -3002,7 +3048,7 @@ def generate_weather_image(config, special_msg=None):
     more_colors = config.get('more_colors', False)
     quantize_to_seven_colors(output_path, quantized_output_path, more_colors, threshold=75)
     new_quant = Image.open(quantized_output_path).convert("RGB")
-    if old_quant is not None and images_are_equal(old_quant, new_quant):
+    if old_quant is not None and images_are_equal(old_quant, new_quant, ignore_region=radar_caption_final_rect):
         logger.info("Station %s: Quantized image unchanged.", station)
         return None, False, primary_region
     return quantized_output_path, True, primary_region
@@ -3095,28 +3141,39 @@ def generate(config):
         # to a concrete source only for the generate_weather_image() call above.
         config["radar_source"] = configured_radar_source
     if default_image_path is None and not default_updated:
-        # Fetch failed or produced an unchanged image: fall back to the previous
-        # render if there is one. On a cold start (or after `radar/` is cleaned)
-        # there is not, and there is nothing to display or measure.
-        if not os.path.exists(config["quantized_path"]):
-            logger.error("Radar generation failed and no cached image exists — skipping cycle.")
-            return None
-        # A total fetch failure with a cached render available degrades gracefully:
-        # re-push that render (banner-stamped, so it reads as stale rather than
-        # current) instead of silently leaving whatever module the cycler had up.
-        # Staleness is measured off the cached file's mtime, not a baked-in radar
-        # frame time, so it also covers RIDGE (which has no frame_ts) and keeps
-        # growing correctly across consecutive failed cycles.
-        age_min = (now - os.path.getmtime(config["quantized_path"])) / 60.0
-        stale_path = os.path.join(radar_folder, f"eink_stale_display_{default_station}.bmp")
-        cached_img = Image.open(config["quantized_path"]).convert("RGB")
-        _draw_stale_banner(cached_img, age_min, config).save(stale_path, format="bmp")
-        logger.warning(
-            "Radar fetch failed — re-pushing cached render with a stale banner (%.0f min old).",
-            age_min,
-        )
-        default_image_path = stale_path
-        default_updated = True
+        if default_region is not None:
+            # generate_weather_image() built a full composite and found it
+            # pixel-identical (modulo the radar's live caption) to the last
+            # push — a real "nothing to show", not a failure. Nothing to do;
+            # should_update stays False below and this cycle pushes nothing.
+            logger.info(
+                "Station %s: radar unchanged — skipping push.", default_station
+            )
+        else:
+            # Genuine failure (generate_weather_image() never got as far as
+            # building a radar composite — region stays None on every one of
+            # its early-failure returns): fall back to the previous render if
+            # there is one. On a cold start (or after `radar/` is cleaned)
+            # there is not, and there is nothing to display or measure.
+            if not os.path.exists(config["quantized_path"]):
+                logger.error("Radar generation failed and no cached image exists — skipping cycle.")
+                return None
+            # A total fetch failure with a cached render available degrades gracefully:
+            # re-push that render (banner-stamped, so it reads as stale rather than
+            # current) instead of silently leaving whatever module the cycler had up.
+            # Staleness is measured off the cached file's mtime, not a baked-in radar
+            # frame time, so it also covers RIDGE (which has no frame_ts) and keeps
+            # growing correctly across consecutive failed cycles.
+            age_min = (now - os.path.getmtime(config["quantized_path"])) / 60.0
+            stale_path = os.path.join(radar_folder, f"eink_stale_display_{default_station}.bmp")
+            cached_img = Image.open(config["quantized_path"]).convert("RGB")
+            _draw_stale_banner(cached_img, age_min, config).save(stale_path, format="bmp")
+            logger.warning(
+                "Radar fetch failed — re-pushing cached render with a stale banner (%.0f min old).",
+                age_min,
+            )
+            default_image_path = stale_path
+            default_updated = True
     default_percentage = calculate_non_bw_percentage(config["quantized_path"], region=default_region)
     logger.info("Default station (%s) has %.2f%% interesting pixels.", default_station, default_percentage)
     should_update = default_updated
