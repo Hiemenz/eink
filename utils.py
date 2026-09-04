@@ -58,8 +58,24 @@ MODULE_INTERVALS: Dict[str, int] = {
     "traffic":           600,    # 10 min — incident data
     "agenda":            900,    # 15 min — calendar events
     "river_height":      900,    # 15 min — USGS gauge updates
-    "business_idea":    86400,    # 24 hours — one new idea per day
+    "business_idea":      300,    # 5 min — cycle through the sibling repo's markdown ideas
+    "system_health":     300,    # 5 min — local psutil/thermal read, cheap
 }
+
+
+def get_module_interval(module: str, config: dict) -> int:
+    """Resolve a module's refresh interval in seconds.
+
+    Precedence: 1) an explicit config[module].update_interval override,
+    2) the MODULE_INTERVALS table, 3) the top-level update_interval fallback.
+    This is the single source of truth for scheduling — main.py and
+    discord_bot.py both call this instead of maintaining their own tables.
+    """
+    module_cfg = config.get(module, {})
+    if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
+        return int(module_cfg["update_interval"])
+    return MODULE_INTERVALS.get(module, int(config.get("update_interval", 21600)))
+
 
 MODULE_MAP: Dict[str, str] = {
     "weather":         "modules.weather",
@@ -106,6 +122,7 @@ MODULE_MAP: Dict[str, str] = {
     "agenda":          "modules.agenda",
     "river_height":    "modules.river_height",
     "business_idea":   "modules.business_idea",
+    "system_health":   "modules.system_health",
 }
 
 # Platform-aware font search chains

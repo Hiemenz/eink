@@ -36,7 +36,7 @@ if ROOT not in sys.path:
 CONFIG_PATH = os.path.join(ROOT, "config.yml")
 BOT_STATE_PATH = os.path.join(ROOT, "bot_state.json")
 
-from utils import get_logger, load_health
+from utils import get_logger, get_module_interval, load_health
 
 logger = get_logger("discord_bot")
 
@@ -64,6 +64,7 @@ ALL_MODULES = [
     "parking_garage",
     "module_cycler",
     "brain_status",
+    "system_health",
     "interesting_fact",
     "qrcode_display",
     "claude_news",
@@ -406,15 +407,11 @@ async def send_display_image(channel: discord.abc.Messageable, cfg: dict) -> Non
 _STATIC_MODULES = {"text", "qrcode_display", "terminal"}
 
 
-def _next_update_str(module: str, cfg: dict, module_intervals: dict, global_fallback: int) -> str:
+def _next_update_str(module: str, cfg: dict) -> str:
     """Return a human-readable 'next update in X min' string for the given module."""
     if module in _STATIC_MODULES:
         return "static — no auto-refresh"
-    module_cfg = cfg.get(module, {})
-    if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
-        interval = int(module_cfg["update_interval"])
-    else:
-        interval = module_intervals.get(module, global_fallback)
+    interval = get_module_interval(module, cfg)
     mins = interval // 60
     if mins >= 1440:
         return f"next update in ~{mins // 1440}d"
@@ -558,7 +555,7 @@ async def cmd_display(ctx: commands.Context, module: str = None):
     success, output = await run_main()
 
     if success:
-        next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
+        next_upd = _next_update_str(module, load_config())
         embed = discord.Embed(
             title=f"Display updated — {module}",
             description=next_upd,
@@ -1082,7 +1079,7 @@ async def cmd_set(ctx: commands.Context, key: str = None, *, value: str = None):
     success, output = await run_main()
 
     if success:
-        next_upd = _next_update_str(active, live_cfg, MODULE_INTERVALS, 21600)
+        next_upd = _next_update_str(active, live_cfg)
         embed = discord.Embed(
             title=f"Display refreshed — {active}",
             description=f"{description}\n{next_upd}",
@@ -1134,13 +1131,12 @@ async def cmd_status(ctx: commands.Context):
     import time as _time
     cfg = load_config()
     active = cfg.get("active_module", "unknown")
-    from utils import MODULE_MAP, MODULE_INTERVALS as _MI
 
     embed = discord.Embed(title="E-Ink Display Status", color=discord.Color.og_blurple())
     embed.add_field(name="Active module", value=f"`{active}`", inline=True)
 
     # Effective refresh interval
-    interval = _MI.get(active, int(cfg.get("update_interval", 21600)))
+    interval = get_module_interval(active, cfg)
     mins = interval // 60
     interval_str = f"{mins // 1440}d" if mins >= 1440 else (f"{mins // 60}h" if mins >= 60 else f"{mins}min")
     embed.add_field(name="Refresh interval", value=interval_str, inline=True)
@@ -1302,7 +1298,7 @@ async def cmd_modules(ctx: commands.Context):
         success, output = await run_main()
 
         if success:
-            next_upd = _next_update_str(module, load_config(), MODULE_INTERVALS, 21600)
+            next_upd = _next_update_str(module, load_config())
             embed = discord.Embed(title=f"Display updated — {module}", description=next_upd, color=discord.Color.green())
             embed.add_field(name="Output", value=f"```{output[:900]}```", inline=False)
         else:
@@ -1355,34 +1351,6 @@ async def cmd_help_display(ctx: commands.Context):
 # ---------------------------------------------------------------------------
 
 
-# Default intervals per module (seconds). Config can override via
-# <module>.update_interval or the top-level update_interval fallback.
-MODULE_INTERVALS: dict[str, int] = {
-    "weather":          1800,   # 30 min — radar updates frequently
-    "franklin_cam":     300,    # 5 min  — live camera
-    "parking_garage":   600,    # 10 min
-    "flight_radar":     900,    # 15 min
-    "news_headlines":   3600,   # 1 hour
-    "interesting_fact": 3600,   # 1 hour
-    "questions":        900,    # 15 min (overridden by questions.interval_minutes)
-    "moon_phase":       3600,   # 1 hour
-    "quote_of_day":     86400,  # 24 hours
-    "on_this_day":      86400,  # 24 hours
-    "saint_of_day":     86400,  # 24 hours
-    "chess_puzzle":     86400,  # 24 hours — daily puzzle
-    "sudoku_puzzle":    86400,  # 24 hours
-    "poem_of_day":      86400,  # 24 hours
-    "nasa_apod":        86400,  # 24 hours
-    "art_of_day":       86400,  # 24 hours
-    "wiki_image":       86400,  # 24 hours
-    "claude_news":      18000,  # 5 hours
-    "brain_status":     1800,   # 30 min
-    "module_cycler":    1800,   # 30 min
-    "crypto_market":    21600,  # 6 hours
-    "business_idea":    86400,  # 24 hours
-}
-
-
 def main():
     global bot, ALLOWED_CHANNEL
 
@@ -1401,19 +1369,13 @@ def main():
     ALLOWED_CHANNEL = int(channel_id) if channel_id else 0
     bot = make_bot(prefix)
 
-    GLOBAL_FALLBACK = int(cfg.get("update_interval", 21600))
-
     # ---------------------------------------------------------------------------
     # Scheduled auto-refresh loop
     # ---------------------------------------------------------------------------
 
     def _module_interval(active: str) -> int:
         """Return refresh interval (seconds) for the active module."""
-        live_cfg = load_config()
-        module_cfg = live_cfg.get(active, {})
-        if isinstance(module_cfg, dict) and "update_interval" in module_cfg:
-            return int(module_cfg["update_interval"])
-        return MODULE_INTERVALS.get(active, GLOBAL_FALLBACK)
+        return get_module_interval(active, load_config())
 
     _last_refresh: list[float] = [0.0]   # mutable container so the closure can write it
 

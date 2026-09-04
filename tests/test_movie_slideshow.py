@@ -25,6 +25,7 @@ from modules.movie_slideshow import (
     _extract_gif,
     _fit_image,
     _crop_image,
+    _placeholder,
     generate,
 )
 
@@ -32,18 +33,24 @@ from modules.movie_slideshow import (
 class TestStatePersistence:
     def test_load_missing_file_returns_defaults(self, tmp_path):
         state = _load_state(str(tmp_path))
-        assert state == {"movie_index": 0, "frame_index": 0}
+        assert state == {"movie_index": 0, "frame_index": 0, "hold_count": 0}
 
     def test_save_then_load_round_trip(self, tmp_path):
+        _save_state(str(tmp_path), {"movie_index": 2, "frame_index": 10, "hold_count": 1})
+        loaded = _load_state(str(tmp_path))
+        assert loaded == {"movie_index": 2, "frame_index": 10, "hold_count": 1}
+
+    def test_load_state_missing_hold_count_defaults_to_zero(self, tmp_path):
+        """Old state files written before frame_hold existed lack hold_count."""
         _save_state(str(tmp_path), {"movie_index": 2, "frame_index": 10})
         loaded = _load_state(str(tmp_path))
-        assert loaded == {"movie_index": 2, "frame_index": 10}
+        assert loaded == {"movie_index": 2, "frame_index": 10, "hold_count": 0}
 
     def test_corrupt_state_file_returns_defaults(self, tmp_path):
         state_path = tmp_path / "_state.json"
         state_path.write_text("{not valid")
         state = _load_state(str(tmp_path))
-        assert state == {"movie_index": 0, "frame_index": 0}
+        assert state == {"movie_index": 0, "frame_index": 0, "hold_count": 0}
 
 
 class TestListFrames:
@@ -345,3 +352,164 @@ class TestGeneratePlaylistAdvancement:
         img = Image.open(output)
         # Crop-fill leaves no letterbox bars — corner matches the source color.
         assert img.getpixel((0, 0)) == (0, 0, 255)
+
+
+class TestFitImageLetterboxColor:
+    def test_default_letterbox_is_black(self):
+        img = Image.new("RGB", (1000, 100), "red")
+        result = _fit_image(img, 800, 480)
+        assert result.getpixel((0, 0)) == (0, 0, 0)
+
+    def test_custom_named_color(self):
+        img = Image.new("RGB", (1000, 100), "red")
+        result = _fit_image(img, 800, 480, letterbox_color="white")
+        assert result.getpixel((0, 0)) == (255, 255, 255)
+
+    def test_custom_rgb_list_color(self):
+        img = Image.new("RGB", (1000, 100), "red")
+        result = _fit_image(img, 800, 480, letterbox_color=[10, 20, 30])
+        assert result.getpixel((0, 0)) == (10, 20, 30)
+
+
+class TestPlaceholder:
+    def test_creates_file_at_requested_size(self, tmp_path):
+        output_path = str(tmp_path / "placeholder.bmp")
+        result = _placeholder(output_path, 640, 360, "No movie selected.")
+        assert result == output_path
+        img = Image.open(output_path)
+        assert img.size == (640, 360)
+
+    def test_multiline_message_does_not_raise(self, tmp_path):
+        output_path = str(tmp_path / "placeholder.bmp")
+        _placeholder(output_path, 800, 480, "Line one\nLine two\nLine three")
+        assert os.path.exists(output_path)
+
+    def test_creates_output_directory(self, tmp_path):
+        output_path = str(tmp_path / "nested" / "dir" / "placeholder.bmp")
+        _placeholder(output_path, 800, 480, "msg")
+        assert os.path.exists(output_path)
+
+
+class TestFrameHoldAndMovieOverrides:
+    def _make_movie(self, movies_root, name, n_frames):
+        movie_dir = os.path.join(movies_root, name)
+        os.makedirs(movie_dir, exist_ok=True)
+        for i in range(n_frames):
+            Image.new("RGB", (10, 10), "white").save(
+                os.path.join(movie_dir, f"frame_{i:03d}.png")
+            )
+        return movie_dir
+
+    def _config(self, movies_root, playlist=None, active_movie="", overrides=None):
+        return {
+            "movie_slideshow": {
+                "movies_dir": movies_root,
+                "active_movie": active_movie,
+                "playlist": playlist or [],
+                "output_path": os.path.join(movies_root, "out.bmp"),
+                "show_frame_counter": False,
+                "movie_overrides": overrides or {},
+            },
+            "width": 80,
+            "height": 48,
+        }
+
+    # -- frame_hold ---------------------------------------------------------
+
+    def test_default_frame_hold_advances_every_cycle(self, tmp_path):
+        """frame_hold defaults to 1 — behaves exactly as before this feature."""
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 5)
+        config = self._config(movies_root, active_movie="movie1")
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 1
+        assert state["hold_count"] == 0
+
+    def test_frame_hold_delays_advancement(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 5)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["frame_hold"] = 3
+
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 0
+        assert state["hold_count"] == 1
+
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 0
+        assert state["hold_count"] == 2
+
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 1
+        assert state["hold_count"] == 0
+
+    def test_missing_hold_count_in_old_state_defaults_to_zero(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 5)
+        _save_state(movies_root, {"movie_index": 0, "frame_index": 0})  # no hold_count key
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["frame_hold"] = 2
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 0
+        assert state["hold_count"] == 1
+
+    def test_zero_frame_hold_clamps_to_one(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 5)
+        config = self._config(movies_root, active_movie="movie1")
+        config["movie_slideshow"]["frame_hold"] = 0
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 1
+
+    # -- movie_overrides ------------------------------------------------------
+
+    def test_override_fill_mode_applies_to_named_movie(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        movie_dir = os.path.join(movies_root, "movie1")
+        os.makedirs(movie_dir, exist_ok=True)
+        Image.new("RGB", (2000, 100), "blue").save(os.path.join(movie_dir, "frame_000.png"))
+        config = self._config(movies_root, active_movie="movie1",
+                              overrides={"movie1": {"fill_mode": "crop"}})
+        config["movie_slideshow"]["fill_mode"] = "fit"  # global says fit, override says crop
+        output = generate(config)
+        img = Image.open(output)
+        assert img.getpixel((0, 0)) == (0, 0, 255)  # no letterbox bar => crop won
+
+    def test_override_only_applies_to_named_movie(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        movie_dir = os.path.join(movies_root, "other")
+        os.makedirs(movie_dir, exist_ok=True)
+        Image.new("RGB", (2000, 100), "blue").save(os.path.join(movie_dir, "frame_000.png"))
+        config = self._config(movies_root, active_movie="other",
+                              overrides={"movie1": {"fill_mode": "crop"}})
+        config["movie_slideshow"]["fill_mode"] = "fit"
+        output = generate(config)
+        img = Image.open(output)
+        assert img.getpixel((0, 0)) == (0, 0, 0)  # global "fit" still applies => letterbox
+
+    def test_override_frame_step_changes_advancement(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 10)
+        config = self._config(movies_root, active_movie="movie1",
+                              overrides={"movie1": {"frame_step": 4}})
+        config["movie_slideshow"]["frame_step"] = 1
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 4
+
+    def test_override_frame_hold_changes_hold_behavior(self, tmp_path):
+        movies_root = str(tmp_path / "movies")
+        self._make_movie(movies_root, "movie1", 5)
+        config = self._config(movies_root, active_movie="movie1",
+                              overrides={"movie1": {"frame_hold": 2}})
+        config["movie_slideshow"]["frame_hold"] = 1
+        generate(config)
+        state = _load_state(movies_root)
+        assert state["frame_index"] == 0
+        assert state["hold_count"] == 1
