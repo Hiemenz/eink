@@ -2,6 +2,11 @@
 Description=E-Ink Display Discord Bot (watchdog: auto-restart on crash)
 After=network-online.target
 Wants=network-online.target
+# Don't hot-loop if it keeps failing (these belong in [Unit], not [Service] —
+# systemd silently ignores them there, which means without this fix the
+# restart-storm limit below never actually applied).
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,11 +15,9 @@ Group=pi
 WorkingDirectory=/home/pi/git/eink
 ExecStart=/home/pi/git/eink/.venv/bin/python discord_bot.py
 
-# Auto-restart on crash, but don't hot-loop if it keeps failing
+# Auto-restart on crash
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # SPI/GPIO access for the e-ink hardware push (main.py, invoked as a
 # subprocess by the bot's auto-refresh loop and !refresh/!display commands)
