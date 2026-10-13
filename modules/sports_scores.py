@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 import requests
 from PIL import Image, ImageDraw
 
-# Ensure project root is importable when run directly (e.g. poetry run python modules/sports_scores.py)
+# Ensure project root is importable when run directly (e.g. uv run python modules/sports_scores.py)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import get_font, get_logger

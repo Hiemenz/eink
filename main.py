@@ -5,7 +5,7 @@ Reads `active_module` from config.yml, calls that module's generate() function,
 then pushes the resulting BMP to the hardware display (Linux only).
 
 Usage:
-    poetry run python main.py
+    uv run python main.py
 """
 
 import hashlib

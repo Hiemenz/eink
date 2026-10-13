@@ -4,9 +4,9 @@ check_ollama.py — verify the remote Ollama server is reachable and
 list available models before starting the brain daemon.
 
 Usage:
-    poetry run python check_ollama.py
-    poetry run python check_ollama.py --url http://192.168.1.50:11434
-    poetry run python check_ollama.py --url http://192.168.1.50:11434 --model mistral
+    uv run python check_ollama.py
+    uv run python check_ollama.py --url http://192.168.1.50:11434
+    uv run python check_ollama.py --url http://192.168.1.50:11434 --model mistral
 """
 
 from __future__ import annotations

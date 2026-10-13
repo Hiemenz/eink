@@ -72,9 +72,9 @@ while True:
 ```bash
 git clone <repo>
 cd eink
-poetry install
+uv sync
 # For Discord support:
-poetry install --extras discord
+uv sync --extra discord
 ```
 
 ### 2. Configure
@@ -98,13 +98,13 @@ Or use a `.env` file and `python-dotenv`.
 
 ```bash
 # Start brain daemon
-poetry run python -m ai_brain.main
+uv run python -m ai_brain.main
 
 # With initial objective
-poetry run python -m ai_brain.main --objective "Research the latest in edge AI"
+uv run python -m ai_brain.main --objective "Research the latest in edge AI"
 
 # With custom config
-poetry run python -m ai_brain.main --config config.local.yaml
+uv run python -m ai_brain.main --config config.local.yaml
 ```
 
 ---
@@ -117,13 +117,13 @@ poetry run python -m ai_brain.main --config config.local.yaml
 # Install Python 3.11+ (Raspberry Pi OS Bookworm ships with 3.11)
 sudo apt update && sudo apt install -y python3-pip git
 
-# Install Poetry
-curl -sSL https://install.python-poetry.org | python3 -
+# Install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install project
 git clone <repo> ~/ai-brain
 cd ~/ai-brain
-poetry install
+uv sync
 ```
 
 ### Run as a systemd service (auto-restart)
@@ -138,7 +138,7 @@ After=network.target
 User=pi
 WorkingDirectory=/home/pi/eink
 EnvironmentFile=/home/pi/eink/.env
-ExecStart=/home/pi/.local/bin/poetry run python -m ai_brain.main
+ExecStart=/home/pi/.local/bin/uv run python -m ai_brain.main
 Restart=on-failure
 RestartSec=10
 
@@ -217,7 +217,7 @@ All data is stored in `brain.db` — a single portable file.
 
 Query the memory directly:
 ```bash
-poetry run python -c "
+uv run python -c "
 import duckdb
 conn = duckdb.connect('brain.db')
 print(conn.execute('SELECT * FROM thoughts ORDER BY timestamp DESC LIMIT 5').fetchdf())
