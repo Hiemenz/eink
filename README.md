@@ -20,13 +20,13 @@ For a full architectural breakdown see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ```bash
 # Install dependencies
-poetry install
+uv sync
 
 # Run once (generates image + pushes to hardware on Pi)
-poetry run python main.py
+uv run python main.py
 
 # Start the Discord bot (handles scheduling + commands)
-poetry run python discord_bot.py
+uv run python discord_bot.py
 ```
 
 On **macOS** the hardware push is skipped — `main.py` prints the output path instead.
@@ -179,7 +179,7 @@ Intervals are defined in `MODULE_INTERVALS` in `utils.py` and apply automaticall
 The bot is the primary control interface. Run it once on the Pi and leave it running.
 
 ```bash
-poetry run python discord_bot.py
+uv run python discord_bot.py
 ```
 
 Set credentials in `.env` (or `config.yml discord:` section):
@@ -263,7 +263,7 @@ Four radar display modes controlled by `radar_mode` in `config.yml`:
 A Flask web app runs on port 5000 for browser-based control on the local network:
 
 ```bash
-poetry run python server/app.py
+uv run python server/app.py
 ```
 
 Access at `http://<pi-hostname>.local:5000`. It supports switching modules, triggering refreshes, managing the movie slideshow, and downloading generated images. The Discord bot covers the same functionality — the web dashboard is optional.
@@ -273,7 +273,7 @@ Access at `http://<pi-hostname>.local:5000`. It supports switching modules, trig
 ## Testing
 
 ```bash
-poetry run pytest tests/
+uv run pytest tests/
 ```
 
 1,693 tests across all 47 display modules (one `tests/test_<module>.py` per module, plus `test_module_contracts.py` for cross-cutting checks and `test_health.py` for the watchdog helpers). None hit real network or hardware — external HTTP calls are mocked with `unittest.mock`, and file state uses pytest's `tmp_path`. Coverage goes beyond pure helpers to the actual `generate()`/`_render()` entry points, since that's the code path a real display refresh takes.
@@ -294,7 +294,7 @@ poetry run pytest tests/
 The `brain_status` display module reads the brain's SQLite database to show its current state on screen. Start it with:
 
 ```bash
-poetry run python ai_brain/main.py
+uv run python ai_brain/main.py
 ```
 
 ---

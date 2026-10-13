@@ -145,7 +145,7 @@ A Flask app (port 5000) for browser-based control on the local network. Supports
 - Managing the movie slideshow (list movies, jump to frame).
 - Downloading generated BMP images.
 
-Run with `poetry run python server/app.py`. Not required for normal operation — the Discord bot covers the same actions.
+Run with `uv run python server/app.py`. Not required for normal operation — the Discord bot covers the same actions.
 
 ---
 
@@ -205,7 +205,7 @@ Key top-level config keys:
 cron / !refresh / auto-scheduler
         │
         ▼
-  discord_bot.py: subprocess.run(["poetry", "run", "python", "main.py"])
+  discord_bot.py: subprocess.run(["uv", "run", "python", "main.py"])
         │
         ▼
   main.py: load_config() → validate_config()
@@ -290,7 +290,7 @@ Cross-cutting contract tests in `test_module_contracts.py` verify that every reg
 Run the suite:
 
 ```bash
-poetry run pytest tests/
+uv run pytest tests/
 ```
 
 ---

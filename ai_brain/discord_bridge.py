@@ -109,7 +109,7 @@ class DiscordBridge:
         try:
             import discord
         except ImportError:
-            logger.error("discord.py not installed. Run: poetry add discord.py")
+            logger.error("discord.py not installed. Run: uv add discord.py")
             return
 
         intents = discord.Intents.default()

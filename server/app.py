@@ -2,7 +2,7 @@
 E-Ink Display Web Server
 
 Run with:
-    poetry run python server/app.py
+    uv run python server/app.py
 
 Access at: http://localhost:5000  (or http://<pi-hostname>.local:5000)
 """
@@ -76,7 +76,7 @@ def generate_now():
     """Run main.py as a subprocess and stream output."""
     try:
         result = subprocess.run(
-            ["poetry", "run", "python", "main.py"],
+            ["uv", "run", "python", "main.py"],
             cwd=ROOT,
             capture_output=True,
             text=True,
