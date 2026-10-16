@@ -5,6 +5,8 @@ Centralizes MODULE_MAP, font loading, logging, and config validation
 so every module uses a single source of truth.
 """
 
+import importlib.machinery
+import importlib.util
 import json
 import logging
 import os
@@ -263,3 +265,26 @@ def record_health(
     os.makedirs(os.path.dirname(health_path), exist_ok=True)
     with open(health_path, "w") as f:
         json.dump(health, f, indent=2)
+
+
+# The Slack error-channel helper installed on the Pis (also wraps their cron jobs).
+# Reusing its alert() keeps one token lookup, one channel and one hourly
+# per-job cooldown, instead of a second copy of that logic in this repo.
+RUN_ALERTING_PATH = os.path.expanduser("~/.local/bin/run-alerting")
+
+
+def alert_failure(job: str, detail: str) -> None:
+    """Post a failure to the Slack error channel. Never raises.
+
+    A repeat of the same `job` alerts at most once an hour (run-alerting's
+    cooldown), so a module that fails every 5-minute cycle won't flood the
+    channel. On a machine without the helper this just logs a warning.
+    """
+    try:
+        loader = importlib.machinery.SourceFileLoader("run_alerting", RUN_ALERTING_PATH)
+        spec = importlib.util.spec_from_loader("run_alerting", loader)
+        helper = importlib.util.module_from_spec(spec)
+        loader.exec_module(helper)
+        helper.alert(job, 1, detail[-2500:])
+    except Exception as e:
+        get_logger("alerting").warning("Could not send error alert for %s: %s", job, e)

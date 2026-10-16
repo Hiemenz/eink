@@ -45,7 +45,7 @@ panel_legend: true        # show 7-color dBZ legend strip under the radar in pan
 panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
 panel_qr_radar: false   # show radar link QR in panel when no alerts active
-panel_qr_size: 114        # 0 = auto-calculate from temp row height; >0 = fixed pixels
+panel_qr_size: 96         # 0 = auto-calculate from temp row height; >0 = fixed pixels
 panel_qr_x_offset: -17   # shift QR left from right edge of panel (extra pixels)
 panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 

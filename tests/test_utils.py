@@ -90,3 +90,26 @@ class TestValidateConfig:
 
     def test_empty_config_returns_false(self):
         assert validate_config({}) is False
+
+
+class TestAlertFailure:
+    def test_missing_helper_never_raises(self, monkeypatch, tmp_path):
+        import utils
+        monkeypatch.setattr(utils, "RUN_ALERTING_PATH", str(tmp_path / "nope"))
+        utils.alert_failure("eink weather", "boom")  # must not raise
+
+    def test_delegates_to_helper_alert(self, monkeypatch, tmp_path):
+        import utils
+        sent = tmp_path / "sent.txt"
+        helper = tmp_path / "run-alerting"
+        helper.write_text(f"def alert(job, rc, out):\n    open({str(sent)!r}, 'w').write(f'{{job}}|{{rc}}|{{out}}')\n")
+        monkeypatch.setattr(utils, "RUN_ALERTING_PATH", str(helper))
+        utils.alert_failure("eink weather", "boom")
+        assert sent.read_text() == "eink weather|1|boom"
+
+    def test_helper_exception_is_swallowed(self, monkeypatch, tmp_path):
+        import utils
+        helper = tmp_path / "run-alerting"
+        helper.write_text("def alert(job, rc, out):\n    raise RuntimeError('slack down')\n")
+        monkeypatch.setattr(utils, "RUN_ALERTING_PATH", str(helper))
+        utils.alert_failure("eink weather", "boom")

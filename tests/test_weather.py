@@ -1372,3 +1372,77 @@ class TestDrawStormMotionOverlay:
         assert lines is not None
         assert "km/h" in lines[0]
         assert "mph" not in lines[0]
+
+
+class TestAlertPanelInversionAndParkingInset:
+    def test_snap_panel_bw_alert_makes_field_red_text_white_keeps_color_and_keep_boxes(self):
+        from PIL import Image
+        from modules.weather import _snap_panel_bw
+        img = Image.new("RGB", (20, 10), (255, 255, 255))
+        img.putpixel((1, 1), (0, 0, 0))
+        img.putpixel((2, 1), (90, 90, 90))      # anti-aliased dark grey -> text
+        img.putpixel((3, 1), (255, 128, 0))     # saturated stripe -> untouched
+        _snap_panel_bw(img, (0, 0, 20, 10), alert_bg=(255, 0, 0), keep_boxes=[(10, 0, 20, 10)])
+        assert img.getpixel((0, 0)) == (255, 0, 0)       # white field -> red
+        assert img.getpixel((1, 1)) == (255, 255, 255)   # black text -> white
+        assert img.getpixel((2, 1)) == (255, 255, 255)
+        assert img.getpixel((3, 1)) == (255, 128, 0)
+        assert img.getpixel((15, 5)) == (255, 255, 255)  # keep box (QR) untouched
+
+    def test_snap_panel_bw_no_invert_only_cleans_grey(self):
+        from PIL import Image
+        from modules.weather import _snap_panel_bw
+        img = Image.new("RGB", (4, 4), (255, 255, 255))
+        img.putpixel((0, 0), (60, 60, 60))
+        _snap_panel_bw(img, (0, 0, 4, 4))
+        assert img.getpixel((0, 0)) == (0, 0, 0)
+        assert img.getpixel((3, 3)) == (255, 255, 255)
+
+    def test_parking_bars_draw_in_palette_and_survive_no_data(self, monkeypatch):
+        from PIL import Image
+        from modules import weather
+        img = Image.new("RGB", (800, 480), (255, 255, 255))
+        garages = [{"name": "Second Avenue", "occupied": 200, "total": 257},
+                   {"name": "Fourth Avenue", "occupied": 40, "total": 333}]
+        monkeypatch.setattr(weather, "_get_parking_garages", lambda c: garages)
+        y = weather._draw_parking_bars(img, {}, 520, 280, 300)
+        assert y > 300
+        colors = {c for _, c in img.getcolors(1 << 20)}
+        assert (255, 0, 0) in colors and (0, 255, 0) in colors   # 78% red, 12% green
+        assert colors <= {(255, 255, 255), (0, 0, 0), (255, 0, 0), (0, 255, 0), (255, 128, 0)}
+        blank = Image.new("RGB", (800, 480), (255, 255, 255))
+        monkeypatch.setattr(weather, "_get_parking_garages", lambda c: [])
+        assert weather._draw_parking_bars(blank, {}, 520, 280, 300) == 300
+        assert blank.getcolors() == [(800 * 480, (255, 255, 255))]
+
+
+class TestStaleConditionsAgeCap:
+    @pytest.fixture(autouse=True)
+    def _fresh(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        W_MOD._conditions_cache = {"data": None, "ts": 0}
+        W_MOD._last_good_conditions = {"data": None, "ts": 0}
+        yield
+        W_MOD._conditions_cache = {"data": None, "ts": 0}
+        W_MOD._last_good_conditions = {"data": None, "ts": 0}
+
+    def _seed(self, age_s):
+        W_MOD._save_last_good_conditions_to_disk({"temp": 70, "weather_desc": "Clear"}, time.time() - age_s)
+
+    @patch("modules.weather.requests.get", side_effect=Exception("down"))
+    def test_recent_cache_is_used_and_labelled(self, _get):
+        self._seed(600)
+        r = fetch_current_conditions(35.9, -86.8, {})
+        assert r["temp"] == 70 and r["stale_as_of"]
+
+    @patch("modules.weather.requests.get", side_effect=Exception("down"))
+    def test_cache_older_than_cap_gives_no_data(self, _get):
+        self._seed(W_MOD._CONDITIONS_MAX_STALE + 60)
+        assert fetch_current_conditions(35.9, -86.8, {}) is None
+
+    @patch("modules.weather.requests.get", side_effect=Exception("down"))
+    def test_label_includes_weekday_when_not_from_today(self, _get):
+        self._seed(30 * 3600)  # always a different calendar day
+        with patch.object(W_MOD, "_CONDITIONS_MAX_STALE", 48 * 3600):
+            r = fetch_current_conditions(35.9, -86.8, {})
+        assert r["stale_as_of"].split()[0] in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
