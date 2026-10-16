@@ -35,6 +35,11 @@ night_sleep:
 # 0 = disabled. Only applies to epd7in3f (7-color). Set 20–50 for daily use.
 full_clear_interval: 0
 
+# Re-push the panel at least this often (seconds) even when the image is
+# identical to the last push, so a static radar frame doesn't sit forever.
+# 0 = only push when the image changes.
+unchanged_refresh_seconds: 3600
+
 # ── Alert auto-override ───────────────────────────────────────────────────────
 # When true, auto_refresh polls NWS every 5 min; switches to weather module
 # on Severe/Extreme alerts and restores the previous module when they clear.
