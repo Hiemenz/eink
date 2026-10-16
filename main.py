@@ -12,6 +12,7 @@ import hashlib
 import importlib
 import platform
 import sys
+import time
 import traceback
 import os
 from datetime import datetime, time as dt_time
@@ -59,10 +60,18 @@ def _compute_hash(output_path: str) -> str | None:
         return None
 
 
-def _is_unchanged(output_path: str, new_hash: str) -> bool:
-    """Return True if new_hash matches the last-pushed hash."""
+def _is_unchanged(output_path: str, new_hash: str, max_age: float = 0) -> bool:
+    """Return True if new_hash matches the last-pushed hash.
+
+    The hash file is only rewritten after a successful push, so its mtime is the
+    time of the last push. When max_age > 0 and the last push is older than that,
+    the image counts as changed so the panel is refreshed anyway (keeps a static
+    image from sitting on an e-ink panel indefinitely).
+    """
     hash_path = output_path + ".last_hash"
     if os.path.exists(hash_path):
+        if max_age > 0 and time.time() - os.path.getmtime(hash_path) >= max_age:
+            return False
         with open(hash_path) as f:
             return f.read().strip() == new_hash
     return False
@@ -126,7 +135,8 @@ def main() -> None:
         if output_path:
             logger.info("Generated image: %s", output_path)
             new_hash = _compute_hash(output_path)
-            if new_hash and _is_unchanged(output_path, new_hash):
+            max_age = float(config.get("unchanged_refresh_seconds", 3600))
+            if new_hash and _is_unchanged(output_path, new_hash, max_age):
                 logger.info("Image unchanged — skipping display push.")
             else:
                 if platform.system() == "Linux":
