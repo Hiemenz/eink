@@ -43,6 +43,10 @@ _CONDITIONS_DISK_CACHE = os.path.join("data", "conditions_cache.json")
 
 _RETRY_WAIT = 60  # seconds to wait before a retry on failure
 
+# Past this age a saved reading is more misleading than helpful (the hourly
+# forecast and sunrise/sunset are stale too), so the panel shows "No data".
+_CONDITIONS_MAX_STALE = 3 * 3600  # seconds
+
 
 def _load_last_good_conditions_from_disk() -> Tuple[Optional[Dict[str, Any]], float]:
     """Read the persisted last-good conditions. Returns (data, ts); (None, 0) if absent/corrupt."""
@@ -306,8 +310,14 @@ def fetch_current_conditions(lat: float, lon: float, headers: dict) -> Optional[
             # In-memory fallback is empty on a fresh process — each 5-min cycle
             # is its own process, so this is the common case, not just cold start.
             stale, stale_ts = _load_last_good_conditions_from_disk()
-        if stale is not None:
-            stale_label = _dt.fromtimestamp(stale_ts).strftime("%-I:%M %p") if stale_ts else "unknown"
+        if stale is not None and (not stale_ts or now - stale_ts > _CONDITIONS_MAX_STALE):
+            logger.error("Last known-good conditions are too old (%s) — showing no data.",
+                         _dt.fromtimestamp(stale_ts).isoformat() if stale_ts else "unknown age")
+            stale = None
+        elif stale is not None:
+            when = _dt.fromtimestamp(stale_ts)
+            fmt = "%-I:%M %p" if when.date() == _dt.now().date() else "%a %-I:%M %p"
+            stale_label = when.strftime(fmt)
             logger.warning(
                 "Conditions still unavailable — displaying last known-good data from %s.", stale_label
             )
@@ -376,12 +386,13 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     draw.ellipse(bb, outline=B)
 
 
-def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None):
+def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None):
     """
     Draw the current-conditions data panel on an existing PIL Image.
     panel_x:  left edge of the panel in canvas pixels
     panel_w:  width of the panel in pixels
     header_h: vertical offset where content starts (header drawn externally)
+    qr_box_out: optional list; the pasted QR's (x0, y0, x1, y1) is appended to it
     """
     draw = ImageDraw.Draw(canvas)
     height = canvas.size[1]
@@ -484,6 +495,8 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
             qr_x = panel_x + panel_w - margin - qr_size - config.get('panel_qr_x_offset', 0)
             qr_y = header_h + 6 + config.get('panel_qr_y_offset', 0)
             canvas.paste(qr_img, (qr_x, qr_y))
+            if qr_box_out is not None:
+                qr_box_out.append((qr_x, qr_y, qr_x + qr_size, qr_y + qr_size))
         except Exception as e:
             logger.error("QR code error: %s", e)
 
@@ -491,13 +504,17 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     draw.text((text_x, y), feels_desc, fill=BLACK, font=f_feels)
     y += draw.textbbox((0, 0), feels_desc, font=f_feels)[3] + 4
 
-    # Stale data notice
+    # Stale data notice — a solid black bar with white text so an old reading
+    # can't be mistaken for a live one (black survives the panel's B/W snap).
     stale_as_of = conditions.get("stale_as_of")
     if stale_as_of:
-        stale_str = f"Stale data as of {stale_as_of}"
-        stale_font = _font(11)
-        draw.text((text_x, y), stale_str, fill=BLACK, font=stale_font)
-        y += draw.textbbox((0, 0), stale_str, font=stale_font)[3] + 2
+        stale_str = f"STALE DATA - as of {stale_as_of}"
+        stale_font = _font(13)
+        sb = draw.textbbox((0, 0), stale_str, font=stale_font)
+        bar_h = sb[3] - sb[1] + 6
+        draw.rectangle([(text_x, y), (right_x, y + bar_h)], fill=BLACK)
+        draw.text((text_x + 4, y + 3 - sb[1]), stale_str, fill=WHITE, font=stale_font)
+        y += bar_h + 3
 
     # Separator
     y = _separator(y)
@@ -510,9 +527,6 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
         return "up" if arrow == "↑" else ("down" if arrow == "↓" else ("steady" if arrow == "→" else ""))
 
     rows = [
-        ("Humidity",   f"{conditions['humidity']}%",       _trend_dir(conditions.get("humidity_trend", ""))),
-        ("Pressure",   f"{conditions['pressure']} inHg",   _trend_dir(conditions.get("pressure_trend", ""))),
-        ("Visibility", f"{conditions['visibility']} mi",                                          ""),
         ("UV Index",   f"{conditions['uv_index']}",                                               ""),
         ("Wind",       f"{conditions['wind_dir']} {conditions['wind_speed']} / G{conditions['wind_gust']} mph", ""),
         ("Rain Today", f"{conditions['rain_today']}\"",                                           ""),
@@ -520,6 +534,30 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     ]
     if conditions.get("precip_type"):
         rows.append(("Precip Type", conditions["precip_type"], ""))
+
+    # Humidity / pressure / visibility share one row of three small-label cells.
+    cells = [
+        ("Humidity",   f"{conditions['humidity']}%",     _trend_dir(conditions.get("humidity_trend", ""))),
+        ("Pressure",   f"{conditions['pressure']}",      _trend_dir(conditions.get("pressure_trend", ""))),
+        ("Visibility", f"{conditions['visibility']} mi", ""),
+    ]
+    cell_w = text_w // len(cells)
+    cell_label_font = _font(12)
+    cell_label_h = draw.textbbox((0, 0), "Ag", font=cell_label_font)[3] + 1
+    for i, (label, value, cell_trend) in enumerate(cells):
+        cx = text_x + i * cell_w
+        shape_w = (2 * max(5, row_h // 4) + 4) if cell_trend else 0
+        for vsize in range(20, 11, -1):
+            cell_font = _font(vsize)
+            if draw.textbbox((0, 0), value, font=cell_font)[2] + shape_w <= cell_w - 4:
+                break
+        draw.text((cx, y), label, fill=BLACK, font=cell_label_font)
+        draw.text((cx, y + cell_label_h), value, fill=BLACK, font=cell_font)
+        if cell_trend:
+            vw = draw.textbbox((0, 0), value, font=cell_font)[2]
+            _trend_shape(cx + vw + 4, y + cell_label_h, cell_trend, row_h)
+    y += cell_label_h + row_h
+    y = _separator(y)
 
     for label, value, row_trend in rows:
         draw.text((text_x, y + 2), label, fill=BLACK, font=label_font)
@@ -787,6 +825,120 @@ def _draw_status_badges(canvas, config, panel_x, panel_w, start_y) -> int:
         color, tcolor,
     )
     return y + _BADGE_H + 3
+
+
+_PARKING_CACHE = os.path.join("data", "parking_inset_cache.json")
+_PARKING_CACHE_MAX_AGE = 1800  # seconds; a stale reading is better than a blank corner
+_PARK_GREEN, _PARK_ORANGE, _PARK_RED = (0, 255, 0), (255, 128, 0), (255, 0, 0)
+
+
+def _get_parking_garages(config) -> List[Dict[str, Any]]:
+    """Garage occupancy via modules.parking_garage, mirrored to disk.
+
+    Every cycle is a fresh process, so the last-good copy has to live on disk
+    for a transient API failure to degrade to a slightly old bar, not a gap.
+    """
+    from modules.parking_garage import _fetch_data, _parse_garages, API_URL
+    url = (config.get("parking_garage", {}) or {}).get("api_url", API_URL)
+    data = _fetch_data(url)
+    garages = _parse_garages(data) if data else []
+    if garages:
+        try:
+            os.makedirs(os.path.dirname(_PARKING_CACHE), exist_ok=True)
+            with open(_PARKING_CACHE, "w") as f:
+                json.dump({"ts": time.time(), "garages": garages}, f)
+        except OSError as e:
+            logger.warning("Parking cache write failed: %s", e)
+        return garages
+    try:
+        with open(_PARKING_CACHE) as f:
+            cached = json.load(f)
+        if time.time() - cached["ts"] <= _PARKING_CACHE_MAX_AGE:
+            return cached["garages"]
+    except (OSError, ValueError, KeyError):
+        pass
+    return []
+
+
+def _draw_parking_bars(canvas, config, panel_x, panel_w, start_y) -> int:
+    """Right-panel parking row: one fullness bar per downtown Franklin garage.
+
+    Two side-by-side cells (name + percent over a bar), like the humidity row.
+    Call AFTER the panel's B/W snap. Text is drawn first and its region snapped
+    to pure black/white, THEN the colored bars go on as plain rectangles — no
+    anti-aliased pixel ever reaches the quantizer. Returns the y after the row
+    (== start_y if nothing was drawn).
+    """
+    height = canvas.size[1]
+    if start_y > height - 110:  # never squeeze the hourly strip below usable height
+        return start_y
+    try:
+        garages = _get_parking_garages(config)
+    except Exception as e:
+        logger.warning("Parking bars error: %s", e)
+        return start_y
+    garages = [g for g in garages if g.get("total", 0) > 0][:2]
+    if not garages:
+        return start_y
+
+    WHITE, BLACK = (255, 255, 255), (0, 0, 0)
+    margin = 8
+    text_x = panel_x + margin
+    text_w = panel_w - 2 * margin
+    cell_w = text_w // len(garages)
+    font = get_font(12, bold=True, config=config)
+    label_h = ImageDraw.Draw(canvas).textbbox((0, 0), "Ag", font=font)[3] + 1
+    bar_h = 9
+    row_h = label_h + bar_h + 2
+
+    draw = ImageDraw.Draw(canvas)
+    bars = []
+    for i, g in enumerate(garages):
+        cx = text_x + i * cell_w
+        pct = min(1.0, g["occupied"] / g["total"])
+        name = g["name"].replace("Avenue", "Ave")
+        pct_txt = f"{round(pct * 100)}%"
+        pw = draw.textbbox((0, 0), pct_txt, font=font)[2]
+        draw.text((cx, start_y), name, fill=BLACK, font=font)
+        draw.text((cx + cell_w - 8 - pw, start_y), pct_txt, fill=BLACK, font=font)
+        bars.append((cx, cx + cell_w - 8, pct))
+    _snap_region_2color(canvas, (text_x, start_y, text_x + text_w, start_y + label_h), WHITE, BLACK)
+
+    by = start_y + label_h
+    for x0, x1, pct in bars:
+        draw.rectangle([(x0, by), (x1, by + bar_h)], fill=WHITE, outline=BLACK)
+        fill_w = int((x1 - x0 - 2) * pct)
+        if fill_w > 0:
+            color = _PARK_GREEN if pct < 0.5 else _PARK_ORANGE if pct < 0.75 else _PARK_RED
+            draw.rectangle([(x0 + 1, by + 1), (x0 + fill_w, by + bar_h - 1)], fill=color)
+    return start_y + row_h + 3
+
+
+def _snap_panel_bw(canvas, box, alert_bg=None, keep_boxes=()) -> None:
+    """Resolve neutral (grey) pixels in box to pure black/white.
+
+    The colored hourly boxes are drawn after the panel's B/W snap, so their
+    anti-aliased text arrives here as greys that the quantizer would scatter
+    onto colored inks. Neutral pixels are thresholded on luminance; saturated
+    pixels (UV stripes, badge backgrounds) pass through untouched, so nothing
+    leaves the exact palette.
+
+    alert_bg (an RGB tuple) is the alert look: the white field becomes alert_bg
+    and the black text becomes white. keep_boxes are restored untouched — the
+    QR code (scanners want dark-on-light) and the colored badge / parking row,
+    whose own colors and black text would otherwise be lost on the new field.
+    """
+    arr = np.array(canvas.crop(box).convert("RGB"))
+    spread = arr.max(axis=-1).astype(np.int16) - arr.min(axis=-1)
+    neutral = spread < 40
+    light = arr.mean(axis=-1) > 128
+    out = arr.copy()
+    out[neutral & light] = alert_bg if alert_bg is not None else 255
+    out[neutral & ~light] = 255 if alert_bg is not None else 0
+    for kb in keep_boxes:
+        x0, y0, x1, y1 = (kb[0] - box[0], kb[1] - box[1], kb[2] - box[0], kb[3] - box[1])
+        out[max(y0, 0):y1, max(x0, 0):x1] = arr[max(y0, 0):y1, max(x0, 0):x1]
+    canvas.paste(Image.fromarray(out, "RGB"), box[:2])
 
 
 if platform.system() == "Linux":
@@ -2850,7 +3002,8 @@ def generate_weather_image(config, special_msg=None):
             panel_qr = radar_url_qr
         else:
             panel_qr = None
-        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr)
+        keep_boxes = []  # regions the alert recolor must leave alone
+        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr, qr_box_out=keep_boxes)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
         panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
@@ -2862,12 +3015,25 @@ def generate_weather_image(config, special_msg=None):
         # snap so their colors survive quantize
         if conditions and hourly_start_y is not None:
             badge_y = _draw_status_badges(final_img, config, radar_w, panel_w, hourly_start_y)
-            _draw_hourly_uv_boxes(final_img, conditions, config, radar_w, panel_w, badge_y)
+            boxes_y = badge_y
+            if config.get("parking_inset", True):
+                boxes_y = _draw_parking_bars(final_img, config, radar_w, panel_w, badge_y)
+                if boxes_y > badge_y:
+                    keep_boxes.append((radar_w + 8, badge_y, width - 7, boxes_y - 2))
+            _draw_hourly_uv_boxes(final_img, conditions, config, radar_w, panel_w, boxes_y)
+            if badge_y > hourly_start_y:  # a badge was drawn; remember where
+                keep_boxes.append((radar_w + 8, hourly_start_y, width - 7, badge_y - 2))
+
+        # Alert: turn the panel's white field red (white text) — this is a color
+        # display, so red reads as an alarm better than an inverted black field.
+        # Runs in normal mode too (no recolor) to clean up the boxes' grey text.
+        _snap_panel_bw(final_img, (radar_w + 1, header_h, width, height),
+                       alert_bg=(255, 0, 0) if special_msg else None, keep_boxes=keep_boxes)
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
-        # Red when an alert is active, black otherwise
+        # Always black: the alert panel below it is red, so a red bar would vanish
         draw_tmp = ImageDraw.Draw(final_img)
-        header_color = (180, 0, 0) if special_msg else (0, 0, 0)
+        header_color = (0, 0, 0)
         draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=header_color)
 
         # Location + weekday text in the header
