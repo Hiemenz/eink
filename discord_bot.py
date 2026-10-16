@@ -4,7 +4,7 @@ E-Ink Discord Bot
 Controls the e-ink display via Discord commands. Add your bot token and
 channel ID to the 'discord:' section of config.yml, then run:
 
-    poetry run python discord_bot.py
+    uv run python discord_bot.py
 
 Commands (default prefix: !)
     !display <module>      Switch active module and refresh the display
@@ -1218,7 +1218,7 @@ async def cmd_health(ctx: commands.Context):
     """Show per-module refresh health — last success age and any failing modules.
 
     Reads data/health.json, written by main.py on every module run (whether
-    triggered by auto-refresh, !refresh, or a manual `poetry run python main.py`).
+    triggered by auto-refresh, !refresh, or a manual `uv run python main.py`).
     """
     import time as _time
     health = load_health()

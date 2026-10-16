@@ -2,7 +2,7 @@
 AI Brain — main entry point.
 
 Usage:
-    poetry run python -m ai_brain.main [--config path/to/config.yaml]
+    uv run python -m ai_brain.main [--config path/to/config.yaml]
 
 Environment variables (override config):
     ANTHROPIC_API_KEY   — Anthropic API key

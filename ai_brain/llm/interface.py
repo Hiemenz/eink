@@ -57,7 +57,7 @@ class AnthropicLLM(LLMInterface):
         try:
             import anthropic
         except ImportError:
-            raise RuntimeError("anthropic package not installed. Run: poetry add anthropic")
+            raise RuntimeError("anthropic package not installed. Run: uv add anthropic")
 
         self._client = anthropic.Anthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
         self.model = model
@@ -88,7 +88,7 @@ class OpenAILLM(LLMInterface):
         try:
             import openai
         except ImportError:
-            raise RuntimeError("openai package not installed. Run: poetry add openai")
+            raise RuntimeError("openai package not installed. Run: uv add openai")
 
         self._client = openai.OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
         self.model = model

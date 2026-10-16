@@ -2,12 +2,12 @@
 
 ## Package Management
 
-Always use Poetry to manage packages:
+Always use uv to manage packages:
 
-- `poetry add <package>` instead of `pip install`
-- `poetry remove <package>` to uninstall
-- `poetry run <command>` to run commands within the virtual environment
-- `poetry install` to install dependencies from `pyproject.toml`
+- `uv add <package>` instead of `pip install`
+- `uv remove <package>` to uninstall
+- `uv run <command>` to run commands within the virtual environment
+- `uv sync` to install dependencies from `pyproject.toml`
 
 ## Workflow Orchestration
 
