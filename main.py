@@ -12,6 +12,7 @@ import hashlib
 import importlib
 import platform
 import sys
+import traceback
 import os
 from datetime import datetime, time as dt_time
 from typing import Any, Dict
@@ -23,7 +24,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from utils import MODULE_MAP, get_logger, get_module_interval, record_health, validate_config
+from utils import MODULE_MAP, alert_failure, get_logger, get_module_interval, record_health, validate_config
 
 logger = get_logger("main")
 
@@ -103,13 +104,19 @@ def main() -> None:
     module_path = MODULE_MAP.get(active)
     if not module_path:
         logger.error("Unknown module '%s'. Valid options: %s", active, list(MODULE_MAP))
+        alert_failure("eink config", f"Unknown active_module '{active}'. Valid options: {list(MODULE_MAP)}")
         sys.exit(1)
 
     # Per-module update interval — see utils.get_module_interval() for precedence
     interval = get_module_interval(active, config)
     config["_effective_interval"] = interval
     logger.info("Running module: %s (interval: %ds)", active, interval)
-    mod = importlib.import_module(module_path)
+    try:
+        mod = importlib.import_module(module_path)
+    except Exception:
+        logger.exception("Module '%s' failed to import.", active)
+        alert_failure(f"eink {active}", f"Import failed:\n{traceback.format_exc()}")
+        raise
 
     refresh_ok = True
     refresh_error = None
@@ -138,6 +145,7 @@ def main() -> None:
                         logger.error("Display push failed for module '%s' — see log above for hardware error.", active)
                         refresh_ok = False
                         refresh_error = "Display push failed (hardware error, see eink.log)"
+                        alert_failure(f"eink {active}", refresh_error)
                 else:
                     logger.info("macOS — skipping hardware display. Image at: %s", output_path)
         else:
@@ -145,6 +153,7 @@ def main() -> None:
     except Exception as exc:
         logger.exception("Module '%s' crashed during refresh.", active)
         record_health(active, success=False, error=str(exc))
+        alert_failure(f"eink {active}", f"Crashed during refresh:\n{traceback.format_exc()}")
         raise
 
     record_health(active, success=refresh_ok, error=refresh_error)
