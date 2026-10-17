@@ -1155,6 +1155,15 @@ def _fetch_rv_frame(
     return canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
 
 
+_ROAD_CANON_W, _ROAD_CANON_H = 800, 480  # viewport every road fetch covers at minimum
+_OVERPASS_ENDPOINTS = (  # tried in order; the main instance is often overloaded
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+)
+_ROAD_RETRY_S = 900     # back off this long after a failed Overpass fetch
+_ROAD_CACHE_KEYS = 4    # distinct viewports kept in data/osm_roads_cache.json
+
+
 def _fetch_osm_roads(
     lat: float, lon: float, zoom: int, tile_size: int, width: int, height: int,
 ) -> Image.Image:
@@ -1179,48 +1188,83 @@ def _fetch_osm_roads(
     cx, cy = _lpx(lat, lon)
     x0, y0 = cx - width / 2, cy - height / 2
 
-    lat_min, lon_min, lat_max, lon_max = _view_bounds(lat, lon, zoom, width, height, tile_size)
+    # Fetch one canonical viewport (at least the full-screen size) so the panel and
+    # full-screen layouts share a cache entry instead of evicting each other.
+    cw, ch = max(width, _ROAD_CANON_W), max(height, _ROAD_CANON_H)
+    lat_min, lon_min, lat_max, lon_max = _view_bounds(lat, lon, zoom, cw, ch, tile_size)
 
+    # At wide zooms a trunk-road query is tens of thousands of ways; interstates
+    # alone keep the Overpass response and the on-disk cache small.
+    road_classes = "motorway|trunk" if zoom >= 7 else "motorway"
     cache_path = os.path.join("data", "osm_roads_cache.json")
-    # The Overpass bbox depends on the viewport, not just the centre — a cache key
-    # without width/height silently reuses a narrower way set when the radar area
-    # changes size (e.g. switching radar_mode panel <-> seven_color).
-    cache_key  = f"{lat:.4f},{lon:.4f},{zoom},{width}x{height}"
-    ways: Optional[list] = None
+    cache_key = f"{lat:.4f},{lon:.4f},{zoom},{road_classes},v2"
+    now = time.time()
 
+    cache: dict = {"entries": {}, "failed": {}}
     try:
-        if os.path.exists(cache_path):
-            with open(cache_path) as _f:
-                _c = json.load(_f)
-            if _c.get("key") == cache_key and time.time() - _c.get("ts", 0) < 86400:
-                ways = _c["ways"]
-                logger.info("OSM roads: %d ways from cache", len(ways))
+        with open(cache_path) as _f:
+            loaded = json.load(_f)
+        if isinstance(loaded.get("entries"), dict):
+            cache = {"entries": loaded["entries"], "failed": loaded.get("failed", {})}
     except Exception:
         pass
+
+    entry = cache["entries"].get(cache_key)
+    ways: Optional[list] = None
+    if entry and now - entry.get("ts", 0) < 86400:
+        ways = entry["ways"]
+        logger.info("OSM roads: %d ways from cache", len(ways))
+    elif now - cache["failed"].get(cache_key, 0) < _ROAD_RETRY_S:
+        # Overpass is flaky; a failed fetch blocks for its full timeout, so don't
+        # pay that again on every 5-minute cycle.
+        return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
     if ways is None:
         query = (
             f"[out:json][timeout:30];"
-            f"way[highway~\"^(motorway|trunk)$\"]"
+            f"way[highway~\"^({road_classes})$\"]"
             f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
             f"out geom;"
         )
         try:
-            resp = requests.get(
-                "https://overpass-api.de/api/interpreter",
-                params={"data": query},
-                headers={"User-Agent": "eink-display/1.0"},
-                timeout=45,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            ways = [e for e in data.get("elements", []) if e.get("type") == "way"]
+            data = None
+            last_err: Optional[Exception] = None
+            for endpoint in _OVERPASS_ENDPOINTS:
+                try:
+                    resp = requests.get(endpoint, params={"data": query},
+                                        headers={"User-Agent": "eink-display/1.0"}, timeout=45)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except Exception as e:  # try the next mirror
+                    last_err = e
+                    logger.info("Overpass %s failed: %s", endpoint, e)
+            if data is None:
+                raise last_err or RuntimeError("no Overpass endpoint configured")
+            # Store only what drawing needs; full OSM way dicts are ~3x larger.
+            ways = [
+                {"m": int(e.get("tags", {}).get("highway") == "motorway"),
+                 "p": [[round(n["lat"], 4), round(n["lon"], 4)] for n in e["geometry"]]}
+                for e in data.get("elements", [])
+                if e.get("type") == "way" and e.get("geometry")
+            ]
             logger.info("OSM roads: fetched %d ways from Overpass", len(ways))
-            os.makedirs("data", exist_ok=True)
-            with open(cache_path, "w") as _f:
-                json.dump({"key": cache_key, "ts": time.time(), "ways": ways}, _f)
+            cache["entries"][cache_key] = {"ts": now, "ways": ways}
+            cache["failed"].pop(cache_key, None)
+            # Keep only the newest few viewports (zoom/adaptive changes add keys).
+            newest = sorted(cache["entries"], key=lambda k: cache["entries"][k]["ts"])[-_ROAD_CACHE_KEYS:]
+            cache["entries"] = {k: cache["entries"][k] for k in newest}
         except Exception as e:
             logger.warning("OSM road fetch failed: %s", e)
+            cache["failed"][cache_key] = now
+            ways = None
+        try:
+            os.makedirs("data", exist_ok=True)
+            with open(cache_path, "w") as _f:
+                json.dump(cache, _f)
+        except OSError:
+            pass
+        if ways is None:
             return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
     img  = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -1228,15 +1272,12 @@ def _fetch_osm_roads(
 
     polylines = []
     for way in ways:
-        if "geometry" not in way:
-            continue
         pts = []
-        for node in way["geometry"]:
-            wx, wy = _lpx(node["lat"], node["lon"])
+        for la, lo in way["p"]:
+            wx, wy = _lpx(la, lo)
             pts.append((wx - x0, wy - y0))
         if len(pts) >= 2:
-            hw = way.get("tags", {}).get("highway", "")
-            polylines.append((pts, 3 if hw == "motorway" else 2))
+            polylines.append((pts, 3 if way["m"] else 2))
 
     # Casing first (all roads), then cores — otherwise a later road's casing
     # would erase an earlier road's core at every junction.
@@ -1300,7 +1341,7 @@ def _fetch_admin_boundaries(
     lat_min, lon_min, lat_max, lon_max = _view_bounds(lat, lon, zoom, width, height, tile_size)
 
     cache_path = os.path.join("data", "osm_boundaries_cache.json")
-    cache_key  = f"{lat:.4f},{lon:.4f},{zoom},{width}x{height}"
+    cache_key  = f"{lat:.4f},{lon:.4f},{zoom},{width}x{height},{'m' if zoom < 7 else 'mt'}"
     ways: Optional[list] = None
 
     try:
@@ -2298,6 +2339,8 @@ _EINK_BLUE   = [  0,   0, 255]
 _EINK_GREEN  = [  0, 255,   0]
 _EINK_YELLOW = [255, 255,   0]
 _EINK_ORANGE = [255, 128,   0]
+_UB_LIGHT_V = 0.85  # Universal Blue value cutoffs: light rain / moderate / heavy
+_UB_MID_V = 0.65
 _EINK_RED    = [255,   0,   0]
 
 _SEVEN_COLOR_LEGEND = [
@@ -2364,14 +2407,6 @@ def _remap_radar_seven_color(image: Image.Image) -> Image.Image:
     m = (h >= 160 / 360.0) & (h < 300 / 360.0) & precip
     out[m] = _EINK_BLUE
 
-    # Green: hue 80°-160° — greens (light-moderate)
-    m = (h >= 80 / 360.0) & (h < 160 / 360.0) & precip
-    out[m] = _EINK_GREEN
-
-    # Yellow: hue 60°-80° — yellows (moderate)
-    m = (h >= 60 / 360.0) & (h < 80 / 360.0) & precip
-    out[m] = _EINK_YELLOW
-
     # Orange: hue 30°-60° — oranges (heavy)
     m = (h >= 30 / 360.0) & (h < 60 / 360.0) & precip
     out[m] = _EINK_ORANGE
@@ -2380,12 +2415,69 @@ def _remap_radar_seven_color(image: Image.Image) -> Image.Image:
     m = ((h < 30 / 360.0) | (h >= 300 / 360.0)) & precip
     out[m] = _EINK_RED
 
+    # RainViewer's public tiles serve one palette ("Universal Blue") whatever
+    # color scheme the URL asks for: rain intensity is a cyan->deep-blue ramp that
+    # darkens as it gets heavier, with warm colors only for the severe tail. Left
+    # to the band above, every rain pixel lands on the lightest tier and a
+    # thunderstorm core is indistinguishable from drizzle. Tier the ramp by value.
+    ub = (h >= 175 / 360.0) & (h < 215 / 360.0) & (s > 0.4) & (v > 0.3)
+    out[ub & (v >= _UB_LIGHT_V)] = _EINK_BLUE
+    out[ub & (v < _UB_LIGHT_V) & (v >= _UB_MID_V)] = _EINK_GREEN
+    out[ub & (v < _UB_MID_V)] = _EINK_YELLOW
+
+    # Snow / mixed precipitation arrives as a low-saturation tan->grey ramp, which
+    # the saturation floor above would drop as background.
+    snow = (h >= 35 / 360.0) & (h < 60 / 360.0) & (s > 0.08) & (s <= 0.5) & (v > 0.35)
+    out[snow & (v >= 0.7)] = _EINK_BLUE
+    out[snow & (v < 0.7)] = _EINK_GREEN
+
+    # Green: hue 80°-160° — greens (light-moderate)
+    m = (h >= 80 / 360.0) & (h < 160 / 360.0) & precip
+    out[m] = _EINK_GREEN
+
+    # Yellow: hue 60°-80° — yellows (moderate)
+    m = (h >= 60 / 360.0) & (h < 80 / 360.0) & precip
+    out[m] = _EINK_YELLOW
+
     # Black: very dark pixels OR dark-but-saturated (extreme / hail markers).
     # Written last so it overrides any prior color assignment for dark pixels.
     m = (v < 0.18) | ((s > 0.20) & (v <= 0.35))
     out[m] = _EINK_BLACK
 
     return Image.fromarray(out, "RGB")
+
+
+def _snap_ridge_greys(img: Image.Image, box: Tuple[int, int, int, int]) -> None:
+    """Snap the RIDGE image's low-saturation pixels to pure black or white.
+
+    Scaling the GIF anti-aliases thin black lines and grey labels into mid-greys.
+    White is not a palette ink, so the quantizer sends a mid-grey to the nearest
+    ink, orange, fringing every road and city name. Colored echoes are untouched.
+    """
+    region = np.array(img.crop(box).convert("RGB"))
+    spread = region.max(axis=2).astype(np.int16) - region.min(axis=2)
+    grey = spread <= 40
+    dark = region.mean(axis=2) < 128
+    region[grey & dark] = 0
+    region[grey & ~dark] = 255
+    img.paste(Image.fromarray(region, "RGB"), box[:2])
+
+
+# The NWS RIDGE GIF draws highways in dark red (156,15,15), anti-aliased toward
+# white through pinks with G == B. Left alone the quantizer inks them red/orange,
+# which reads as precipitation; roads are black. Reflectivity reds have G == B == 0,
+# so the ramp is distinguishable from echoes.
+_RIDGE_ROAD_DARK_G = 120  # road-ramp pixels with green below this are black, else white
+
+
+def _blacken_ridge_roads(img: Image.Image) -> Image.Image:
+    """Recolor the RIDGE GIF's highway ramp to pure black (core) or white (faint edge)."""
+    arr = np.array(img.convert("RGB"))
+    r, g, b = (arr[..., i].astype(np.int16) for i in range(3))
+    road = (np.abs(g - b) <= 6) & (g >= 10) & (r - g >= 15)
+    arr[road & (g < _RIDGE_ROAD_DARK_G)] = 0
+    arr[road & (g >= _RIDGE_ROAD_DARK_G)] = 255
+    return Image.fromarray(arr, "RGB")
 
 
 def _snap_region_2color(
@@ -2848,6 +2940,69 @@ def _first_set(*values):
     return None
 
 
+def _precip_nearby(config: dict, headers: dict) -> Optional[bool]:
+    """True if radar echoes cover enough area within `dynamic_radius_km` of home.
+
+    Probes the latest RainViewer frame at the full-screen view's geometry, so its
+    tiles are already on the disk cache when that view is then rendered. Returns
+    None when the answer is unknown (no coordinates, API or tile failure) so the
+    caller can fall back to the default layout rather than guess.
+    """
+    forecast_loc = config.get("forecast_location", {})
+    lat = _first_set(config.get("rainviewer_lat"), forecast_loc.get("latitude"))
+    lon = _first_set(config.get("rainviewer_lon"), forecast_loc.get("longitude"))
+    if lat is None or lon is None:
+        return None
+    zoom = config.get("rainviewer_zoom", 7)
+    width = config.get("width", 800)
+    height = config.get("height", 480) - _LEGEND_H
+    try:
+        resp = requests.get("https://api.rainviewer.com/public/weather-maps.json",
+                            headers=headers, timeout=10)
+        resp.raise_for_status()
+        past = resp.json().get("radar", {}).get("past", [])
+        if not past:
+            return None
+        tx_min, ty_min, tx_max, ty_max, crop_x, crop_y = _rv_tile_geometry(
+            lat, lon, zoom, width, height, _RV_TILE_SIZE)
+        frame = _fetch_rv_frame(past[-1]["path"], tx_min, ty_min, tx_max, ty_max, zoom,
+                                _RV_TILE_SIZE, config.get("rainviewer_color_scheme", 4),
+                                headers, crop_x, crop_y, width, height)
+    except Exception as e:
+        logger.warning("Dynamic radar probe failed: %s", e)
+        return None
+    return _echo_area_km2(frame, lat, zoom, config.get("dynamic_radius_km", 100)) >= \
+        config.get("dynamic_min_area_km2", 100)
+
+
+def _echo_area_km2(frame: Image.Image, lat: float, zoom: int, radius_km: float) -> float:
+    """Area (km²) of radar echo within `radius_km` of the frame's centre."""
+    alpha = np.array(frame.split()[-1])
+    km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
+    h, w = alpha.shape
+    yy, xx = np.ogrid[:h, :w]
+    inside = np.hypot(xx - w / 2.0, yy - h / 2.0) * km_per_px <= radius_km
+    return float(((alpha > 0) & inside).sum()) * km_per_px ** 2
+
+
+def _resolve_radar_mode(config: dict, headers: dict) -> str:
+    """Map the user-facing radar_mode onto a concrete layout.
+
+    `full` is the full-screen radar (the `seven_color` layout). `dynamic` shows
+    the conditions panel normally and drops it for full-screen radar whenever
+    there is precipitation near home.
+    """
+    mode = str(config.get("radar_mode", "crop")).lower()
+    if mode == "full":
+        return "seven_color"
+    if mode == "dynamic":
+        nearby = _precip_nearby(config, headers)
+        logger.info("Dynamic radar: precip nearby=%s -> %s", nearby,
+                    "full" if nearby else "panel")
+        return "seven_color" if nearby else "panel"
+    return mode
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -2861,14 +3016,18 @@ def generate_weather_image(config, special_msg=None):
     output_path = config.get("output_path") or os.path.join(radar_folder, f"eink_display_{station}.bmp")
     quantized_output_path = config.get("quantized_path") or os.path.join(radar_folder, f"eink_quantized_display_{station}.bmp")
 
-    radar_mode = config.get("radar_mode", "crop").lower()
     final_img = Image.new("RGB", (width, height), color=background_color)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
     }
 
+    radar_mode = _resolve_radar_mode(config, headers)
     radar_source = config.get("radar_source", "ridge").lower()
+    if radar_mode == "seven_color":
+        # The full-screen layout is built from RainViewer tiles (pre-sized to the
+        # canvas, never stretched); the NWS GIF can't fill it without distortion.
+        radar_source = "rainviewer"
     radar_url_qr = None
     rv_frame_ts = None  # Unix timestamp of the radar frame (RainViewer only)
 
@@ -2931,7 +3090,7 @@ def generate_weather_image(config, special_msg=None):
             logger.error("Unexpected content type: %s", content_type)
             return None, False, None
 
-        radar_img = Image.open(io.BytesIO(response.content)).convert("RGB")
+        radar_img = _blacken_ridge_roads(Image.open(io.BytesIO(response.content)))
     primary_region = None
     # (x_off, y_off, w, h) of the radar area on final_img, for the geo overlays.
     # Every mode fetches RainViewer pre-sized to its radar area, so this region is
@@ -3093,9 +3252,6 @@ def generate_weather_image(config, special_msg=None):
         # Pixels are classified by precipitation intensity via HSV hue, then
         # remapped to the 7 display colors. A legend strip at the bottom labels
         # each color with its approximate dBZ tier.
-        if radar_source != "rainviewer":
-            logger.error("seven_color mode requires radar_source: rainviewer")
-            return None, False, None
         # radar_img was already fetched at width×radar_h and remapped above.
         final_img.paste(radar_img, (0, 0))
         _draw_seven_color_legend(final_img, rv_frame_ts, station, config)
@@ -3103,7 +3259,7 @@ def generate_weather_image(config, special_msg=None):
         overlay_geom = (0, 0, width, radar_h)
         processed_radar = None
     else:
-        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', 'panel', or 'seven_color'.")
+        raise ValueError(f"Invalid radar_mode '{radar_mode}'. Use 'crop', 'fit', 'panel', 'full', 'dynamic', or 'seven_color'.")
 
     if processed_radar is not None:
         final_img.paste(processed_radar, (0, 0))
@@ -3113,6 +3269,9 @@ def generate_weather_image(config, special_msg=None):
     # the radar has been pasted and remapped, so the pure red/black/white fills
     # survive to the final quantize. RainViewer only — the tile projection these
     # coordinates assume is not known for the NWS RIDGE GIF.
+    if overlay_geom is not None and radar_source == "ridge":
+        ox, oy, ow, oh = overlay_geom
+        _snap_ridge_greys(final_img, (ox, oy, ox + ow, oy + oh))
     if overlay_geom is not None and radar_source == "rainviewer":
         ox, oy, ow, oh = overlay_geom
         if config.get("radar_alerts_overlay", False):
