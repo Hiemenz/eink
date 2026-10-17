@@ -388,7 +388,7 @@ rainviewer_map_overlay: true   # overlay OSM interstate/trunk highways for geogr
 rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
 rainviewer_color_scheme: 4     # NOTE: RainViewer now ignores this -- tiles are always Universal Blue; intensity is recovered from the blue ramp
 rainviewer_nowcast: true       # dashed +30min projected precip edge, and "rain here in ~N min"
-rainviewer_range_rings: true   # home crosshair + 25/50/100km rings for gauging cell distance
+rainviewer_range_rings: false  # home crosshair + 25/50/100km rings for gauging cell distance (off: cleaner radar)
 rainviewer_trend_badge: true   # "Trend: Intensifying/Steady/Weakening" caption from the last 3 frames
 rainviewer_adaptive_zoom: true # zoom out one level if the frame is empty, in one level if a cell is <25km away
                                 # (zoom-in has no effect at the default rainviewer_zoom: 7 -- that's already
