@@ -44,7 +44,11 @@ unchanged_refresh_seconds: 3600
 # When true, auto_refresh polls NWS every 5 min; switches to weather module
 # on Severe/Extreme alerts and restores the previous module when they clear.
 alert_auto_override: false
-radar_mode: panel # "crop" | "fit" | "panel" | "seven_color"
+radar_mode: panel # "crop" | "fit" | "panel" | "seven_color" | "full" | "dynamic"
+                  # full    = full-screen radar (no side panel), never stretched
+                  # dynamic = panel normally; full-screen radar while precip is near home
+dynamic_radius_km: 100      # dynamic: how close echoes must be to count as "weather in the area"
+dynamic_min_area_km2: 100   # dynamic: how much echo area inside that radius triggers full-screen
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_legend: true        # show 7-color dBZ legend strip under the radar in panel mode
 panel_header: "Franklin, TN"   # text shown in the panel header bar
@@ -379,10 +383,10 @@ game_of_life:
 # radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution), built with PIL
 # radar_source: "alternate"    # flip between "ridge" and "rainviewer" every refresh cycle
 radar_source: alternate
-rainviewer_zoom: 7             # zoom level: free tier max is 7 (regional, ~1.2km/px); 8+ returns "zoom not supported"
+rainviewer_zoom: 6             # zoom level: free tier max is 7; 8+ returns "zoom not supported". 6 shows ~±250 km, close to the NWS view; 7 is ~±130 km
 rainviewer_map_overlay: true   # overlay OSM interstate/trunk highways for geographic orientation
 rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
-rainviewer_color_scheme: 4     # 4=NWS Reflectivity (standard NEXRAD), 2=Universal Blue, 8=Dark
+rainviewer_color_scheme: 4     # NOTE: RainViewer now ignores this -- tiles are always Universal Blue; intensity is recovered from the blue ramp
 rainviewer_nowcast: true       # dashed +30min projected precip edge, and "rain here in ~N min"
 rainviewer_range_rings: true   # home crosshair + 25/50/100km rings for gauging cell distance
 rainviewer_trend_badge: true   # "Trend: Intensifying/Steady/Weakening" caption from the last 3 frames

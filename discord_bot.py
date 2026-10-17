@@ -12,6 +12,9 @@ Commands (default prefix: !)
     !refresh               Force a display refresh with the current module
     !status                Show current display state
     !modules               List all available modules and their configurable args
+    !menu                  Pick the module, radar layout and display model from dropdowns
+    !radar [layout]        Show or change the weather radar layout (panel/full/dynamic/...)
+    !model [name]          Show or change the e-ink display model
     !help_display          Show command reference
 """
 
@@ -484,6 +487,169 @@ def channel_guard():
             return True
         return ctx.channel.id == ALLOWED_CHANNEL
     return commands.check(predicate)
+
+
+# ---------------------------------------------------------------------------
+# Selectors (!menu, !radar, !model)
+# ---------------------------------------------------------------------------
+
+# Weather radar layouts (config key `radar_mode`). Order is the dropdown order.
+RADAR_MODES: dict[str, str] = {
+    "panel": "Radar plus the conditions side panel",
+    "full": "Full-screen radar, no side panel",
+    "dynamic": "Side panel normally; full-screen radar when rain is near",
+    "seven_color": "Full-screen radar (same layout as full)",
+    "fit": "Radar letterboxed to fit the screen",
+    "crop": "Radar scaled to fill the screen",
+}
+
+# Waveshare drivers display.py knows how to drive (config key `display_model`).
+DISPLAY_MODELS: dict[str, str] = {
+    "epd7in3f": "7.3in 7-color ACeP",
+    "epd7in5_V2": "7.5in black/white",
+}
+
+SELECT_MAX = 25  # Discord allows at most 25 options per dropdown
+
+
+def chunk_list(items: list, size: int = SELECT_MAX) -> list[list]:
+    """Split `items` into consecutive chunks of at most `size`."""
+    return [items[i:i + size] for i in range(0, len(items), size)]
+
+
+def module_page_label(chunk: list[str]) -> str:
+    """Dropdown placeholder for one page of modules, e.g. 'Modules: weather … stocks'."""
+    return f"Modules: {chunk[0]} … {chunk[-1]}"
+
+
+class ControlView(discord.ui.View):
+    """Dropdowns that switch the module, radar layout or display model."""
+
+    def __init__(self, cfg: dict):
+        super().__init__(timeout=600)
+        active = cfg.get("active_module")
+        for chunk in chunk_list(ALL_MODULES):
+            select = discord.ui.Select(
+                placeholder=module_page_label(chunk),
+                options=[discord.SelectOption(label=m, default=(m == active)) for m in chunk],
+            )
+            select.callback = self._make_callback(select, self._pick_module)
+            self.add_item(select)
+
+        radar = cfg.get("radar_mode")
+        select = discord.ui.Select(
+            placeholder=f"Radar layout (now: {radar})",
+            options=[discord.SelectOption(label=k, description=v, default=(k == radar))
+                     for k, v in RADAR_MODES.items()],
+        )
+        select.callback = self._make_callback(select, self._pick_radar)
+        self.add_item(select)
+
+        model = cfg.get("display_model")
+        select = discord.ui.Select(
+            placeholder=f"Display model (now: {model})",
+            options=[discord.SelectOption(label=k, description=v, default=(k == model))
+                     for k, v in DISPLAY_MODELS.items()],
+        )
+        select.callback = self._make_callback(select, self._pick_model)
+        self.add_item(select)
+
+    @staticmethod
+    def _make_callback(select: discord.ui.Select, handler):
+        async def callback(interaction: discord.Interaction):
+            if ALLOWED_CHANNEL and interaction.channel_id != ALLOWED_CHANNEL:
+                await interaction.response.send_message("Wrong channel.", ephemeral=True)
+                return
+            await handler(interaction, select.values[0])
+        return callback
+
+    async def _pick_module(self, interaction: discord.Interaction, module: str):
+        missing_required, _ = _check_module_config(module, load_config())
+        if missing_required:
+            lines = [f"`!set {k} <value>` — {desc}" for k, desc in missing_required]
+            await interaction.response.send_message(
+                f"Cannot display `{module}` — required config missing:\n" + "\n".join(lines),
+                ephemeral=True)
+            return
+        await _apply_and_refresh(interaction, {"active_module": module}, f"module → `{module}`")
+
+    async def _pick_radar(self, interaction: discord.Interaction, mode: str):
+        # Choosing a radar layout means wanting to see it, so switch to weather too.
+        await _apply_and_refresh(
+            interaction, {"radar_mode": mode, "active_module": "weather"},
+            f"radar layout → `{mode}`")
+
+    async def _pick_model(self, interaction: discord.Interaction, model: str):
+        await _apply_and_refresh(interaction, {"display_model": model}, f"display model → `{model}`")
+
+
+async def _apply_and_refresh(interaction: discord.Interaction, updates: dict, summary: str):
+    """Write `updates` to bot_state, re-render, and report back on the interaction."""
+    await interaction.response.defer(thinking=True)
+    for key, value in updates.items():
+        update_bot_state(key, value)
+    cfg = load_config()
+    success, output = await run_main()
+    active = cfg.get("active_module", "?")
+    if success:
+        embed = discord.Embed(
+            title=f"Display refreshed — {active}",
+            description=f"{summary}\n{_next_update_str(active, cfg)}",
+            color=discord.Color.green(),
+        )
+    else:
+        embed = discord.Embed(title="Config updated — refresh failed",
+                              description=summary, color=discord.Color.red())
+        embed.add_field(name="Error", value=f"```{output[:900]}```", inline=False)
+    await interaction.followup.send(embed=embed)
+    if success:
+        await send_display_image(interaction.channel, cfg)
+
+
+@channel_guard()
+async def cmd_menu(ctx: commands.Context):
+    """Post dropdowns for choosing the module, radar layout and display model."""
+    await ctx.send("**E-Ink control** — pick a module, radar layout or display model:",
+                   view=ControlView(load_config()))
+
+
+@channel_guard()
+async def cmd_radar(ctx: commands.Context, mode: str = None):
+    """Show or change the weather radar layout."""
+    cfg = load_config()
+    if mode is None or mode.lower() not in RADAR_MODES:
+        if mode is not None:
+            await ctx.send(f"Unknown layout `{mode}`.")
+        lines = "\n".join(f"`{k}` — {v}" for k, v in RADAR_MODES.items())
+        await ctx.send(f"Radar layout is `{cfg.get('radar_mode')}`. Usage: `!radar <layout>`\n{lines}")
+        return
+    mode = mode.lower()
+    update_bot_state("radar_mode", mode)
+    update_bot_state("active_module", "weather")
+    msg = await ctx.send(f"Radar layout → **{mode}** — refreshing display...")
+    success, output = await run_main()
+    if success:
+        await msg.edit(content=f"Radar layout → **{mode}** — display refreshed.")
+        await send_display_image(ctx.channel, load_config())
+    else:
+        await msg.edit(content=f"Radar layout → **{mode}** saved, but refresh failed:\n```{output[:900]}```")
+
+
+@channel_guard()
+async def cmd_model(ctx: commands.Context, name: str = None):
+    """Show or change the e-ink display model."""
+    cfg = load_config()
+    if name is None or name not in DISPLAY_MODELS:
+        if name is not None:
+            await ctx.send(f"Unknown model `{name}`.")
+        lines = "\n".join(f"`{k}` — {v}" for k, v in DISPLAY_MODELS.items())
+        await ctx.send(f"Display model is `{cfg.get('display_model')}`. Usage: `!model <name>`\n{lines}")
+        return
+    update_bot_state("display_model", name)
+    msg = await ctx.send(f"Display model → **{name}** — refreshing display...")
+    success, output = await run_main()
+    await msg.edit(content=(f"Display model → **{name}** — display refreshed." if success else
+                            f"Display model → **{name}** saved, but refresh failed:\n```{output[:900]}```"))
 
 
 # ---------------------------------------------------------------------------
@@ -1325,6 +1491,9 @@ async def cmd_help_display(ctx: commands.Context):
     embed.add_field(name=f"{prefix}status", value="Show current display state", inline=False)
     embed.add_field(name=f"{prefix}health", value="Show per-module refresh health — last success age, failing modules", inline=False)
     embed.add_field(name=f"{prefix}modules", value="List all modules and their configurable args", inline=False)
+    embed.add_field(name=f"{prefix}menu", value="Dropdowns to pick the module, radar layout and display model", inline=False)
+    embed.add_field(name=f"{prefix}radar [layout]", value="Show or set the radar layout: panel, full, dynamic, fit, crop", inline=False)
+    embed.add_field(name=f"{prefix}model [name]", value="Show or set the e-ink display model", inline=False)
     embed.add_field(name=f"{prefix}video <url>", value="Download a YouTube video, extract frames, and display as movie slideshow. Prompts for name, interval, start offset, and fill mode.", inline=False)
     embed.add_field(name=f"{prefix}movie skip/back/goto/reset/status", value="Control the movie slideshow — skip frames, jump to a frame, or restart", inline=False)
     embed.add_field(
@@ -1502,6 +1671,9 @@ def main():
     bot.command(name="status")(cmd_status)
     bot.command(name="health")(cmd_health)
     bot.command(name="modules")(cmd_modules)
+    bot.command(name="menu")(cmd_menu)
+    bot.command(name="radar")(cmd_radar)
+    bot.command(name="model")(cmd_model)
     bot.command(name="help_display")(cmd_help_display)
     bot.command(name="help")(cmd_help_display)
     bot.command(name="video")(cmd_video)

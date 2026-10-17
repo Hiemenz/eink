@@ -1446,3 +1446,97 @@ class TestStaleConditionsAgeCap:
         with patch.object(W_MOD, "_CONDITIONS_MAX_STALE", 48 * 3600):
             r = fetch_current_conditions(35.9, -86.8, {})
         assert r["stale_as_of"].split()[0] in {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
+
+
+class TestUniversalBlueRemap:
+    """RainViewer serves one 'Universal Blue' palette; intensity must survive the remap."""
+
+    @staticmethod
+    def _classify(rgb):
+        return _remap_radar_seven_color(Image.new("RGB", (1, 1), rgb)).getpixel((0, 0))
+
+    def test_light_rain_is_blue(self):
+        assert self._classify((136, 221, 238)) == (0, 0, 255)
+
+    def test_moderate_rain_is_green(self):
+        assert self._classify((0, 154, 213)) == (0, 255, 0)
+
+    def test_heavy_core_is_not_light_blue(self):
+        # Darkest blue of the ramp: used to collapse onto the lightest tier.
+        assert self._classify((0, 71, 104)) == (255, 255, 0)
+
+    def test_ramp_intensity_never_decreases_as_blue_darkens(self):
+        order = [(0, 0, 255), (0, 255, 0), (255, 255, 0)]
+        ramp = [(136, 221, 238), (0, 163, 224), (0, 119, 170), (0, 98, 149), (0, 71, 104)]
+        ranks = [order.index(self._classify(c)) for c in ramp]
+        assert ranks == sorted(ranks)
+
+    def test_snow_ramp_is_kept_not_dropped_as_background(self):
+        assert self._classify((222, 208, 151)) == (0, 0, 255)
+        assert self._classify((108, 104, 93)) == (0, 255, 0)
+
+    def test_severe_warm_colors_still_tier_up(self):
+        assert self._classify((255, 238, 0)) == (255, 128, 0)
+        assert self._classify((255, 68, 0)) == (255, 0, 0)
+
+
+class TestRidgeCleanup:
+    def test_road_red_becomes_black(self):
+        img = Image.new("RGB", (4, 1), (255, 255, 255))
+        img.putpixel((1, 0), (156, 15, 15))
+        img.putpixel((2, 0), (182, 79, 79))      # anti-aliased edge, still dark
+        img.putpixel((3, 0), (236, 207, 207))    # faint edge fades to white
+        out = W_MOD._blacken_ridge_roads(img)
+        assert [out.getpixel((x, 0)) for x in range(4)] == [
+            (255, 255, 255), (0, 0, 0), (0, 0, 0), (255, 255, 255)]
+
+    def test_reflectivity_colors_are_left_alone(self):
+        for rgb in [(253, 0, 0), (252, 168, 0), (199, 21, 133), (255, 255, 0)]:
+            img = Image.new("RGB", (1, 1), rgb)
+            assert W_MOD._blacken_ridge_roads(img).getpixel((0, 0)) == rgb
+
+    def test_anti_aliased_greys_snap_to_black_or_white_but_color_survives(self):
+        img = Image.new("RGB", (4, 1), (255, 255, 255))
+        img.putpixel((0, 0), (90, 90, 90))      # AA'd road/label edge
+        img.putpixel((1, 0), (200, 200, 200))   # faint county line
+        img.putpixel((2, 0), (0, 200, 0))       # a real echo
+        W_MOD._snap_ridge_greys(img, (0, 0, 4, 1))
+        assert [img.getpixel((x, 0)) for x in range(4)] == [
+            (0, 0, 0), (255, 255, 255), (0, 200, 0), (255, 255, 255)]
+
+
+class TestRadarModeResolution:
+    def test_full_is_the_seven_color_layout(self):
+        assert W_MOD._resolve_radar_mode({"radar_mode": "full"}, {}) == "seven_color"
+
+    def test_explicit_modes_pass_through(self):
+        for m in ("panel", "crop", "fit", "seven_color"):
+            assert W_MOD._resolve_radar_mode({"radar_mode": m}, {}) == m
+
+    def test_dynamic_goes_full_when_precip_nearby(self):
+        with patch.object(W_MOD, "_precip_nearby", return_value=True):
+            assert W_MOD._resolve_radar_mode({"radar_mode": "dynamic"}, {}) == "seven_color"
+
+    def test_dynamic_keeps_panel_when_clear_or_unknown(self):
+        for answer in (False, None):
+            with patch.object(W_MOD, "_precip_nearby", return_value=answer):
+                assert W_MOD._resolve_radar_mode({"radar_mode": "dynamic"}, {}) == "panel"
+
+
+class TestEchoArea:
+    @staticmethod
+    def _frame(box):
+        a = np.zeros((444, 800, 4), dtype=np.uint8)
+        x0, y0, x1, y1 = box
+        a[y0:y1, x0:x1] = (0, 0, 255, 255)
+        return Image.fromarray(a, "RGBA")
+
+    def test_empty_frame_has_no_area(self):
+        assert W_MOD._echo_area_km2(self._frame((0, 0, 0, 0)), 36.0, 6, 100) == 0
+
+    def test_echo_at_home_counts(self):
+        assert W_MOD._echo_area_km2(self._frame((395, 217, 405, 227)), 36.0, 6, 100) > 50
+
+    def test_echo_beyond_radius_is_ignored(self):
+        # ~380 px (~370 km at zoom 6) east of centre.
+        assert W_MOD._echo_area_km2(self._frame((770, 217, 790, 237)), 36.0, 6, 100) == 0
