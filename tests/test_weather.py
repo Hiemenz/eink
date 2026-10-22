@@ -1103,6 +1103,30 @@ class TestTileCache:
         assert len(calls) == 1, "second fetch should have hit the disk cache"
         assert list(first.getdata()) == list(second.getdata())
 
+    def test_strict_raises_on_failed_tile(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(W_MOD, "_TILE_CACHE_DIR", str(tmp_path / "tiles"))
+        resp = MagicMock()
+        resp.status_code = 404
+        args = ("/v2/radar/past_9", 0, 0, 0, 0, 7, 8, 4, {}, 0, 0, 8, 8)
+        monkeypatch.setattr(W_MOD, "_RV_TILE_RETRY_DELAY", 0)
+        with patch("modules.weather.requests.get", return_value=resp):
+            W_MOD._fetch_rv_frame(*args)  # lenient: transparent canvas, no raise
+            with pytest.raises(W_MOD._RVTileError):
+                W_MOD._fetch_rv_frame(*args, strict=True)
+
+    def test_strict_retries_transient_failure(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(W_MOD, "_TILE_CACHE_DIR", str(tmp_path / "tiles"))
+        monkeypatch.setattr(W_MOD, "_RV_TILE_RETRY_DELAY", 0)
+        buf = io.BytesIO()
+        Image.new("RGBA", (8, 8), (255, 0, 0, 255)).save(buf, "PNG")
+        bad = MagicMock(status_code=503)
+        good = MagicMock(status_code=200, content=buf.getvalue())
+        args = ("/v2/radar/past_8", 0, 0, 0, 0, 7, 8, 4, {}, 0, 0, 8, 8)
+        with patch("modules.weather.requests.get", side_effect=[bad, good]) as get:
+            img = W_MOD._fetch_rv_frame(*args, strict=True)
+        assert get.call_count == 2
+        assert img.getpixel((0, 0)) == (255, 0, 0, 255)
+
     def test_prune_keeps_newest(self, tmp_path, monkeypatch):
         cache = tmp_path / "tiles"
         cache.mkdir()
