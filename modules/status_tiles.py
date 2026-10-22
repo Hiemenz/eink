@@ -9,9 +9,7 @@ All data access goes through `get_statuses(config)`, the single seam to replace
 when real data is wired up. Until then it reads `status_tiles.items` from
 config.yml, falling back to a built-in sample set.
 
-Layout (800 x 480): header bar, then a tile grid whose column count is chosen
-so tiles stay as large as possible while all of them fit. A footer shows
-green/yellow/red counts.
+Layout (800 x 480): a headline (worst status wins), then a grid of rounded\ncards — white with a green dot when OK, solid yellow/red when not — capped in\nsize so a handful of programs stay small. A footer shows green/yellow/red counts.
 """
 
 from __future__ import annotations
@@ -24,10 +22,13 @@ from PIL import Image, ImageDraw
 import utils
 
 W, H = 800, 480
-HEADER_H = 36
-FOOTER_H = 30
+HEADER_H = 52
+FOOTER_H = 36
 PAD = 8
-GAP = 4
+GAP = 8
+CARD_RADIUS = 10
+MAX_TILE_W = 170
+MAX_TILE_H = 72
 
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
@@ -90,9 +91,41 @@ def grid_layout(n: int, area_w: int, area_h: int, gap: int = GAP) -> tuple[int, 
 
 
 def _fit_label(draw, text, font, max_w):
-    while text and draw.textlength(text, font=font) > max_w:
+    if draw.textlength(text, font=font) <= max_w:
+        return text
+    while text and draw.textlength(text + "…", font=font) > max_w:
         text = text[:-1]
-    return text
+    return text + "…"
+
+
+def _summary(counts: dict) -> tuple[str, tuple[int, int, int]]:
+    """Headline text and its colour: worst status wins."""
+    if counts["fail"]:
+        n = counts["fail"]
+        return f"{n} {'SERVICE' if n == 1 else 'SERVICES'} DOWN", RED
+    if counts["warn"]:
+        n = counts["warn"]
+        return f"{n} DEGRADED", YELLOW
+    return "ALL SYSTEMS OPERATIONAL", GREEN
+
+
+def _draw_card(draw, box, name, status, font, show_label):
+    """Rounded card: white for ok (with a green dot), solid fill for warn/fail."""
+    x0, y0, x1, y1 = box
+    color = STATUS_COLORS[status]
+    solid = status != "ok"
+    text_color = WHITE if status == "fail" else BLACK
+    radius = max(3, min(CARD_RADIUS, (y1 - y0) // 3))
+    draw.rounded_rectangle(box, radius=radius, fill=color if solid else WHITE,
+                           outline=BLACK, width=1)
+    d = max(6, min(14, (y1 - y0) // 3))
+    cy = (y0 + y1) // 2
+    dot = (x0 + 8, cy - d // 2, x0 + 8 + d, cy - d // 2 + d)
+    draw.ellipse(dot, fill=WHITE if status == "fail" else color, outline=BLACK)
+    if show_label and (x1 - x0) >= 48:
+        tx = dot[2] + 7
+        label = _fit_label(draw, name, font, x1 - tx - 6)
+        draw.text((tx, cy), label, font=font, fill=text_color, anchor="lm")
 
 
 def generate(config: dict) -> str:
@@ -100,41 +133,50 @@ def generate(config: dict) -> str:
     output_path = cfg.get("output_path", "images/status_tiles.bmp")
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    statuses = get_statuses(config)
+    # Problems first, so they sit top-left where the eye lands.
+    order = {"fail": 0, "warn": 1, "ok": 2}
+    statuses = sorted(get_statuses(config), key=lambda t: order[t[1]])
     show_labels = cfg.get("show_labels", True)
+    counts = {k: sum(1 for _, s in statuses if s == k) for k in STATUS_COLORS}
 
     img = Image.new("RGB", (W, H), WHITE)
     draw = ImageDraw.Draw(img)
 
-    header_font = utils.get_font(18, bold=True, config=config)
-    draw.rectangle([(0, 0), (W, HEADER_H)], fill=BLACK)
-    draw.text((PAD, 8), "STATUS", font=header_font, fill=WHITE)
+    # Header: worst-status headline on the left, clock on the right.
+    title_font = utils.get_font(26, bold=True, config=config)
+    small_font = utils.get_font(16, config=config)
+    headline, hcolor = _summary(counts)
+    draw.ellipse((PAD + 4, 22, PAD + 24, 42), fill=hcolor, outline=BLACK, width=2)
+    draw.text((PAD + 36, 32), headline, font=title_font, fill=BLACK, anchor="lm")
     now_str = datetime.now().strftime("%H:%M")
-    draw.text((W - PAD - header_font.getlength(now_str), 8), now_str, font=header_font, fill=WHITE)
+    draw.text((W - PAD - 4, 32), now_str, font=small_font, fill=BLACK, anchor="rm")
+    draw.line([(PAD, HEADER_H), (W - PAD, HEADER_H)], fill=BLACK, width=2)
 
-    area_x, area_y = PAD, HEADER_H + PAD
-    area_w, area_h = W - 2 * PAD, H - HEADER_H - FOOTER_H - 2 * PAD
+    # Grid of compact cards, capped in size so few programs stay small and tidy.
+    area_x, area_y = PAD, HEADER_H + PAD + 4
+    area_w, area_h = W - 2 * PAD, H - HEADER_H - FOOTER_H - 2 * PAD - 4
     cols, rows, tw, th = grid_layout(len(statuses), area_w, area_h)
+    tw, th = min(tw, MAX_TILE_W), min(th, MAX_TILE_H)
+    if cols:
+        grid_w = cols * tw + (cols - 1) * GAP
+        area_x += (area_w - grid_w) // 2   # centre when capped
+        area_y += (area_h - (rows * th + (rows - 1) * GAP)) // 2
 
-    label_font = utils.get_font(max(8, min(14, th // 4)), config=config)
+    label_font = utils.get_font(max(9, min(13, th // 3)), bold=True, config=config)
     for i, (name, status) in enumerate(statuses):
         r, c = divmod(i, cols)
         x = area_x + c * (tw + GAP)
         y = area_y + r * (th + GAP)
-        draw.rectangle([(x, y), (x + tw - 1, y + th - 1)], fill=STATUS_COLORS[status], outline=BLACK)
-        if show_labels and tw >= 40 and th >= 20:
-            label = _fit_label(draw, name, label_font, tw - 6)
-            draw.text((x + 3, y + 2), label, font=label_font, fill=BLACK)
+        _draw_card(draw, (x, y, x + tw - 1, y + th - 1), name, status, label_font, show_labels)
 
-    counts = {k: sum(1 for _, s in statuses if s == k) for k in STATUS_COLORS}
-    fy = H - FOOTER_H + 6
-    foot_font = utils.get_font(14, bold=True, config=config)
-    x = PAD
+    # Footer legend with counts.
+    fy = H - FOOTER_H + 8
+    x = PAD + 4
     for key, label in (("ok", "OK"), ("warn", "WARN"), ("fail", "FAIL")):
-        draw.rectangle([(x, fy + 2), (x + 12, fy + 14)], fill=STATUS_COLORS[key], outline=BLACK)
+        draw.ellipse((x, fy + 2, x + 14, fy + 16), fill=STATUS_COLORS[key], outline=BLACK)
         text = f"{counts[key]} {label}"
-        draw.text((x + 18, fy), text, font=foot_font, fill=BLACK)
-        x += 18 + int(foot_font.getlength(text)) + 22
+        draw.text((x + 22, fy + 9), text, font=small_font, fill=BLACK, anchor="lm")
+        x += 22 + int(small_font.getlength(text)) + 28
 
     img.save(output_path)
     return output_path
