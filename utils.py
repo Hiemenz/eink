@@ -61,6 +61,7 @@ MODULE_INTERVALS: Dict[str, int] = {
     "agenda":            900,    # 15 min — calendar events
     "river_height":      900,    # 15 min — USGS gauge updates
     "business_idea":      300,    # 5 min — cycle through the sibling repo's markdown ideas
+    "status_tiles":      300,    # 5 min — display only for now
     "system_health":     300,    # 5 min — local psutil/thermal read, cheap
 }
 
@@ -125,6 +126,7 @@ MODULE_MAP: Dict[str, str] = {
     "river_height":    "modules.river_height",
     "business_idea":   "modules.business_idea",
     "system_health":   "modules.system_health",
+    "status_tiles":    "modules.status_tiles",
 }
 
 # Platform-aware font search chains
