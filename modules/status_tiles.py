@@ -112,21 +112,17 @@ def _summary(counts: dict) -> tuple[str, tuple[int, int, int]]:
 
 
 def _draw_card(draw, box, name, status, font, show_label):
-    """Rounded card filled solid with its status colour (white dot)."""
+    """Rounded card filled solid with its status colour, label centred."""
     x0, y0, x1, y1 = box
     color = STATUS_COLORS[status]
     text_color = WHITE if status == "fail" else BLACK
     radius = max(3, min(CARD_RADIUS, (y1 - y0) // 3))
     draw.rounded_rectangle(box, radius=radius, fill=color,
                            outline=BLACK, width=1)
-    d = max(6, min(14, (y1 - y0) // 3))
-    cy = (y0 + y1) // 2
-    dot = (x0 + 8, cy - d // 2, x0 + 8 + d, cy - d // 2 + d)
-    draw.ellipse(dot, fill=WHITE, outline=BLACK)
     if show_label and (x1 - x0) >= 48:
-        tx = dot[2] + 7
-        label = _fit_label(draw, name, font, x1 - tx - 6)
-        draw.text((tx, cy), label, font=font, fill=text_color, anchor="lm")
+        label = _fit_label(draw, name, font, x1 - x0 - 12)
+        draw.text(((x0 + x1) // 2, (y0 + y1) // 2), label, font=font,
+                  fill=text_color, anchor="mm")
 
 
 def generate(config: dict) -> str:
