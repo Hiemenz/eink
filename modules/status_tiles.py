@@ -9,7 +9,9 @@ All data access goes through `get_statuses(config)`, the single seam to replace
 when real data is wired up. Until then it reads `status_tiles.items` from
 config.yml, falling back to a built-in sample set.
 
-Layout (800 x 480): a headline (worst status wins), then a grid of rounded\ncards — white with a green dot when OK, solid yellow/red when not — capped in\nsize so a handful of programs stay small. A footer shows green/yellow/red counts.
+Layout (800 x 480): a headline (worst status wins), then a grid of rounded
+cards filled solid green / yellow / red, capped in size so a handful of programs
+stay small. A footer shows green/yellow/red counts.
 """
 
 from __future__ import annotations
@@ -110,18 +112,17 @@ def _summary(counts: dict) -> tuple[str, tuple[int, int, int]]:
 
 
 def _draw_card(draw, box, name, status, font, show_label):
-    """Rounded card: white for ok (with a green dot), solid fill for warn/fail."""
+    """Rounded card filled solid with its status colour (white dot)."""
     x0, y0, x1, y1 = box
     color = STATUS_COLORS[status]
-    solid = status != "ok"
     text_color = WHITE if status == "fail" else BLACK
     radius = max(3, min(CARD_RADIUS, (y1 - y0) // 3))
-    draw.rounded_rectangle(box, radius=radius, fill=color if solid else WHITE,
+    draw.rounded_rectangle(box, radius=radius, fill=color,
                            outline=BLACK, width=1)
     d = max(6, min(14, (y1 - y0) // 3))
     cy = (y0 + y1) // 2
     dot = (x0 + 8, cy - d // 2, x0 + 8 + d, cy - d // 2 + d)
-    draw.ellipse(dot, fill=WHITE if status == "fail" else color, outline=BLACK)
+    draw.ellipse(dot, fill=WHITE, outline=BLACK)
     if show_label and (x1 - x0) >= 48:
         tx = dot[2] + 7
         label = _fit_label(draw, name, font, x1 - tx - 6)
