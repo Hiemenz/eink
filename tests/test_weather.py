@@ -1103,6 +1103,16 @@ class TestTileCache:
         assert len(calls) == 1, "second fetch should have hit the disk cache"
         assert list(first.getdata()) == list(second.getdata())
 
+    def test_strict_raises_on_failed_tile(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(W_MOD, "_TILE_CACHE_DIR", str(tmp_path / "tiles"))
+        resp = MagicMock()
+        resp.status_code = 404
+        args = ("/v2/radar/past_9", 0, 0, 0, 0, 7, 8, 4, {}, 0, 0, 8, 8)
+        with patch("modules.weather.requests.get", return_value=resp):
+            W_MOD._fetch_rv_frame(*args)  # lenient: transparent canvas, no raise
+            with pytest.raises(W_MOD._RVTileError):
+                W_MOD._fetch_rv_frame(*args, strict=True)
+
     def test_prune_keeps_newest(self, tmp_path, monkeypatch):
         cache = tmp_path / "tiles"
         cache.mkdir()
