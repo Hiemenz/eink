@@ -947,6 +947,10 @@ def _prune_tile_cache(max_files: int = _TILE_CACHE_MAX) -> None:
         pass
 
 
+_RV_TILE_RETRIES = 2        # extra attempts per tile on the current frame
+_RV_TILE_RETRY_DELAY = 2.0  # seconds, multiplied by attempt number
+
+
 class _RVTileError(Exception):
     """A RainViewer frame had tiles that could not be fetched (strict mode)."""
 
@@ -983,9 +987,17 @@ def _fetch_rv_frame(
         url = (f"https://tilecache.rainviewer.com{path}"
                f"/{tile_size}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png")
         try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                logger.warning("RainViewer tile %d/%d HTTP %d", tx, ty, resp.status_code)
+            # Strict (current-frame) fetches retry: a just-published frame's tiles
+            # often appear seconds later, and a transient error shouldn't blank the radar.
+            for attempt in range(_RV_TILE_RETRIES + 1 if strict else 1):
+                if attempt:
+                    time.sleep(_RV_TILE_RETRY_DELAY * attempt)
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    break
+                logger.warning("RainViewer tile %d/%d HTTP %d (attempt %d)",
+                               tx, ty, resp.status_code, attempt + 1)
+            else:
                 return coord, None
             tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
             if use_cache:
