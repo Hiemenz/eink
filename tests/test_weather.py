@@ -836,36 +836,6 @@ class TestDrawStaleBanner:
         assert set(below.getdata()) == {(0, 0, 0)}
 
 
-class TestRadarSourceAlternation:
-    def test_alternates_ridge_and_rainviewer_across_cycles(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "radar").mkdir()
-        seen_sources = []
-
-        def fake_generate_weather_image(config, special_msg=None):
-            seen_sources.append(config["radar_source"])
-            return None, False, None
-
-        with patch("modules.weather.generate_weather_image", side_effect=fake_generate_weather_image), \
-             patch("modules.weather.get_special_weather_messages", return_value=None):
-            config = {"station": {"name": "KOHX"}, "radar_source": "alternate"}
-            W_MOD.generate(config)
-            W_MOD.generate(config)
-            W_MOD.generate(config)
-
-        assert seen_sources == ["ridge", "rainviewer", "ridge"]
-
-    def test_non_alternate_source_is_left_untouched(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        (tmp_path / "radar").mkdir()
-
-        with patch("modules.weather.generate_weather_image", return_value=(None, False, None)) as fake, \
-             patch("modules.weather.get_special_weather_messages", return_value=None):
-            W_MOD.generate({"station": {"name": "KOHX"}, "radar_source": "rainviewer"})
-
-        assert fake.call_args[0][0]["radar_source"] == "rainviewer"
-
-
 class TestGenerateStaleFallback:
     def test_total_fetch_failure_pushes_cached_render_with_banner(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -1540,3 +1510,96 @@ class TestEchoArea:
     def test_echo_beyond_radius_is_ignored(self):
         # ~380 px (~370 km at zoom 6) east of centre.
         assert W_MOD._echo_area_km2(self._frame((770, 217, 790, 237)), 36.0, 6, 100) == 0
+
+
+import modules.weather as weather
+
+
+class TestRadarResilience:
+    """Roads/radar must survive Overpass and RainViewer outages."""
+
+    def test_stale_road_cache_used_when_overpass_down(self, tmp_path, monkeypatch):
+        import json, time
+        from unittest.mock import patch
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "data").mkdir()
+        key = "35.0000,-86.0000,6,motorway,v2"
+        ways = [{"m": 1, "p": [[35.0, -86.1], [35.0, -85.9]]}]
+        (tmp_path / "data" / "osm_roads_cache.json").write_text(json.dumps(
+            {"entries": {key: {"ts": time.time() - 10 * 86400, "ways": ways}}, "failed": {}}))
+        with patch.object(weather.requests, "get", side_effect=OSError("down")):
+            img = weather._fetch_osm_roads(35.0, -86.0, 6, 512, 520, 480)
+        assert img.getchannel("A").getbbox() is not None  # roads were drawn
+
+    def test_other_zoom_cache_used_as_fallback(self):
+        cache = {"entries": {"35.0000,-86.0000,6,motorway,v2": {"ts": 1, "ways": [1]}}}
+        assert weather._stale_road_ways(cache, None, 35.0, -86.0) == [1]
+        assert weather._stale_road_ways(cache, None, 40.0, -86.0) is None
+
+    def test_strict_frame_raises_on_missing_tile(self, tmp_path, monkeypatch):
+        from unittest.mock import patch, MagicMock
+        monkeypatch.setattr(weather, "_TILE_CACHE_DIR", str(tmp_path))
+        monkeypatch.setattr(weather.time, "sleep", lambda s: None)
+        resp = MagicMock(status_code=404)
+        with patch.object(weather.requests, "get", return_value=resp):
+            with pytest.raises(RuntimeError):
+                weather._fetch_rv_frame("/v2/radar/x", 0, 0, 0, 0, 6, 512, 4, {},
+                                        0, 0, 100, 100, strict=True)
+
+
+class TestRainViewerFallsBackToRidge:
+    def _cfg(self, mode):
+        return {"station": {"name": "KOHX", "location": "Nashville"}, "radar_source": "rainviewer",
+                "radar_mode": mode, "forecast_location": {"latitude": 36.0, "longitude": -86.0}}
+
+    def test_ridge_fetched_when_rainviewer_fails(self, tmp_path, monkeypatch):
+        gif = io.BytesIO()
+        Image.new("RGB", (600, 550), (255, 255, 255)).save(gif, "GIF")
+        resp = MagicMock(content=gif.getvalue(), headers={"Content-Type": "image/gif"})
+        for mode in ("panel", "full"):
+            (tmp_path / mode).mkdir()  # fresh output dir: an identical image reads as "unchanged"
+            monkeypatch.chdir(tmp_path / mode)
+            with patch.object(W_MOD, "_fetch_rainviewer_image", return_value=(None, None)), \
+                 patch.object(W_MOD, "_fetch_radar_image", return_value=resp) as ridge, \
+                 patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+                path, updated, _ = W_MOD.generate_weather_image(self._cfg(mode))
+            assert ridge.called, mode
+            assert path is not None, mode
+
+    def test_both_sources_failing_returns_none(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(W_MOD, "_fetch_rainviewer_image", return_value=(None, None)), \
+             patch.object(W_MOD, "_fetch_radar_image", return_value=None):
+            assert W_MOD.generate_weather_image(self._cfg("panel")) == (None, False, None)
+
+
+class TestAuditRegressions:
+    def test_unchanged_image_is_not_reported_as_failure(self, tmp_path, monkeypatch):
+        """(None, False) means "fetch failed" and triggers the stale banner."""
+        monkeypatch.chdir(tmp_path)
+        gif = io.BytesIO()
+        Image.new("RGB", (600, 550), (255, 255, 255)).save(gif, "GIF")
+        resp = MagicMock(content=gif.getvalue(), headers={"Content-Type": "image/gif"})
+        cfg = {"station": {"name": "KOHX", "location": "Nashville"}, "radar_source": "ridge",
+               "radar_mode": "fit"}
+        with patch.object(W_MOD, "_fetch_radar_image", return_value=resp), \
+             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+            first = W_MOD.generate_weather_image(cfg)
+            second = W_MOD.generate_weather_image(cfg)
+        assert first[0] is not None and first[1] is True
+        assert second[0] is not None and second[1] is False
+
+    def test_nowcast_outline_ignores_frame_edge(self):
+        img = Image.new("RGB", (40, 40), (255, 255, 255))
+        ghost = Image.new("RGBA", (40, 40), (0, 0, 0, 0))
+        ghost.paste((0, 0, 255, 255), (0, 0, 40, 20))  # rain fills the whole top half
+        W_MOD._draw_nowcast_outline(img, ghost)
+        # the left/right/top frame edges must stay undrawn; only the y=20 front is a boundary
+        assert img.getpixel((0, 5)) == (255, 255, 255)
+        assert img.getpixel((20, 0)) == (255, 255, 255)
+
+    def test_lightning_error_shape_returns_empty(self):
+        resp = MagicMock()
+        resp.json.return_value = {"response": {"error": "x"}}
+        with patch.object(W_MOD.requests, "get", return_value=resp):
+            assert W_MOD._fetch_lightning_strikes(36, -86, {}, "id", "secret") == []

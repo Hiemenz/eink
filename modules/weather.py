@@ -125,17 +125,21 @@ def _do_fetch_conditions(url: str, lat: float, lon: float, headers: dict) -> Opt
         visibility_mi = round(visibility_m / 1609.34, 1)
 
         # Rain: today = last daily entry; 7-day = sum of all entries
+        # The request asks for past_days=7 + forecast_days=2, so the arrays end with
+        # tomorrow; locate today by date rather than trusting [-1].
+        daily_times = daily.get("time", [])
+        today_idx = next((i for i, t in enumerate(daily_times) if t == cur_time_prefix[:10]), -1)
         precip_list = daily.get("precipitation_sum", [])
-        rain_today = precip_list[-1] if precip_list else 0.0
-        rain_7day = sum(p for p in precip_list if p is not None)
+        rain_today = (precip_list[today_idx] if precip_list else 0.0) or 0.0
+        rain_7day = sum(p for p in precip_list[max(0, today_idx - 6):today_idx + 1 or None] if p is not None)
 
         # Sunrise / Sunset — astral gives second-precision local times and exact delta
         sunrise_list = daily.get("sunrise", [])
         sunset_list  = daily.get("sunset", [])
         tz_name      = data.get("timezone", "UTC")
         # Fallback to Open-Meteo minute-precision if astral fails
-        sunrise = _parse_time(sunrise_list[-1]) if sunrise_list else "N/A"
-        sunset  = _parse_time(sunset_list[-1])  if sunset_list  else "N/A"
+        sunrise = _parse_time(sunrise_list[today_idx]) if sunrise_list else "N/A"
+        sunset  = _parse_time(sunset_list[today_idx])  if sunset_list  else "N/A"
         sunrise_delta = ""
         sunset_delta  = ""
         try:
@@ -160,8 +164,8 @@ def _do_fetch_conditions(url: str, lat: float, lon: float, headers: dict) -> Opt
             logger.warning("astral sunrise/sunset error: %s", e)
 
         # High / Low today
-        high_today = int(round(daily.get("temperature_2m_max", [0])[-1] or 0))
-        low_today = int(round(daily.get("temperature_2m_min", [0])[-1] or 0))
+        high_today = int(round(daily.get("temperature_2m_max", [0])[today_idx] or 0))
+        low_today = int(round(daily.get("temperature_2m_min", [0])[today_idx] or 0))
 
         # Moon phase (pure math, no network)
         age = _moon_age()
@@ -1103,9 +1107,13 @@ def _fetch_rv_frame(
     path: str, tx_min: int, ty_min: int, tx_max: int, ty_max: int,
     zoom: int, tile_size: int, color_scheme: int, headers: dict,
     crop_x: int, crop_y: int, width: int, height: int,
-    use_cache: bool = True,
+    use_cache: bool = True, strict: bool = False,
 ) -> Image.Image:
     """Fetch RainViewer radar tiles for one frame, stitch, and crop to display size (RGBA).
+
+    A tile that can't be fetched leaves a transparent hole, which reads as "clear
+    sky". With strict=True any missing tile raises RuntimeError instead, so the
+    caller can fall back rather than draw a falsely empty radar.
 
     Tiles are fetched in parallel and cached on disk — a frame needs up to 4 tiles
     and a render needs several frames, which is a long serial stall on a Pi.
@@ -1126,23 +1134,30 @@ def _fetch_rv_frame(
                 pass  # corrupt cache entry — refetch below
         url = (f"https://tilecache.rainviewer.com{path}"
                f"/{tile_size}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png")
-        try:
-            resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code != 200:
-                logger.warning("RainViewer tile %d/%d HTTP %d", tx, ty, resp.status_code)
-                return coord, None
-            tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-            if use_cache:
-                try:
-                    os.makedirs(_TILE_CACHE_DIR, exist_ok=True)
-                    with open(cache_file, "wb") as fh:
-                        fh.write(resp.content)
-                except OSError:
-                    pass
-            return coord, tile
-        except Exception as e:
-            logger.warning("RainViewer tile %d/%d failed: %s", tx, ty, e)
-            return coord, None
+        for attempt in range(3):
+            try:
+                resp = requests.get(url, headers=headers, timeout=10)
+                if resp.status_code != 200:
+                    logger.warning("RainViewer tile %d/%d HTTP %d (attempt %d)",
+                                   tx, ty, resp.status_code, attempt + 1)
+                    if resp.status_code not in (429,) and resp.status_code < 500:
+                        break  # e.g. 404: tile not published, retrying won't help
+                else:
+                    tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+                    if use_cache:
+                        try:
+                            os.makedirs(_TILE_CACHE_DIR, exist_ok=True)
+                            with open(cache_file, "wb") as fh:
+                                fh.write(resp.content)
+                        except OSError:
+                            pass
+                    return coord, tile
+            except Exception as e:
+                logger.warning("RainViewer tile %d/%d failed (attempt %d): %s",
+                               tx, ty, attempt + 1, e)
+            if attempt < 2:
+                time.sleep(1)
+        return coord, None
 
     if coords:
         with ThreadPoolExecutor(max_workers=min(_TILE_WORKERS, len(coords))) as pool:
@@ -1151,6 +1166,8 @@ def _fetch_rv_frame(
             if tile is not None:
                 canvas.paste(tile, ((tx - tx_min) * tile_size, (ty - ty_min) * tile_size), tile)
         _prune_tile_cache()
+        if strict and any(tile is None for _, tile in results):
+            raise RuntimeError("RainViewer tiles missing for " + path)
 
     return canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
 
@@ -1161,7 +1178,24 @@ _OVERPASS_ENDPOINTS = (  # tried in order; the main instance is often overloaded
     "https://overpass-api.de/api/interpreter",
 )
 _ROAD_RETRY_S = 900     # back off this long after a failed Overpass fetch
+_ROAD_MIN_QUERY_ZOOM = 6  # below this, reuse cached roads rather than query Overpass
 _ROAD_CACHE_KEYS = 4    # distinct viewports kept in data/osm_roads_cache.json
+
+
+def _stale_road_ways(cache: dict, entry: Optional[dict], lat: float, lon: float) -> Optional[list]:
+    """Best road geometry on hand when Overpass is down: an expired entry for this
+    exact viewport, else any cached viewport for the same centre (roads don't move,
+    and a wider or narrower zoom's ways still project correctly). Without this the
+    roads vanished for good once a 24h entry expired during an Overpass outage."""
+    if entry and entry.get("ways"):
+        logger.warning("OSM roads: Overpass unavailable, using expired cache")
+        return entry["ways"]
+    prefix = f"{lat:.4f},{lon:.4f},"
+    near = [e for k, e in cache["entries"].items() if k.startswith(prefix) and e.get("ways")]
+    if near:
+        logger.warning("OSM roads: Overpass unavailable, using cache from another zoom")
+        return max(near, key=lambda e: e.get("ts", 0))["ways"]
+    return None
 
 
 def _fetch_osm_roads(
@@ -1214,14 +1248,22 @@ def _fetch_osm_roads(
     if entry and now - entry.get("ts", 0) < 86400:
         ways = entry["ways"]
         logger.info("OSM roads: %d ways from cache", len(ways))
+    elif zoom < _ROAD_MIN_QUERY_ZOOM:
+        # A zoom-5 viewport is a continent-sized Overpass query that reliably times
+        # out; roads don't move, so a nearby zoom's geometry is good enough.
+        ways = _stale_road_ways(cache, None, lat, lon)
+        if ways is None:
+            return Image.new("RGBA", (width, height), (0, 0, 0, 0))
     elif now - cache["failed"].get(cache_key, 0) < _ROAD_RETRY_S:
         # Overpass is flaky; a failed fetch blocks for its full timeout, so don't
         # pay that again on every 5-minute cycle.
-        return Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        ways = _stale_road_ways(cache, entry, lat, lon)
+        if ways is None:
+            return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
     if ways is None:
         query = (
-            f"[out:json][timeout:30];"
+            f"[out:json][timeout:25];"
             f"way[highway~\"^({road_classes})$\"]"
             f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
             f"out geom;"
@@ -1232,7 +1274,7 @@ def _fetch_osm_roads(
             for endpoint in _OVERPASS_ENDPOINTS:
                 try:
                     resp = requests.get(endpoint, params={"data": query},
-                                        headers={"User-Agent": "eink-display/1.0"}, timeout=45)
+                                        headers={"User-Agent": "eink-display/1.0"}, timeout=30)
                     resp.raise_for_status()
                     data = resp.json()
                     break
@@ -1257,7 +1299,7 @@ def _fetch_osm_roads(
         except Exception as e:
             logger.warning("OSM road fetch failed: %s", e)
             cache["failed"][cache_key] = now
-            ways = None
+            ways = _stale_road_ways(cache, entry, lat, lon)
         try:
             os.makedirs("data", exist_ok=True)
             with open(cache_path, "w") as _f:
@@ -1901,7 +1943,7 @@ def _nowcast_arrival_minutes(
         try:
             window = _fetch_rv_frame(path, tx_min, ty_min, tx_max, ty_max, zoom,
                                      tile_size, color_scheme, headers,
-                                     crop_x, crop_y, probe, probe)
+                                     crop_x, crop_y, probe, probe, strict=True)
             alpha = np.array(window.getchannel("A"))
         except Exception as e:
             logger.warning("Nowcast probe failed: %s", e)
@@ -1927,10 +1969,10 @@ def _draw_nowcast_outline(img: Image.Image, nowcast_rgba: Image.Image) -> bool:
         return False
 
     # 4-neighbour erosion, then boundary = mask minus its interior.
-    up    = np.zeros_like(mask); up[1:, :]     = mask[:-1, :]
-    down  = np.zeros_like(mask); down[:-1, :]  = mask[1:, :]
-    left  = np.zeros_like(mask); left[:, 1:]   = mask[:, :-1]
-    right = np.zeros_like(mask); right[:, :-1] = mask[:, 1:]
+    # Edge-pad so rain touching the frame edge isn't treated as a boundary there.
+    pm = np.pad(mask, 1, mode="edge")
+    up, down = pm[:-2, 1:-1], pm[2:, 1:-1]
+    left, right = pm[1:-1, :-2], pm[1:-1, 2:]
     boundary = mask & ~(up & down & left & right)
 
     # Thicken by one pixel so the dashes survive on a 7-color e-ink panel.
@@ -2123,26 +2165,28 @@ def _fetch_rainviewer_image(
 
     Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp), or (None, None).
     """
-    try:
-        api_resp = requests.get(
-            "https://api.rainviewer.com/public/weather-maps.json",
-            headers=headers, timeout=10,
-        )
-        api_resp.raise_for_status()
-        data = api_resp.json()
-    except Exception as e:
-        logger.error("RainViewer API request failed: %s", e)
+    data = None
+    for attempt in range(3):
+        try:
+            api_resp = requests.get(
+                "https://api.rainviewer.com/public/weather-maps.json",
+                headers=headers, timeout=10,
+            )
+            api_resp.raise_for_status()
+            data = api_resp.json()
+            break
+        except Exception as e:
+            logger.warning("RainViewer API request failed (attempt %d): %s", attempt + 1, e)
+            if attempt < 2:
+                time.sleep(2)
+    if data is None:
+        logger.error("RainViewer API unavailable")
         return None, None
 
     radar_frames = data.get("radar", {}).get("past", [])
     if not radar_frames:
         logger.error("No radar frames in RainViewer API response")
         return None, None
-
-    latest_frame = radar_frames[-1]
-    latest_path  = latest_frame["path"]
-    frame_ts     = latest_frame.get("time")
-    logger.info("RainViewer: using frame %s", latest_path)
 
     cfg = config or {}
 
@@ -2152,10 +2196,25 @@ def _fetch_rainviewer_image(
 
     # Current radar frame — fetched first so it can also serve as the adaptive-
     # zoom probe below; the common "no adjustment" case pays nothing beyond this,
-    # since the fetch was needed either way.
-    curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
-                                 zoom, _RV_TILE_SIZE, color_scheme, headers,
-                                 crop_x, crop_y, width, height)
+    # since the fetch was needed either way. The newest frame's tiles are sometimes
+    # not published yet, so fall back to the one before rather than draw holes.
+    curr_radar = None
+    for latest_frame in (radar_frames[-1], *radar_frames[-2:-1]):
+        latest_path = latest_frame["path"]
+        try:
+            curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+                                         zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                         crop_x, crop_y, width, height, strict=True)
+            break
+        except RuntimeError as e:
+            logger.warning("%s", e)
+    if curr_radar is None:
+        logger.error("RainViewer tiles unavailable for the latest frames")
+        return None, None
+    # Motion/trend below index off the end of the list, so end it at the frame used.
+    radar_frames = radar_frames[:radar_frames.index(latest_frame) + 1]
+    frame_ts = latest_frame.get("time")
+    logger.info("RainViewer: using frame %s", latest_path)
 
     km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
 
@@ -2170,9 +2229,13 @@ def _fetch_rainviewer_image(
         tx_min, ty_min, tx_max, ty_max, crop_x, crop_y = _rv_tile_geometry(
             lat, lon, zoom, width, height, _RV_TILE_SIZE
         )
-        curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
-                                     zoom, _RV_TILE_SIZE, color_scheme, headers,
-                                     crop_x, crop_y, width, height)
+        try:
+            curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+                                         zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                         crop_x, crop_y, width, height, strict=True)
+        except RuntimeError as e:
+            logger.error("%s", e)
+            return None, None
         km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
 
     # Road overlay — OSM interstate/trunk geometry, black core in a white casing
@@ -2214,13 +2277,18 @@ def _fetch_rainviewer_image(
         prev_frame_meta = radar_frames[-(gap + 1)]
         prev_path  = prev_frame_meta["path"]
         actual_interval_min = (radar_frames[-1]["time"] - prev_frame_meta["time"]) / 60.0
-        prev_radar = _fetch_rv_frame(prev_path, tx_min, ty_min, tx_max, ty_max,
-                                     zoom, _RV_TILE_SIZE, color_scheme, headers,
-                                     crop_x, crop_y, width, height)
+        try:
+            prev_radar = _fetch_rv_frame(prev_path, tx_min, ty_min, tx_max, ty_max,
+                                         zoom, _RV_TILE_SIZE, color_scheme, headers,
+                                         crop_x, crop_y, width, height, strict=True)
+        except RuntimeError as e:
+            # A hole reads as echo appearing/vanishing and fakes a storm vector.
+            logger.warning("Storm motion skipped: %s", e)
+            prev_radar = None
         # Track patches once and reuse: the bulk median drives the caption, the
         # individual vectors drive the per-cell arrows.
-        vectors = _patch_motion_vectors(prev_radar, curr_radar)
-        motion = _compute_storm_motion(prev_radar, curr_radar)
+        vectors = _patch_motion_vectors(prev_radar, curr_radar) if prev_radar else []
+        motion = _compute_storm_motion(prev_radar, curr_radar) if prev_radar else None
         if motion:
             motion_lines = _draw_storm_motion_overlay(
                 result, motion, curr_radar, cfg, km_per_px,
@@ -2235,14 +2303,19 @@ def _fetch_rainviewer_image(
     if cfg.get("rainviewer_trend_badge", True) and len(radar_frames) >= 3:
         trend_frames = radar_frames[-3:]
         masses = []
-        for fmeta in trend_frames:
-            frame_img = curr_radar if fmeta is latest_frame else _fetch_rv_frame(
-                fmeta["path"], tx_min, ty_min, tx_max, ty_max,
-                zoom, _RV_TILE_SIZE, color_scheme, headers,
-                crop_x, crop_y, width, height,
-            )
-            masses.append(float(np.array(frame_img.split()[-1], dtype=np.float64).sum()))
-        trend = _classify_trend(masses)
+        try:
+            for fmeta in trend_frames:
+                frame_img = curr_radar if fmeta is latest_frame else _fetch_rv_frame(
+                    fmeta["path"], tx_min, ty_min, tx_max, ty_max,
+                    zoom, _RV_TILE_SIZE, color_scheme, headers,
+                    crop_x, crop_y, width, height, strict=True,
+                )
+                masses.append(float(np.array(frame_img.split()[-1], dtype=np.float64).sum()))
+        except RuntimeError as e:
+            # A missing tile reads as zero echo and would fake an "Intensifying" trend.
+            logger.warning("Trend badge skipped: %s", e)
+            masses = []
+        trend = _classify_trend(masses) if masses else None
         if trend:
             caption_lines.append(f"Trend: {trend}")
 
@@ -2265,7 +2338,7 @@ def _fetch_rainviewer_image(
             try:
                 ghost = _fetch_rv_frame(last["path"], tx_min, ty_min, tx_max, ty_max,
                                         zoom, _RV_TILE_SIZE, color_scheme, headers,
-                                        crop_x, crop_y, width, height)
+                                        crop_x, crop_y, width, height, strict=True)
                 if _draw_nowcast_outline(result, ghost):
                     ahead = max(0, round((last["time"] - time.time()) / 60.0))
                     caption_lines.append(f"Dashes: +{ahead} min")
@@ -2666,6 +2739,7 @@ def _view_state_codes(
     nws_headers = dict(headers)
     nws_headers["Accept"] = "application/geo+json"
     states: List[str] = []
+    probe_failed = False
     for plat, plon in probes:
         try:
             resp = requests.get(
@@ -2673,6 +2747,8 @@ def _view_state_codes(
                 headers=nws_headers, timeout=10,
             )
             if resp.status_code != 200:
+                if resp.status_code != 404:  # 404 = outside NWS coverage, a real answer
+                    probe_failed = True
                 continue
             zone = (resp.json().get("properties", {}) or {}).get("forecastZone", "") or ""
             code = zone.rstrip("/").split("/")[-1][:2].upper()
@@ -2680,8 +2756,11 @@ def _view_state_codes(
                 states.append(code)
         except Exception as e:
             logger.warning("NWS points lookup failed for %.4f,%.4f: %s", plat, plon, e)
+            probe_failed = True
 
-    if states:
+    # A transient failure on one probe would otherwise drop that state's alerts for
+    # the whole 30-day cache lifetime.
+    if states and not probe_failed:
         try:
             os.makedirs(os.path.dirname(_NWS_STATES_CACHE), exist_ok=True)
             with open(_NWS_STATES_CACHE, "w") as fh:
@@ -2689,6 +2768,8 @@ def _view_state_codes(
         except OSError:
             pass
         logger.info("NWS alert area: %s", ",".join(states))
+    elif probe_failed:
+        logger.warning("NWS alert area incomplete (%s); not caching", ",".join(states))
     return states
 
 
@@ -2882,8 +2963,12 @@ def _fetch_lightning_strikes(
         return []
 
     raw = data.get("response", data if isinstance(data, list) else [])
+    if not isinstance(raw, list):  # error shape, e.g. {"response": {}}
+        return []
     strikes = []
     for item in raw:
+        if not isinstance(item, dict):
+            continue
         loc = item.get("loc", {}) or {}
         lat_s, lon_s = loc.get("lat"), loc.get("long")
         if lat_s is not None and lon_s is not None:
@@ -2967,7 +3052,7 @@ def _precip_nearby(config: dict, headers: dict) -> Optional[bool]:
             lat, lon, zoom, width, height, _RV_TILE_SIZE)
         frame = _fetch_rv_frame(past[-1]["path"], tx_min, ty_min, tx_max, ty_max, zoom,
                                 _RV_TILE_SIZE, config.get("rainviewer_color_scheme", 4),
-                                headers, crop_x, crop_y, width, height)
+                                headers, crop_x, crop_y, width, height, strict=True)
     except Exception as e:
         logger.warning("Dynamic radar probe failed: %s", e)
         return None
@@ -3023,7 +3108,9 @@ def generate_weather_image(config, special_msg=None):
     }
 
     radar_mode = _resolve_radar_mode(config, headers)
-    radar_source = config.get("radar_source", "ridge").lower()
+    radar_source = config.get("radar_source", "rainviewer").lower()
+    if radar_source not in ("ridge", "rainviewer"):
+        radar_source = "rainviewer"  # includes the retired "alternate" setting
     if radar_mode == "seven_color":
         # The full-screen layout is built from RainViewer tiles (pre-sized to the
         # canvas, never stretched); the NWS GIF can't fill it without distortion.
@@ -3049,15 +3136,22 @@ def generate_weather_image(config, special_msg=None):
         rv_lon = _first_set(config.get("rainviewer_lon"), forecast_loc.get("longitude"))
         if rv_lat is None or rv_lon is None:
             logger.error("RainViewer requires lat/lon — set forecast_location or rainviewer_lat/lon")
-            return None, False, None
-        rv_zoom = config.get("rainviewer_zoom", 7)
-        rv_color = config.get("rainviewer_color_scheme", 4)
-        # Pre-size to the exact radar canvas so mode scaling is a no-op
-        rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-        radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
+            radar_img, rv_frame_ts = None, None
+        else:
+            rv_zoom = config.get("rainviewer_zoom", 7)
+            rv_color = config.get("rainviewer_color_scheme", 4)
+            # Pre-size to the exact radar canvas so mode scaling is a no-op
+            rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
+            radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
         if radar_img is None:
-            logger.error("RainViewer fetch failed — cannot generate radar image.")
-            return None, False, None
+            logger.error("RainViewer fetch failed — falling back to the NWS %s radar image.", station)
+            radar_source = "ridge"
+            if radar_mode == "seven_color":
+                # The NWS GIF can't fill the screen without stretching; use the panel layout.
+                radar_mode = "panel"
+            panel_legend = False
+            radar_h = height
+    if radar_source == "rainviewer":
         # Snap to the exact 7-color e-ink palette here (HSV dBZ-tier classification) rather
         # than relying on quantize_to_seven_colors()'s naive per-pixel nearest-RGB pass below.
         # That naive pass scatters anti-aliased pixels (e.g. the radar caption text)
@@ -3073,7 +3167,7 @@ def generate_weather_image(config, special_msg=None):
                     _json.dump({"frame_ts": rv_frame_ts}, _f)
             except OSError:
                 pass
-    else:
+    if radar_source == "ridge":
         radar_url = f"https://radar.weather.gov/ridge/standard/{station}_0.gif"
         if config.get("url_qr_loop", True):
             radar_url_qr = f"https://radar.weather.gov/ridge/standard/{station}_loop.gif"
@@ -3133,6 +3227,10 @@ def generate_weather_image(config, special_msg=None):
 
         # Radar fills the radar area (full height, or height minus the legend strip) —
         # max scale fills the canvas, clipping ~1px from sides.
+        if radar_source == "ridge":
+            # Drop the GIF's 24px title bar and legend; the legend swatches would
+            # otherwise be quantized as if they were echo.
+            radar_img = radar_img.crop((0, 24, radar_img.width, radar_img.height - 24))
         scale = max(radar_w / radar_img.width, radar_h / radar_img.height)
         rw = int(radar_img.width * scale)
         rh = int(radar_img.height * scale)
@@ -3274,16 +3372,20 @@ def generate_weather_image(config, special_msg=None):
         _snap_ridge_greys(final_img, (ox, oy, ox + ow, oy + oh))
     if overlay_geom is not None and radar_source == "rainviewer":
         ox, oy, ow, oh = overlay_geom
-        if config.get("radar_alerts_overlay", False):
-            _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, ow, oh,
-                                   headers, x_off=ox, y_off=oy, config=config)
-        if config.get("lightning_overlay", False):
-            strikes = _fetch_lightning_strikes(
-                rv_lat, rv_lon, headers,
-                config.get("xweather_client_id", ""), config.get("xweather_client_secret", ""),
-            )
-            _draw_lightning_overlay(final_img, strikes, rv_lat, rv_lon, rv_zoom,
-                                    ow, oh, x_off=ox, y_off=oy)
+        # Optional extras: a bad API payload must not cost the whole radar render.
+        try:
+            if config.get("radar_alerts_overlay", False):
+                _overlay_severe_alerts(final_img, rv_lat, rv_lon, rv_zoom, ow, oh,
+                                       headers, x_off=ox, y_off=oy, config=config)
+            if config.get("lightning_overlay", False):
+                strikes = _fetch_lightning_strikes(
+                    rv_lat, rv_lon, headers,
+                    config.get("xweather_client_id", ""), config.get("xweather_client_secret", ""),
+                )
+                _draw_lightning_overlay(final_img, strikes, rv_lat, rv_lon, rv_zoom,
+                                        ow, oh, x_off=ox, y_off=oy)
+        except Exception as e:
+            logger.warning("Radar overlay failed: %s", e)
 
     old_quant = None
     if os.path.exists(quantized_output_path):
@@ -3293,7 +3395,7 @@ def generate_weather_image(config, special_msg=None):
     if config.get("check_special_weather", True) and special_msg and radar_mode != "panel":
         try:
             special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            qr_topright = qrcode.make(special_url).convert("RGB").resize((138, 138), Image.LANCZOS)
+            qr_topright = qrcode.make(special_url).convert("RGB").resize((138, 138), Image.NEAREST)
             _banner_h = config.get("alert_banner_height", 40)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:
@@ -3329,7 +3431,9 @@ def generate_weather_image(config, special_msg=None):
     new_quant = Image.open(quantized_output_path).convert("RGB")
     if old_quant is not None and images_are_equal(old_quant, new_quant):
         logger.info("Station %s: Quantized image unchanged.", station)
-        return None, False, primary_region
+        # Return the (current) path with updated=False: (None, False) is reserved for
+        # a failed fetch, which is what triggers the stale banner in generate().
+        return quantized_output_path, False, primary_region
     return quantized_output_path, True, primary_region
 
 
@@ -3345,7 +3449,7 @@ def calculate_non_bw_percentage(image_path, region=None):
 
 
 def full_station_scan(config, skip_station=None):
-    if config.get("radar_source", "ridge").lower() == "rainviewer":
+    if config.get("radar_source", "rainviewer").lower() != "ridge":
         # RainViewer is a CONUS composite — per-station scanning doesn't apply
         return {}
 
@@ -3388,22 +3492,6 @@ def generate(config):
     now = time.time()
     full_scan_interval = config.get('full_scan_interval', 3600)
 
-    # radar_source: "alternate" flips between the NWS RIDGE GIF and the
-    # RainViewer/PIL composite every cycle, instead of pinning one source.
-    # Persisted in radar_state.json so the alternation survives restarts
-    # (each invocation of main.py is a fresh process).
-    configured_radar_source = config.get("radar_source", "")
-    if str(configured_radar_source).lower() == "alternate":
-        sources = ["ridge", "rainviewer"]
-        idx = state.get("radar_source_idx", 0) % len(sources)
-        config["radar_source"] = sources[idx]
-        state["radar_source_idx"] = (idx + 1) % len(sources)
-        logger.info("Alternating radar source — this cycle: %s", config["radar_source"])
-        # Persist the advanced index now — the alternation must keep moving even
-        # if this cycle's fetch fails below (an early return would otherwise skip
-        # the later save_state() call and repeat the same source next time).
-        save_state(STATE_FILE, state)
-
     top5_data = state.get("top5", [])
     if top5_data:
         top5_list = [(item["station"], item["percentage"]) for item in top5_data]
@@ -3415,10 +3503,6 @@ def generate(config):
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
     default_image_path, default_updated, default_region = generate_weather_image(config, special_msg=special_msg)
-    if str(configured_radar_source).lower() == "alternate":
-        # Put the "alternate" marker back — config["radar_source"] was resolved
-        # to a concrete source only for the generate_weather_image() call above.
-        config["radar_source"] = configured_radar_source
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous
         # render if there is one. On a cold start (or after `radar/` is cleaned)

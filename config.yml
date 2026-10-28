@@ -381,8 +381,8 @@ game_of_life:
 # ── Radar source ─────────────────────────────────────────────────────────────
 # radar_source: "ridge"        # NWS RIDGE single-station GIF, pulled as-is
 # radar_source: "rainviewer"   # RainViewer CONUS composite tiles (higher resolution), built with PIL
-# radar_source: "alternate"    # flip between "ridge" and "rainviewer" every refresh cycle
-radar_source: alternate
+# RainViewer is primary; if it fails the NWS RIDGE image is used for that cycle.
+radar_source: rainviewer
 rainviewer_zoom: 6             # zoom level: free tier max is 7; 8+ returns "zoom not supported". 6 shows ~±250 km, close to the NWS view; 7 is ~±130 km
 rainviewer_map_overlay: true   # overlay OSM interstate/trunk highways for geographic orientation
 rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
