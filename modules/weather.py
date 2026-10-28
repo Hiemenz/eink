@@ -1103,6 +1103,14 @@ def _prune_tile_cache(max_files: int = _TILE_CACHE_MAX) -> None:
         pass
 
 
+_RV_TILE_RETRIES = 2        # extra attempts per tile on the current frame
+_RV_TILE_RETRY_DELAY = 2.0  # seconds, multiplied by attempt number
+
+
+class _RVTileError(Exception):
+    """A RainViewer frame had tiles that could not be fetched (strict mode)."""
+
+
 def _fetch_rv_frame(
     path: str, tx_min: int, ty_min: int, tx_max: int, ty_max: int,
     zoom: int, tile_size: int, color_scheme: int, headers: dict,
@@ -1111,9 +1119,9 @@ def _fetch_rv_frame(
 ) -> Image.Image:
     """Fetch RainViewer radar tiles for one frame, stitch, and crop to display size (RGBA).
 
-    A tile that can't be fetched leaves a transparent hole, which reads as "clear
-    sky". With strict=True any missing tile raises RuntimeError instead, so the
-    caller can fall back rather than draw a falsely empty radar.
+    A failed tile is left transparent, which is indistinguishable from "no rain".
+    With strict=True, any failed tile raises _RVTileError instead so the caller
+    can fall back to another frame rather than render a blank radar.
 
     Tiles are fetched in parallel and cached on disk — a frame needs up to 4 tiles
     and a render needs several frames, which is a long serial stall on a Pi.
@@ -1134,40 +1142,41 @@ def _fetch_rv_frame(
                 pass  # corrupt cache entry — refetch below
         url = (f"https://tilecache.rainviewer.com{path}"
                f"/{tile_size}/{zoom}/{tx}/{ty}/{color_scheme}/1_1.png")
-        for attempt in range(3):
-            try:
+        try:
+            # Strict (current-frame) fetches retry: a just-published frame's tiles
+            # often appear seconds later, and a transient error shouldn't blank the radar.
+            for attempt in range(_RV_TILE_RETRIES + 1 if strict else 1):
+                if attempt:
+                    time.sleep(_RV_TILE_RETRY_DELAY * attempt)
                 resp = requests.get(url, headers=headers, timeout=10)
-                if resp.status_code != 200:
-                    logger.warning("RainViewer tile %d/%d HTTP %d (attempt %d)",
-                                   tx, ty, resp.status_code, attempt + 1)
-                    if resp.status_code not in (429,) and resp.status_code < 500:
-                        break  # e.g. 404: tile not published, retrying won't help
-                else:
-                    tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
-                    if use_cache:
-                        try:
-                            os.makedirs(_TILE_CACHE_DIR, exist_ok=True)
-                            with open(cache_file, "wb") as fh:
-                                fh.write(resp.content)
-                        except OSError:
-                            pass
-                    return coord, tile
-            except Exception as e:
-                logger.warning("RainViewer tile %d/%d failed (attempt %d): %s",
-                               tx, ty, attempt + 1, e)
-            if attempt < 2:
-                time.sleep(1)
-        return coord, None
+                if resp.status_code == 200:
+                    break
+                logger.warning("RainViewer tile %d/%d HTTP %d (attempt %d)",
+                               tx, ty, resp.status_code, attempt + 1)
+            else:
+                return coord, None
+            tile = Image.open(io.BytesIO(resp.content)).convert("RGBA")
+            if use_cache:
+                try:
+                    os.makedirs(_TILE_CACHE_DIR, exist_ok=True)
+                    with open(cache_file, "wb") as fh:
+                        fh.write(resp.content)
+                except OSError:
+                    pass
+            return coord, tile
+        except Exception as e:
+            logger.warning("RainViewer tile %d/%d failed: %s", tx, ty, e)
+            return coord, None
 
     if coords:
         with ThreadPoolExecutor(max_workers=min(_TILE_WORKERS, len(coords))) as pool:
             results = list(pool.map(_one, coords))
+        if strict and any(tile is None for _, tile in results):
+            raise _RVTileError(path)
         for (tx, ty), tile in results:
             if tile is not None:
                 canvas.paste(tile, ((tx - tx_min) * tile_size, (ty - ty_min) * tile_size), tile)
         _prune_tile_cache()
-        if strict and any(tile is None for _, tile in results):
-            raise RuntimeError("RainViewer tiles missing for " + path)
 
     return canvas.crop((crop_x, crop_y, crop_x + width, crop_y + height))
 
@@ -2151,6 +2160,9 @@ def _pick_adaptive_zoom(
     return None
 
 
+_RV_FRAME_FALLBACKS = 3  # newest N past frames tried before giving up
+
+
 def _fetch_rainviewer_image(
     lat: float, lon: float, zoom: int, width: int, height: int,
     color_scheme: int, headers: dict, config: dict = None,
@@ -2196,24 +2208,27 @@ def _fetch_rainviewer_image(
 
     # Current radar frame — fetched first so it can also serve as the adaptive-
     # zoom probe below; the common "no adjustment" case pays nothing beyond this,
-    # since the fetch was needed either way. The newest frame's tiles are sometimes
-    # not published yet, so fall back to the one before rather than draw holes.
-    curr_radar = None
-    for latest_frame in (radar_frames[-1], *radar_frames[-2:-1]):
-        latest_path = latest_frame["path"]
+    # since the fetch was needed either way.
+    # The newest frame is sometimes published before its tiles are served (or a
+    # tile request times out); a missing tile renders as transparent, i.e. a blank
+    # radar. Walk back to older frames rather than show that.
+    latest_frame = curr_radar = None
+    for candidate in reversed(radar_frames[-_RV_FRAME_FALLBACKS:]):
         try:
-            curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
+            curr_radar = _fetch_rv_frame(candidate["path"], tx_min, ty_min, tx_max, ty_max,
                                          zoom, _RV_TILE_SIZE, color_scheme, headers,
                                          crop_x, crop_y, width, height, strict=True)
-            break
-        except RuntimeError as e:
-            logger.warning("%s", e)
+        except _RVTileError:
+            logger.warning("RainViewer: frame %s has missing tiles — trying an older frame",
+                           candidate["path"])
+            continue
+        latest_frame = candidate
+        break
     if curr_radar is None:
-        logger.error("RainViewer tiles unavailable for the latest frames")
+        logger.error("RainViewer: no frame could be fully fetched")
         return None, None
-    # Motion/trend below index off the end of the list, so end it at the frame used.
-    radar_frames = radar_frames[:radar_frames.index(latest_frame) + 1]
-    frame_ts = latest_frame.get("time")
+    latest_path = latest_frame["path"]
+    frame_ts    = latest_frame.get("time")
     logger.info("RainViewer: using frame %s", latest_path)
 
     km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
@@ -2233,8 +2248,8 @@ def _fetch_rainviewer_image(
             curr_radar = _fetch_rv_frame(latest_path, tx_min, ty_min, tx_max, ty_max,
                                          zoom, _RV_TILE_SIZE, color_scheme, headers,
                                          crop_x, crop_y, width, height, strict=True)
-        except RuntimeError as e:
-            logger.error("%s", e)
+        except _RVTileError:
+            logger.error("RainViewer: tiles missing at adaptive zoom %d", zoom)
             return None, None
         km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
 
@@ -2272,16 +2287,16 @@ def _fetch_rainviewer_image(
     # haven't changed substantially; longer gaps cause large growth/dissipation that
     # biases the bulk centroid and corrupts FFT-style methods.
     show_motion = cfg.get("rainviewer_storm_motion", True)
-    if show_motion and len(radar_frames) >= 2:
-        gap = 1
-        prev_frame_meta = radar_frames[-(gap + 1)]
+    latest_idx = radar_frames.index(latest_frame)
+    if show_motion and latest_idx >= 1:
+        prev_frame_meta = radar_frames[latest_idx - 1]
         prev_path  = prev_frame_meta["path"]
-        actual_interval_min = (radar_frames[-1]["time"] - prev_frame_meta["time"]) / 60.0
+        actual_interval_min = (latest_frame["time"] - prev_frame_meta["time"]) / 60.0
         try:
             prev_radar = _fetch_rv_frame(prev_path, tx_min, ty_min, tx_max, ty_max,
                                          zoom, _RV_TILE_SIZE, color_scheme, headers,
                                          crop_x, crop_y, width, height, strict=True)
-        except RuntimeError as e:
+        except _RVTileError as e:
             # A hole reads as echo appearing/vanishing and fakes a storm vector.
             logger.warning("Storm motion skipped: %s", e)
             prev_radar = None
@@ -2311,7 +2326,7 @@ def _fetch_rainviewer_image(
                     crop_x, crop_y, width, height, strict=True,
                 )
                 masses.append(float(np.array(frame_img.split()[-1], dtype=np.float64).sum()))
-        except RuntimeError as e:
+        except _RVTileError as e:
             # A missing tile reads as zero echo and would fake an "Intensifying" trend.
             logger.warning("Trend badge skipped: %s", e)
             masses = []
