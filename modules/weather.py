@@ -2266,16 +2266,16 @@ def _fetch_rainviewer_image(
     if show_boundaries:
         boundary_img = _fetch_admin_boundaries(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
-    # Start with white background, then layer: radar → boundaries → roads on top,
-    # so the more prominent solid roads always win over a dashed boundary line
-    # sharing the same pixels.
+    # Start with white background, then layer: boundaries → roads → radar on top,
+    # so precipitation is never hidden by map linework. Roads go over the dashed
+    # boundary lines sharing the same pixels.
     canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
-    canvas.alpha_composite(curr_radar)
 
     if boundary_img is not None:
         canvas.alpha_composite(boundary_img)
     if road_img is not None:
         canvas.alpha_composite(road_img)
+    canvas.alpha_composite(curr_radar)
 
     result = canvas.convert("RGB")
     _draw_range_rings(result, km_per_px, cfg)
