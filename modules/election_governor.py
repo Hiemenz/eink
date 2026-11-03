@@ -10,7 +10,7 @@ def generate(config):
     called = sum(s["called"] for s in sums)
     img, d, y = ec.canvas(config, "GOVERNORS", f"{called}/{len(sums)} called{ec.flip_text(sums)}",
                           stamp=ec.feed_time(data))
-    recent = ec.track_calls(sums, lambda s: f"{s['state']} Governor")
+    recent = ec.track_calls(sums, lambda s: f"{s['state']} Governor", config, "governor")
     y = ec.banner(d, config, y, recent)
     info, rows = {}, []
     for s in sorted(sums, key=lambda s: s["state"]):

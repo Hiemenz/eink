@@ -179,3 +179,55 @@ def test_district_map_draws_called_and_leading(tmp_path):
     ec.district_map(img, d, {}, 14, 60, 560, 450, info)
     colors = {c for _, c in img.getcolors(100000)}
     assert ec.RED in colors and ec.BLUE in colors
+
+
+def test_replay_dir_and_placeholder_filtered(tmp_path):
+    import json
+    data = _data("S")
+    data["races"].append(_race("US", "toss-up"))
+    (tmp_path / "election_senate.json").write_text(json.dumps(data))
+    got = ec.fetch_results("senate", {"election": {"replay_dir": str(tmp_path)}})
+    assert all(r["top_reporting_unit"]["state_postal"] != "US" for r in got["races"])
+
+
+def test_notify_posts_only_when_configured():
+    with patch.object(ec.requests, "post") as post:
+        ec.notify({}, "x")
+        assert not post.called
+        ec.notify({"election": {"discord_webhook": "http://hook"}}, "x")
+        post.assert_called_once()
+
+
+def test_new_call_notifies_senate_not_ordinary_house(tmp_path):
+    done = ec.race_summary(_race("CA", votes=(60, 40), won="d-a"))
+    done["id"] = "CA-1"
+    with patch.object(ec, "CALLS_FILE", str(tmp_path / "c.json")), patch.object(ec, "CACHE_DIR", str(tmp_path)), \
+            patch.object(ec, "notify") as note:
+        ec.track_calls([], lambda s: "x", {}, "house")                      # baseline
+        ec.track_calls([done], lambda s: "CA-1 House", {}, "house")         # ordinary House call
+        assert not note.called
+        sen = dict(done, id="TX-S")
+        ec.track_calls([done, sen], lambda s: "TX Senate", {}, "senate")
+        assert note.call_count == 1
+
+
+def test_control_winner_and_screen(tmp_path):
+    from modules import election_control
+    data = _data("H")
+    assert ec.control_winner(data, "H") is None
+    data["partyControlData"]["results"][0]["offices"]["H"]["party_balance"]["DEM"]["winner"] = True
+    assert ec.control_winner(data, "H") == "DEM"
+    sen = _data("S")
+    with patch.object(ec, "fetch_results", side_effect=lambda o, c: data if o == "house" else sen):
+        out = str(tmp_path / "c.bmp")
+        assert election_control.generate({"election": {"control_output_path": out}}) == out
+
+
+def test_voting_screen_renders(tmp_path):
+    from modules import election_voting
+    d = _data("S") | {"pollClosingTimes": [{"poll_closing_time": "2099-01-01T00:00:00Z",
+                                            "reporting_unit": {"state_postal": "TN"}}]}
+    with patch.object(ec, "fetch_results", return_value=d):
+        out = str(tmp_path / "v.bmp")
+        assert election_voting.generate({"election": {"voting_output_path": out}}) == out
+        assert election_voting.counted(d) == (0, 0)

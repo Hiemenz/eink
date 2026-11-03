@@ -30,6 +30,8 @@ MODULE_INTERVALS: Dict[str, int] = {
     "congress_bills":   600,    # 10 min (bill feed cached 1 h)
     "election_local":   120,
     "election_polls":   600,
+    "election_control":  120,
+    "election_voting":   300,
     "election_house":   120,    # 2 min — election night
     "election_senate":  120,
     "election_governor": 120,
@@ -107,6 +109,8 @@ MODULE_MAP: Dict[str, str] = {
     "module_cycler":   "modules.module_cycler",
     "congress_bills":  "modules.congress_bills",
     "election_house":  "modules.election_house",
+    "election_voting": "modules.election_voting",
+    "election_control": "modules.election_control",
     "election_local":  "modules.election_local",
     "election_polls":  "modules.election_polls",
     "election_senate": "modules.election_senate",

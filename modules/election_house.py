@@ -42,7 +42,7 @@ def generate(config):
     sums = [ec.race_summary(r) for r in data["races"]]
     img, d, y = ec.canvas(config, "U.S. HOUSE", f"{c['num_races_called']}/435 called{ec.flip_text(sums)}",
                           stamp=ec.feed_time(data))
-    recent = ec.track_calls(sums, lambda s: f"{s['postal']}-{s['seat']} House")
+    recent = ec.track_calls(sums, lambda s: f"{s['postal']}-{s['seat']} House", config, "house")
     dem, gop = pb["DEM"]["seats"], pb["GOP"]["seats"]
     pre = not (dem or gop)
 

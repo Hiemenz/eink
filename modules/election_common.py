@@ -49,7 +49,18 @@ def _alert(office: str, detail: str) -> None:
     alert_failure(f"eink election feed ({office})", detail)
 
 
+def _clean(data: dict) -> dict:
+    """Drop the feed's non-state placeholder race ('US') so it never reaches a screen."""
+    data["races"] = [r for r in data.get("races", [])
+                     if r.get("top_reporting_unit", {}).get("state_postal") != "US"]
+    return data
+
+
 def fetch_results(office: str, config: dict, max_age: int = 120) -> dict:
+    return _clean(_fetch_results(office, config, max_age))
+
+
+def _fetch_results(office: str, config: dict, max_age: int = 120) -> dict:
     """Fetch (and cache on disk) the NYT results JSON for house/senate/governor.
 
     Falls back to the last good cache (flagged `_stale`) and raises an alert when
@@ -57,6 +68,9 @@ def fetch_results(office: str, config: dict, max_age: int = 120) -> dict:
     """
     cfg = config.get("election", {})
     date = cfg.get("date", DEFAULT_DATE)
+    if cfg.get("replay_dir"):  # dry run: read synthetic results, never touch the network
+        with open(os.path.join(cfg["replay_dir"], f"election_{office}.json")) as f:
+            return json.load(f)
     path = os.path.join(CACHE_DIR, f"election_{office}.json")
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age:
         with open(path) as f:
@@ -147,7 +161,24 @@ CALLS_FILE = os.path.join(CACHE_DIR, "election_calls.json")
 RECENT_CALL_SECONDS = 30 * 60
 
 
-def track_calls(sums, label_fn) -> list:
+def notify(config, text: str) -> None:
+    """Post to a Discord webhook (election.discord_webhook or ELECTION_DISCORD_WEBHOOK)."""
+    url = (config or {}).get("election", {}).get("discord_webhook") or os.environ.get("ELECTION_DISCORD_WEBHOOK")
+    if not url:
+        return
+    try:
+        requests.post(url, json={"content": text}, timeout=10)
+    except Exception as exc:  # never let a notification break the display
+        logger.warning("Election notification failed: %s", exc)
+
+
+def _worth_notifying(office, s, config) -> bool:
+    """Senate/Governor calls, flips, and anything in the home state."""
+    home = (config or {}).get("election", {}).get("home_state", "TN")
+    return office in ("senate", "governor") or s["flip"] or s["postal"] == home
+
+
+def track_calls(sums, label_fn, config=None, office=None) -> list:
     """Remember which races are called; return those called in the last 30 min.
 
     The first run only baselines (existing calls are not 'just called').
@@ -165,6 +196,10 @@ def track_calls(sums, label_fn) -> list:
         if s["id"] not in seen:
             seen[s["id"]] = 0 if baseline else now
             changed = True
+            if not baseline and _worth_notifying(office, s, config):
+                w = s["winner"]
+                notify(config, f"CALLED: {label_fn(s)} - {w['name']} ({w['party'][0]})"
+                               f"{' FLIP' if s['flip'] else ''}")
         if now - seen[s["id"]] < RECENT_CALL_SECONDS:
             recent.append((seen[s["id"]], s, label_fn(s)))
     if changed:
@@ -194,6 +229,14 @@ def banner(d, config, y, recent):
     txt = f"CALLED  {label}: {w['name']} ({w['party'][0]}){'  FLIP' if s['flip'] else ''}{more}"
     d.text((22, y + 3), txt, fill=WHITE, font=get_font(15, bold=True, config=config))
     return y + 30
+
+
+def control_winner(data, office_id):
+    """Party id ('DEM'/'GOP'/'OTH') that has been projected to control the chamber, else None."""
+    for pid, b in control(data, office_id)["party_balance"].items():
+        if b.get("winner"):
+            return pid
+    return None
 
 
 def balance_text(dem_secured, gop_secured, dem_proj, gop_proj, need_dem, need_gop) -> str:

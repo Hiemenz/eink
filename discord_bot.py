@@ -98,6 +98,8 @@ ALL_MODULES = [
     "election_governor",
     "election_local",
     "election_polls",
+    "election_control",
+    "election_voting",
 ]
 
 # Pre-flight config checks per module
@@ -380,6 +382,8 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "election_governor": _p("election_governor", "images/election_governor.bmp"),
         "election_local":  _p("election_local",    "images/election_local.bmp"),
         "election_polls":  _p("election_polls",    "images/election_polls.bmp"),
+        "election_control": _p("election_control", "images/election_control.bmp"),
+        "election_voting": _p("election_voting",   "images/election_voting.bmp"),
         "business_idea":   _p("business_idea",     "images/business_idea.bmp"),
     }
 
@@ -647,7 +651,7 @@ async def cmd_radar(ctx: commands.Context, mode: str = None):
         await msg.edit(content=f"Radar layout → **{mode}** saved, but refresh failed:\n```{output[:900]}```")
 
 
-ELECTION_SCREENS = ("house", "senate", "governor", "local", "polls")
+ELECTION_SCREENS = ("house", "senate", "governor", "local", "polls", "control", "voting")
 
 
 @channel_guard()
@@ -657,7 +661,7 @@ async def cmd_election(ctx: commands.Context, screen: str = None, view: str = "m
     Usage: !election <house|senate|governor|local|polls> [map|list]   |   !election auto
     """
     if screen is None or (screen != "auto" and screen not in ELECTION_SCREENS):
-        await ctx.send("Usage: `!election <house|senate|governor|local|polls> [map|list]` to pin a "
+        await ctx.send("Usage: `!election <house|senate|governor|local|polls|control|voting> [map|list]` to pin a "
                        "screen, or `!election auto` to resume the rotation.")
         return
     if screen == "auto":

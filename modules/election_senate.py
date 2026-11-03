@@ -13,7 +13,7 @@ def generate(config):
                           stamp=ec.feed_time(data))
     pb = c["party_balance"]
     label = lambda s: f"{s['state']}{' ' + s['seat'] if s['postal'] in ('GA', 'FL', 'NE') and s['seat'] else ''} Senate"  # noqa: E731
-    recent = ec.track_calls(sums, label)
+    recent = ec.track_calls(sums, label, config, "senate")
 
     # Projection: seats not up + (winner | leader | rating) for every race
     proj = {"DEM": pb["DEM"]["no_election"], "GOP": pb["GOP"]["no_election"]}

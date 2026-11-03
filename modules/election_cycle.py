@@ -7,7 +7,7 @@ byte-identical, so main.py skips the ~50 s panel refresh. All screens render to
 one shared file so main's unchanged-image check tracks what is on the panel.
 
 `election.pin` (set from Discord) locks the display to one screen, e.g.
-"senate:list", "local", "polls".
+"senate:list", "local", "polls", "control", "voting".
 """
 
 import importlib
@@ -21,7 +21,7 @@ from utils import get_logger
 
 logger = get_logger("election_cycle")
 OFFICES = ("house", "senate", "governor")
-BASE = [(o, v) for o in OFFICES for v in ("map", "list")] + [("local", "map")]
+BASE = [(o, v) for o in OFFICES for v in ("map", "list")] + [("local", "map"), ("voting", "map")]
 STATE_FILE = "data/election_cycle_state.json"
 OUTPUT = "images/election_cycle.bmp"
 
@@ -52,12 +52,25 @@ def generate(config):
             logger.warning("Feed %s unavailable: %s", o, exc)
             versions[o] = state["versions"].get(o)
     order = list(BASE)
+    ctrl = ""
+    for o, oid in (("house", "H"), ("senate", "S")):
+        try:
+            w = ec.control_winner(ec.fetch_results(o, config), oid)
+        except Exception:
+            w = None
+        ctrl += f"{oid}:{w or '-'},"
+    has_control = any(part.split(":")[1] != "-" for part in ctrl.strip(",").split(","))
+    if has_control:
+        order.append(("control", "map"))
+    versions["control"] = ctrl
     if senate is not None and election_polls.polls_open(senate):
         order.append(("polls", "map"))
         now = datetime.now(timezone.utc)
         versions["polls_closed"] = sum(1 for ts, _ in election_polls.groups(senate) if ts <= now)
     if versions != state["versions"]:
         state["index"] = (state["index"] + 1) % len(order)
+        if has_control and versions["control"] != state["versions"].get("control"):
+            state["index"] = order.index(("control", "map"))  # a chamber was just called: show it now
         state["versions"] = versions
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
         with open(STATE_FILE, "w") as f:
