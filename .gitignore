@@ -34,3 +34,9 @@ images/
 
 # Dev tooling
 .claude/
+
+# election feed caches (re-fetched)
+data/election_*.json
+data/congress_bills.json
+data/election_calls.json
+data/election_cycle_state.json

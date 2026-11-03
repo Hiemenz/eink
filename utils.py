@@ -27,6 +27,13 @@ MODULE_INTERVALS: Dict[str, int] = {
     "air_quality":     3600,    # 1 hour — AQI changes slowly
     "parking_garage":   600,    # 10 min
     "crypto_market":    600,    # 10 min
+    "congress_bills":   600,    # 10 min (bill feed cached 1 h)
+    "election_local":   120,
+    "election_polls":   600,
+    "election_house":   120,    # 2 min — election night
+    "election_senate":  120,
+    "election_governor": 120,
+    "election_cycle":   120,
     "franklin_cam":     120,    # 2 min — live camera
     "game_of_life":     300,    # 5 min per generation step
     "moon_phase":      3600,    # 1 hour
@@ -98,6 +105,13 @@ MODULE_MAP: Dict[str, str] = {
     "franklin_cam":    "modules.franklin_cam",
     "parking_garage":  "modules.parking_garage",
     "module_cycler":   "modules.module_cycler",
+    "congress_bills":  "modules.congress_bills",
+    "election_house":  "modules.election_house",
+    "election_local":  "modules.election_local",
+    "election_polls":  "modules.election_polls",
+    "election_senate": "modules.election_senate",
+    "election_governor": "modules.election_governor",
+    "election_cycle":  "modules.election_cycle",
     "brain_status":    "modules.brain_status",
     "claude_news":     "modules.claude_news",
     "questions":       "modules.questions",
