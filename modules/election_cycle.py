@@ -80,5 +80,6 @@ def generate(config):
     shared = ecfg.get("output_path", OUTPUT)
     cfg = dict(config, _election_view=view)
     cfg[f"election_{name}"] = {"output_path": shared}
-    cfg["election"] = dict(ecfg, local_output_path=shared, polls_output_path=shared)
+    cfg["election"] = dict(ecfg, local_output_path=shared, polls_output_path=shared,
+                           control_output_path=shared, voting_output_path=shared)
     return importlib.import_module(f"modules.election_{name}").generate(cfg)

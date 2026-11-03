@@ -6,12 +6,14 @@ Config (election:): home_state (postal, default TN), home_district (default 5).
 from modules import election_common as ec
 
 
-def _find(data, postal, district=None):
+def _find_all(data, postal, district=None):
+    """Every matching race (a state can have a regular and a special Senate race)."""
+    out = []
     for r in data["races"]:
         s = ec.race_summary(r)
         if s["postal"] == postal and (district is None or str(s["seat"]) == str(district)):
-            return s
-    return None
+            out.append(s)
+    return out
 
 
 def _card(d, config, y, h, title, s):
@@ -46,10 +48,15 @@ def generate(config):
     out = cfg.get("local_output_path", "images/election_local.bmp")
     gov, sen, house = (ec.fetch_results(o, config) for o in ("governor", "senate", "house"))
     img, d, y = ec.canvas(config, f"{state} RACES", f"district {district}", stamp=ec.feed_time(sen))
-    h = (ec.HEIGHT - y - 30) // 3 - 6
+    cards = []
     for title, data, dist in ((f"{state} GOVERNOR", gov, None), (f"{state} U.S. SENATE", sen, None),
                               (f"{state}-{district} U.S. HOUSE", house, district)):
-        _card(d, config, y, h, title, _find(data, state, dist))
+        found = _find_all(data, state, dist) or [None]
+        for i, race in enumerate(found):
+            cards.append((title + (f" (seat {race['seat']})" if len(found) > 1 and race else ""), race))
+    h = (ec.HEIGHT - y - 30) // len(cards) - 6
+    for title, race in cards:
+        _card(d, config, y, h, title, race)
         y += h + 8
     ec.legend(d, config)
     return ec.finish(img, out)

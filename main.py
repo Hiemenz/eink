@@ -117,7 +117,7 @@ def main() -> None:
     validate_config(config)
     active = config.get("active_module", "weather")
 
-    election_night = _election_window(config)
+    election_night = _election_window(config) or bool(config.get("election", {}).get("pin"))
     if election_night:
         active = "election_cycle"
 

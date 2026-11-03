@@ -13,8 +13,11 @@ def groups(data):
     """[(utc_datetime, [postal, ...])] sorted by closing time."""
     by = {}
     for t in data.get("pollClosingTimes", []):
-        ts = datetime.fromisoformat(t["poll_closing_time"].replace("Z", "+00:00"))
-        by.setdefault(ts, []).append(t["reporting_unit"]["state_postal"])
+        try:
+            ts = datetime.fromisoformat(t["poll_closing_time"].replace("Z", "+00:00"))
+            by.setdefault(ts, []).append(t["reporting_unit"]["state_postal"])
+        except (KeyError, TypeError, ValueError):
+            continue  # one bad entry must not take down the rotation
     return sorted((ts, sorted(v)) for ts, v in by.items())
 
 

@@ -30,10 +30,16 @@ FLOOR_WORDS = ("passed", "agreed to", "cloture", "presented to president",
                "became public law", "placed on", "vetoed", "failed")
 
 
+_memo = {}
+
+
 def _roll_exists(year, n):
+    if (year, n) in _memo:
+        return _memo[(year, n)]
     r = requests.get(ROLL_URL.format(year=year, n=n), headers=UA, timeout=20)
     # The clerk answers 200 with an "Error sanitizing file" stub for missing rolls.
-    return r.status_code == 200 and b"<rollcall-vote" in r.content, r
+    _memo[(year, n)] = (r.status_code == 200 and b"<rollcall-vote" in r.content, r)
+    return _memo[(year, n)]
 
 
 def _latest_roll(year, hint=0):
@@ -78,7 +84,11 @@ def fetch_house_votes(year, count=7):
     while len(votes) < count and n > 0 and latest - n < 40:
         ok, r = _roll_exists(year, n)
         if ok:
-            v = parse_roll(r.content)
+            try:
+                v = parse_roll(r.content)
+            except (ET.ParseError, ValueError, AttributeError) as exc:
+                logger.warning("Skipping malformed roll %s: %s", n, exc)
+                v = None
             if v:
                 votes.append(v)
         n -= 1
@@ -93,7 +103,7 @@ def fetch_bill_actions(config, count=6):
         return cache["bills"]
     try:
         r = requests.get(BILL_URL, headers=UA, timeout=30, params={
-            "api_key": key, "format": "json", "limit": 60, "sort": "updateDate+desc"})
+            "api_key": key, "format": "json", "limit": 60, "sort": "updateDate desc"})
         r.raise_for_status()
         out = []
         for b in r.json().get("bills", []):

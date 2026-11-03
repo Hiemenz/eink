@@ -28,6 +28,7 @@ FEED = "https://static01.nyt.com/elections-assets/pages/data/{date}/results-{off
 UA = {"User-Agent": "Mozilla/5.0"}
 DEFAULT_DATE = "2026-11-03"
 CACHE_DIR = "data"
+FAIL_BACKOFF = 60  # seconds to serve stale data after a failed fetch
 
 
 REQUIRED_KEYS = ("races", "partyControlData", "resultsMeta")
@@ -72,20 +73,31 @@ def _fetch_results(office: str, config: dict, max_age: int = 120) -> dict:
         with open(os.path.join(cfg["replay_dir"], f"election_{office}.json")) as f:
             return json.load(f)
     path = os.path.join(CACHE_DIR, f"election_{office}.json")
+    fail = path + ".fail"
     if os.path.exists(path) and time.time() - os.path.getmtime(path) < max_age:
         with open(path) as f:
             return json.load(f)
+    if os.path.exists(path) and os.path.exists(fail) and time.time() - os.path.getmtime(fail) < FAIL_BACKOFF:
+        with open(path) as f:  # feed failed moments ago: serve stale, don't hammer it
+            data = json.load(f)
+        data["_stale"] = True
+        return data
     try:
-        r = requests.get(FEED.format(date=date, office=office), headers=UA, timeout=60)
+        r = requests.get(FEED.format(date=date, office=office), headers=UA, timeout=30)
         r.raise_for_status()
         data = r.json()
         _validate(office, data)
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(path, "w") as f:
             json.dump(data, f)
+        if os.path.exists(fail):
+            os.remove(fail)
         return data
     except Exception as exc:
         logger.warning("Election fetch failed (%s): %s", office, exc)
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(fail, "w") as f:
+            f.write(str(time.time()))
         _alert(office, f"{type(exc).__name__}: {exc}")
         if os.path.exists(path):  # stale beats blank
             with open(path) as f:
@@ -185,11 +197,16 @@ def track_calls(sums, label_fn, config=None, office=None) -> list:
     """
     try:
         with open(CALLS_FILE) as f:
-            seen = json.load(f)
-        baseline = False
+            store = json.load(f)
     except (OSError, ValueError):
-        seen, baseline = {}, True
-    now, recent, changed = time.time(), [], False
+        store = {}
+    seen = store.setdefault("seen", {})
+    offices = store.setdefault("offices", [])
+    baseline = office not in offices          # first look at an office only records its calls
+    changed = baseline
+    if baseline:
+        offices.append(office)
+    now, recent = time.time(), []
     for s in sums:
         if not s["called"] or not s["winner"]:
             continue
@@ -205,7 +222,7 @@ def track_calls(sums, label_fn, config=None, office=None) -> list:
     if changed:
         os.makedirs(CACHE_DIR, exist_ok=True)
         with open(CALLS_FILE, "w") as f:
-            json.dump(seen, f)
+            json.dump(store, f)
     return [(s, lbl) for _, s, lbl in sorted(recent, key=lambda t: -t[0])]
 
 

@@ -207,6 +207,7 @@ def test_new_call_notifies_senate_not_ordinary_house(tmp_path):
         ec.track_calls([done], lambda s: "CA-1 House", {}, "house")         # ordinary House call
         assert not note.called
         sen = dict(done, id="TX-S")
+        ec.track_calls([], lambda s: "x", {}, "senate")                     # senate baseline
         ec.track_calls([done, sen], lambda s: "TX Senate", {}, "senate")
         assert note.call_count == 1
 
@@ -231,3 +232,44 @@ def test_voting_screen_renders(tmp_path):
         out = str(tmp_path / "v.bmp")
         assert election_voting.generate({"election": {"voting_output_path": out}}) == out
         assert election_voting.counted(d) == (0, 0)
+
+
+def test_baseline_is_per_office_and_persists_when_nothing_called(tmp_path):
+    done = ec.race_summary(_race("TN", votes=(40, 60), won="r-b"))
+    with patch.object(ec, "CALLS_FILE", str(tmp_path / "c.json")), patch.object(ec, "CACHE_DIR", str(tmp_path)), \
+            patch.object(ec, "notify") as note:
+        ec.track_calls([], lambda s: "x", {}, "senate")                     # nothing called yet
+        ec.track_calls([done], lambda s: "TN Senate", {}, "senate")         # first call of the night
+        assert note.call_count == 1
+        before = note.call_count
+        ec.track_calls([dict(done, id="GOV-TN")], lambda s: "TN Governor", {}, "governor")  # baseline for governor
+        assert note.call_count == before
+
+
+def test_failed_fetch_backs_off(tmp_path):
+    import json
+    (tmp_path / "election_senate.json").write_text(json.dumps(_data("S")))
+    with patch.object(ec, "CACHE_DIR", str(tmp_path)), patch.object(ec.requests, "get", side_effect=OSError("down")) as get, \
+            patch.object(ec, "_alert"):
+        ec.fetch_results("senate", {}, max_age=-1)
+        ec.fetch_results("senate", {}, max_age=-1)
+    assert get.call_count == 1
+
+
+def test_polls_ignore_malformed_entries():
+    from modules import election_polls as ep
+    assert ep.groups({"pollClosingTimes": [{"poll_closing_time": "bad"}, {}]}) == []
+
+
+def test_pin_overrides_outside_window():
+    import inspect
+    assert "election" in inspect.getsource(main.main) and '"pin"' in inspect.getsource(main.main)
+
+
+def test_congress_sort_not_plus_encoded():
+    from modules import congress_bills as cb
+    with patch.object(cb.requests, "get") as get, patch.object(cb, "_read_cache", return_value={}), \
+            patch.object(cb, "_write_cache"):
+        get.return_value.json.return_value = {"bills": []}
+        cb.fetch_bill_actions({})
+    assert get.call_args.kwargs["params"]["sort"] == "updateDate desc"

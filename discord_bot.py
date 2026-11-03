@@ -383,6 +383,7 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "election_local":  _p("election_local",    "images/election_local.bmp"),
         "election_polls":  _p("election_polls",    "images/election_polls.bmp"),
         "election_control": _p("election_control", "images/election_control.bmp"),
+        "election_cycle":  _p("election_cycle",    "images/election_cycle.bmp"),
         "election_voting": _p("election_voting",   "images/election_voting.bmp"),
         "business_idea":   _p("business_idea",     "images/business_idea.bmp"),
     }
