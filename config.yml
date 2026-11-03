@@ -965,3 +965,16 @@ colors:
     white: (255, 255,255)
     black: (0, 0, 0)
     grey: (128, 128, 128)
+# ── Election night (House / Senate / Governor, NYT feed) ─────────────────────
+# Inside [start, end) main.py rotates the three election displays and ignores
+# night_sleep, so the screen keeps updating overnight.
+election:
+  date: "2026-11-03"
+  start: "2026-11-03T18:00:00"
+  end: "2026-11-04T09:00:00"
+  rotate_minutes: 2
+
+# ── Congress bills (House roll calls + latest bill action) ───────────────────
+congress_bills:
+  output_path: images/congress_bills.bmp
+  api_key: ""   # free key from api.congress.gov/sign-up; blank = rate-limited DEMO_KEY

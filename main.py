@@ -101,12 +101,27 @@ def _in_sleep_window(config: dict) -> bool:
     return now >= start or now < end  # window crosses midnight
 
 
+def _election_window(config: dict) -> bool:
+    """True during the configured election-night window (start/end ISO local times)."""
+    cfg = config.get("election", {})
+    try:
+        start = datetime.fromisoformat(str(cfg["start"]))
+        end = datetime.fromisoformat(str(cfg["end"]))
+    except (KeyError, ValueError):
+        return False
+    return start <= datetime.now() < end
+
+
 def main() -> None:
     config = load_config()
     validate_config(config)
     active = config.get("active_module", "weather")
 
-    if _in_sleep_window(config):
+    election_night = _election_window(config) or bool(config.get("election", {}).get("pin"))
+    if election_night:
+        active = "election_cycle"
+
+    if not election_night and _in_sleep_window(config):
         logger.info("Night sleep window active — skipping refresh for module '%s'.", active)
         return
 

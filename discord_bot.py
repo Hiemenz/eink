@@ -92,6 +92,14 @@ ALL_MODULES = [
     "traffic",
     "agenda",
     "business_idea",
+    "congress_bills",
+    "election_house",
+    "election_senate",
+    "election_governor",
+    "election_local",
+    "election_polls",
+    "election_control",
+    "election_voting",
 ]
 
 # Pre-flight config checks per module
@@ -368,6 +376,15 @@ def get_output_image_path(cfg: dict) -> Optional[str]:
         "questions":       _p("questions",         "images/questions_display.bmp"),
         "terminal":        _p("terminal",          "images/terminal_display.bmp"),
         "crypto_market":   _p("crypto_market",     "images/crypto_market.bmp"),
+        "congress_bills":  _p("congress_bills",    "images/congress_bills.bmp"),
+        "election_house":  _p("election_house",    "images/election_house.bmp"),
+        "election_senate": _p("election_senate",   "images/election_senate.bmp"),
+        "election_governor": _p("election_governor", "images/election_governor.bmp"),
+        "election_local":  _p("election_local",    "images/election_local.bmp"),
+        "election_polls":  _p("election_polls",    "images/election_polls.bmp"),
+        "election_control": _p("election_control", "images/election_control.bmp"),
+        "election_cycle":  _p("election_cycle",    "images/election_cycle.bmp"),
+        "election_voting": _p("election_voting",   "images/election_voting.bmp"),
         "business_idea":   _p("business_idea",     "images/business_idea.bmp"),
     }
 
@@ -633,6 +650,34 @@ async def cmd_radar(ctx: commands.Context, mode: str = None):
         await send_display_image(ctx.channel, load_config())
     else:
         await msg.edit(content=f"Radar layout → **{mode}** saved, but refresh failed:\n```{output[:900]}```")
+
+
+ELECTION_SCREENS = ("house", "senate", "governor", "local", "polls", "control", "voting")
+
+
+@channel_guard()
+async def cmd_election(ctx: commands.Context, screen: str = None, view: str = "map"):
+    """Pin an election screen, or resume the automatic election-night rotation.
+
+    Usage: !election <house|senate|governor|local|polls> [map|list]   |   !election auto
+    """
+    if screen is None or (screen != "auto" and screen not in ELECTION_SCREENS):
+        await ctx.send("Usage: `!election <house|senate|governor|local|polls|control|voting> [map|list]` to pin a "
+                       "screen, or `!election auto` to resume the rotation.")
+        return
+    if screen == "auto":
+        update_bot_state("election.pin", None)
+        label = "automatic rotation"
+    else:
+        view = view if view in ("map", "list") else "map"
+        update_bot_state("election.pin", f"{screen}:{view}")
+        label = f"{screen} ({view})"
+    msg = await ctx.send(f"Election display → **{label}**...")
+    success, output = await run_main()
+    await msg.edit(content=(f"Election display → **{label}** — refreshed." if success else
+                            f"Election display → **{label}** saved, but refresh failed:\n```{output[:900]}```"))
+    if success:
+        await send_display_image(ctx.channel, load_config())
 
 
 @channel_guard()
@@ -1674,6 +1719,7 @@ def main():
     bot.command(name="menu")(cmd_menu)
     bot.command(name="radar")(cmd_radar)
     bot.command(name="model")(cmd_model)
+    bot.command(name="election")(cmd_election)
     bot.command(name="help_display")(cmd_help_display)
     bot.command(name="help")(cmd_help_display)
     bot.command(name="video")(cmd_video)
