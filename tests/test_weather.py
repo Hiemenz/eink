@@ -1560,6 +1560,29 @@ class TestRadarResilience:
         assert weather._stale_road_ways(cache, None, 35.0, -86.0) == [1]
         assert weather._stale_road_ways(cache, None, 40.0, -86.0) is None
 
+    def test_tighter_zoom_cache_not_used_as_fallback(self):
+        # Zoom-6 roads cover only the middle of a zoom-5 view; drawing them there
+        # put a box of roads in an empty map.
+        cache = {"entries": {"35.0000,-86.0000,6,motorway,v2": {"ts": 1, "ways": [1]}}}
+        assert weather._stale_road_ways(cache, None, 35.0, -86.0, 5) is None
+        assert weather._stale_road_ways(cache, None, 35.0, -86.0, 6) == [1]
+        wider = {"entries": {"35.0000,-86.0000,5,motorway,v2": {"ts": 1, "ways": [2]}}}
+        assert weather._stale_road_ways(wider, None, 35.0, -86.0, 6) == [2]
+
+    def test_wide_view_is_fetched_in_small_pieces(self, tmp_path, monkeypatch):
+        from unittest.mock import patch, MagicMock
+        monkeypatch.chdir(tmp_path)
+        resp = MagicMock()
+        resp.json.return_value = {"elements": [
+            {"type": "way", "tags": {"highway": "motorway"},
+             "geometry": [{"lat": 35.0, "lon": -86.1}, {"lat": 35.0, "lon": -85.9}]}]}
+        with patch.object(weather.requests, "get", return_value=resp) as get:
+            img = weather._fetch_osm_roads(35.0, -86.0, 5, 512, 520, 480)
+            assert get.call_count == 9  # 3x3 pieces, each well under a zoom-6 query
+            weather._fetch_osm_roads(35.0, -86.0, 5, 512, 520, 480)
+            assert get.call_count == 9  # second call served from cache
+        assert img.getchannel("A").getbbox() is not None
+
     def test_strict_frame_raises_on_missing_tile(self, tmp_path, monkeypatch):
         from unittest.mock import patch, MagicMock
         monkeypatch.setattr(weather, "_TILE_CACHE_DIR", str(tmp_path))

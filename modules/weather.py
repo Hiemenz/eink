@@ -1186,25 +1186,69 @@ _OVERPASS_ENDPOINTS = (  # tried in order; the main instance is often overloaded
     "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
 )
+_ROAD_TTL_S = 30 * 86400  # roads barely change, and a cold fetch can take minutes
+_OVERPASS_QUERY_TIMEOUT_S = 25   # server-side budget in the query
+_OVERPASS_HTTP_TIMEOUT_S = 30    # client-side read timeout
 _ROAD_RETRY_S = 900     # back off this long after a failed Overpass fetch
-_ROAD_MIN_QUERY_ZOOM = 6  # below this, reuse cached roads rather than query Overpass
+_ROAD_MIN_QUERY_ZOOM = 6  # widest viewport queried in one Overpass call; wider ones are tiled
 _ROAD_CACHE_KEYS = 4    # distinct viewports kept in data/osm_roads_cache.json
 
 
-def _stale_road_ways(cache: dict, entry: Optional[dict], lat: float, lon: float) -> Optional[list]:
+def _stale_road_ways(
+    cache: dict, entry: Optional[dict], lat: float, lon: float, zoom: Optional[int] = None,
+) -> Optional[list]:
     """Best road geometry on hand when Overpass is down: an expired entry for this
-    exact viewport, else any cached viewport for the same centre (roads don't move,
-    and a wider or narrower zoom's ways still project correctly). Without this the
-    roads vanished for good once a 24h entry expired during an Overpass outage."""
+    exact viewport, else a cached viewport for the same centre (roads don't move).
+    With `zoom` given, only entries at that zoom or wider qualify: a tighter zoom's
+    ways project correctly but cover just the middle of the view, which drew a box
+    of roads floating in an empty map. Without this the roads vanished for good once
+    a 24h entry expired during an Overpass outage."""
     if entry and entry.get("ways"):
         logger.warning("OSM roads: Overpass unavailable, using expired cache")
         return entry["ways"]
     prefix = f"{lat:.4f},{lon:.4f},"
-    near = [e for k, e in cache["entries"].items() if k.startswith(prefix) and e.get("ways")]
+    near = [
+        e for k, e in cache["entries"].items()
+        if k.startswith(prefix) and e.get("ways")
+        and (zoom is None or int(k[len(prefix):].split(",")[0]) <= zoom)
+    ]
     if near:
         logger.warning("OSM roads: Overpass unavailable, using cache from another zoom")
         return max(near, key=lambda e: e.get("ts", 0))["ways"]
     return None
+
+
+def _overpass_road_ways(bbox: Tuple[float, float, float, float], road_classes: str) -> list:
+    """Road ways inside one (lat_min, lon_min, lat_max, lon_max) box, trying each mirror."""
+    lat_min, lon_min, lat_max, lon_max = bbox
+    query = (
+        f"[out:json][timeout:{_OVERPASS_QUERY_TIMEOUT_S}];"
+        f"way[highway~\"^({road_classes})$\"]"
+        f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
+        f"out geom;"
+    )
+    data = None
+    last_err: Optional[Exception] = None
+    for endpoint in _OVERPASS_ENDPOINTS:
+        try:
+            resp = requests.get(endpoint, params={"data": query},
+                                headers={"User-Agent": "eink-display/1.0"},
+                                timeout=_OVERPASS_HTTP_TIMEOUT_S)
+            resp.raise_for_status()
+            data = resp.json()
+            break
+        except Exception as e:  # try the next mirror
+            last_err = e
+            logger.info("Overpass %s failed: %s", endpoint, e)
+    if data is None:
+        raise last_err or RuntimeError("no Overpass endpoint configured")
+    # Store only what drawing needs; full OSM way dicts are ~3x larger.
+    return [
+        {"m": int(e.get("tags", {}).get("highway") == "motorway"),
+         "p": [[round(n["lat"], 4), round(n["lon"], 4)] for n in e["geometry"]]}
+        for e in data.get("elements", [])
+        if e.get("type") == "way" and e.get("geometry")
+    ]
 
 
 def _fetch_osm_roads(
@@ -1254,51 +1298,31 @@ def _fetch_osm_roads(
 
     entry = cache["entries"].get(cache_key)
     ways: Optional[list] = None
-    if entry and now - entry.get("ts", 0) < 86400:
+    if entry and now - entry.get("ts", 0) < _ROAD_TTL_S:
         ways = entry["ways"]
         logger.info("OSM roads: %d ways from cache", len(ways))
-    elif zoom < _ROAD_MIN_QUERY_ZOOM:
-        # A zoom-5 viewport is a continent-sized Overpass query that reliably times
-        # out; roads don't move, so a nearby zoom's geometry is good enough.
-        ways = _stale_road_ways(cache, None, lat, lon)
-        if ways is None:
-            return Image.new("RGBA", (width, height), (0, 0, 0, 0))
     elif now - cache["failed"].get(cache_key, 0) < _ROAD_RETRY_S:
         # Overpass is flaky; a failed fetch blocks for its full timeout, so don't
         # pay that again on every 5-minute cycle.
-        ways = _stale_road_ways(cache, entry, lat, lon)
+        ways = _stale_road_ways(cache, entry, lat, lon, zoom)
         if ways is None:
             return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 
     if ways is None:
-        query = (
-            f"[out:json][timeout:25];"
-            f"way[highway~\"^({road_classes})$\"]"
-            f"({lat_min:.4f},{lon_min:.4f},{lat_max:.4f},{lon_max:.4f});"
-            f"out geom;"
-        )
         try:
-            data = None
-            last_err: Optional[Exception] = None
-            for endpoint in _OVERPASS_ENDPOINTS:
-                try:
-                    resp = requests.get(endpoint, params={"data": query},
-                                        headers={"User-Agent": "eink-display/1.0"}, timeout=30)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    break
-                except Exception as e:  # try the next mirror
-                    last_err = e
-                    logger.info("Overpass %s failed: %s", endpoint, e)
-            if data is None:
-                raise last_err or RuntimeError("no Overpass endpoint configured")
-            # Store only what drawing needs; full OSM way dicts are ~3x larger.
-            ways = [
-                {"m": int(e.get("tags", {}).get("highway") == "motorway"),
-                 "p": [[round(n["lat"], 4), round(n["lon"], 4)] for n in e["geometry"]]}
-                for e in data.get("elements", [])
-                if e.get("type") == "way" and e.get("geometry")
-            ]
+            # A viewport wider than the zoom-6 one is a continent-sized query that
+            # times out, and even zoom-6-sized pieces timed out on a loaded Overpass,
+            # so tile wide views 3x3 (6x6 a zoom lower) and stitch the result.
+            n = 1 if zoom >= _ROAD_MIN_QUERY_ZOOM else 3 * 2 ** (_ROAD_MIN_QUERY_ZOOM - zoom - 1)
+            ways = []
+            for i in range(n):
+                for j in range(n):
+                    ways += _overpass_road_ways((
+                        lat_min + (lat_max - lat_min) * i / n,
+                        lon_min + (lon_max - lon_min) * j / n,
+                        lat_min + (lat_max - lat_min) * (i + 1) / n,
+                        lon_min + (lon_max - lon_min) * (j + 1) / n,
+                    ), road_classes)
             logger.info("OSM roads: fetched %d ways from Overpass", len(ways))
             cache["entries"][cache_key] = {"ts": now, "ways": ways}
             cache["failed"].pop(cache_key, None)
@@ -1308,7 +1332,7 @@ def _fetch_osm_roads(
         except Exception as e:
             logger.warning("OSM road fetch failed: %s", e)
             cache["failed"][cache_key] = now
-            ways = _stale_road_ways(cache, entry, lat, lon)
+            ways = _stale_road_ways(cache, entry, lat, lon, zoom)
         try:
             os.makedirs("data", exist_ok=True)
             with open(cache_path, "w") as _f:
