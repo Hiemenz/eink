@@ -1287,14 +1287,23 @@ def _fetch_osm_roads(
     cache_key = f"{lat:.4f},{lon:.4f},{zoom},{road_classes},v2"
     now = time.time()
 
-    cache: dict = {"entries": {}, "failed": {}}
+    cache: dict = {"entries": {}, "failed": {}, "pieces": {}}
     try:
         with open(cache_path) as _f:
             loaded = json.load(_f)
         if isinstance(loaded.get("entries"), dict):
-            cache = {"entries": loaded["entries"], "failed": loaded.get("failed", {})}
+            cache = {"entries": loaded["entries"], "failed": loaded.get("failed", {}),
+                     "pieces": loaded.get("pieces", {})}
     except Exception:
         pass
+
+    def _save_cache() -> None:
+        try:
+            os.makedirs("data", exist_ok=True)
+            with open(cache_path, "w") as _f:
+                json.dump(cache, _f)
+        except OSError:
+            pass
 
     entry = cache["entries"].get(cache_key)
     ways: Optional[list] = None
@@ -1314,18 +1323,31 @@ def _fetch_osm_roads(
             # times out, and even zoom-6-sized pieces timed out on a loaded Overpass,
             # so tile wide views 3x3 (6x6 a zoom lower) and stitch the result.
             n = 1 if zoom >= _ROAD_MIN_QUERY_ZOOM else 3 * 2 ** (_ROAD_MIN_QUERY_ZOOM - zoom - 1)
+            # Each piece is saved the moment it arrives, so a retry after an Overpass
+            # failure resumes instead of re-downloading the pieces already in hand.
             ways = []
             for i in range(n):
                 for j in range(n):
-                    ways += _overpass_road_ways((
+                    pkey = f"{cache_key}|{i},{j}"
+                    piece = cache["pieces"].get(pkey)
+                    if piece and now - piece.get("ts", 0) < _ROAD_TTL_S:
+                        ways += piece["ways"]
+                        continue
+                    piece_ways = _overpass_road_ways((
                         lat_min + (lat_max - lat_min) * i / n,
                         lon_min + (lon_max - lon_min) * j / n,
                         lat_min + (lat_max - lat_min) * (i + 1) / n,
                         lon_min + (lon_max - lon_min) * (j + 1) / n,
                     ), road_classes)
+                    ways += piece_ways
+                    if n > 1:
+                        cache["pieces"][pkey] = {"ts": now, "ways": piece_ways}
+                        _save_cache()
             logger.info("OSM roads: fetched %d ways from Overpass", len(ways))
             cache["entries"][cache_key] = {"ts": now, "ways": ways}
             cache["failed"].pop(cache_key, None)
+            cache["pieces"] = {k: v for k, v in cache["pieces"].items()
+                               if not k.startswith(cache_key + "|")}
             # Keep only the newest few viewports (zoom/adaptive changes add keys).
             newest = sorted(cache["entries"], key=lambda k: cache["entries"][k]["ts"])[-_ROAD_CACHE_KEYS:]
             cache["entries"] = {k: cache["entries"][k] for k in newest}
@@ -1333,12 +1355,7 @@ def _fetch_osm_roads(
             logger.warning("OSM road fetch failed: %s", e)
             cache["failed"][cache_key] = now
             ways = _stale_road_ways(cache, entry, lat, lon, zoom)
-        try:
-            os.makedirs("data", exist_ok=True)
-            with open(cache_path, "w") as _f:
-                json.dump(cache, _f)
-        except OSError:
-            pass
+        _save_cache()
         if ways is None:
             return Image.new("RGBA", (width, height), (0, 0, 0, 0))
 

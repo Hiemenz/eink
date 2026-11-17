@@ -1583,6 +1583,28 @@ class TestRadarResilience:
             assert get.call_count == 9  # second call served from cache
         assert img.getchannel("A").getbbox() is not None
 
+    def test_failed_fetch_resumes_from_saved_pieces(self, tmp_path, monkeypatch):
+        import json
+        from unittest.mock import patch, MagicMock
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(weather, "_ROAD_RETRY_S", 0)
+        resp = MagicMock()
+        resp.json.return_value = {"elements": [
+            {"type": "way", "tags": {"highway": "motorway"},
+             "geometry": [{"lat": 35.0, "lon": -86.1}, {"lat": 35.0, "lon": -85.9}]}]}
+        # Pieces 1-4 succeed, then Overpass dies on every mirror (2 per piece).
+        results = [resp] * 4 + [OSError("502")] * 2
+        with patch.object(weather.requests, "get", side_effect=results):
+            weather._fetch_osm_roads(35.0, -86.0, 5, 512, 520, 480)
+        # Retry: only the 5 missing pieces are requested, not all 9.
+        with patch.object(weather.requests, "get", return_value=resp) as get:
+            img = weather._fetch_osm_roads(35.0, -86.0, 5, 512, 520, 480)
+        assert get.call_count == 5
+        assert img.getchannel("A").getbbox() is not None
+        saved = json.load(open("data/osm_roads_cache.json"))
+        assert saved["pieces"] == {}  # folded into the full entry once complete
+        assert any(k.startswith("35.0000,-86.0000,5,") for k in saved["entries"])
+
     def test_strict_frame_raises_on_missing_tile(self, tmp_path, monkeypatch):
         from unittest.mock import patch, MagicMock
         monkeypatch.setattr(weather, "_TILE_CACHE_DIR", str(tmp_path))
