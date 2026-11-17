@@ -10,3 +10,6 @@
   anti-aliased fringe orange. Classify the ramp (road pink: G==B, R>G) instead of one exact RGB.
 - **Single-entry caches thrash when two layouts alternate** (panel <-> full). Key caches by what
   determines the data (centre, zoom), not by the viewport, and fetch a superset.
+- **A generated @keyframes body is not comma-separated.** `0%{..},50%{..}` is invalid CSS and the browser
+  silently drops the whole rule, so the animation just never runs; asserting on the string passes while the
+  render is wrong. Join stops with "" and check a screenshot at two different times of day.
