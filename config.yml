@@ -62,7 +62,7 @@ panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
 #          | sudoku_puzzle | poem_of_day | news_headlines | crypto_market
 #          | franklin_cam | parking_garage | module_cycler | brain_status
-#          | game_of_life | river_height | system_health
+#          | game_of_life | river_height | system_health | status_tiles
 active_module: weather
 
 # ── AI Brain Status Display ───────────────────────────────────────────────────
@@ -73,6 +73,13 @@ brain_status:
 # ── System Health Display ──────────────────────────────────────────────────
 system_health:
   output_path: images/system_health.bmp
+
+# ── Status Tiles (red/yellow/green grid) ───────────────────────────────────
+# Display only; with no `items` a built-in sample set is shown.
+# items: [{name: weather, status: green}, {name: ollama, status: red}]
+status_tiles:
+  output_path: images/status_tiles.bmp
+  show_labels: true
 # Fallback refresh interval for modules not listed in MODULE_INTERVALS.
 # Each module can also define its own update_interval in its config section below.
 update_interval: 21600   # 6 hours fallback
