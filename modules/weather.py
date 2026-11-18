@@ -1251,6 +1251,24 @@ def _overpass_road_ways(bbox: Tuple[float, float, float, float], road_classes: s
     ]
 
 
+def _roads_ready(lat: float, lon: float, zoom: int) -> bool:
+    """True when road geometry covering a `zoom` view is cached (fresh for that exact
+    viewport, or any same-centre entry at that zoom or wider). Lets adaptive zoom
+    stay put instead of zooming out onto a map with no roads."""
+    import json, time
+    road_classes = "motorway|trunk" if zoom >= 7 else "motorway"
+    try:
+        with open(os.path.join("data", "osm_roads_cache.json")) as _f:
+            entries = json.load(_f).get("entries", {})
+    except Exception:
+        return False
+    key = f"{lat:.4f},{lon:.4f},{zoom},{road_classes},v2"
+    e = entries.get(key)
+    if e and e.get("ways") and time.time() - e.get("ts", 0) < _ROAD_TTL_S:
+        return True
+    return _stale_road_ways({"entries": entries}, None, lat, lon, zoom) is not None
+
+
 def _fetch_osm_roads(
     lat: float, lon: float, zoom: int, tile_size: int, width: int, height: int,
 ) -> Image.Image:
@@ -2279,6 +2297,16 @@ def _fetch_rainviewer_image(
     # the configured default gives it, so push in a level. Only an actual bump
     # re-fetches — geometry, km_per_px and the frame all move with the new zoom.
     new_zoom = _pick_adaptive_zoom(curr_radar, zoom, km_per_px, cfg)
+    if (new_zoom is not None and new_zoom < zoom
+            and cfg.get("rainviewer_map_overlay", True)
+            and not _roads_ready(lat, lon, new_zoom)):
+        # Zooming out onto a map with no roads leaves the radar blank on a clear
+        # night. Take one step toward caching them (each call saves the pieces it
+        # gets) and stay at this zoom until they're all in.
+        _fetch_osm_roads(lat, lon, new_zoom, _RV_TILE_SIZE, width, height)
+        if not _roads_ready(lat, lon, new_zoom):
+            logger.info("Adaptive zoom: staying at %d until zoom-%d roads are cached", zoom, new_zoom)
+            new_zoom = None
     if new_zoom is not None and new_zoom != zoom:
         logger.info("Adaptive zoom: %d -> %d", zoom, new_zoom)
         zoom = new_zoom

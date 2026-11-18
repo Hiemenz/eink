@@ -1605,6 +1605,22 @@ class TestRadarResilience:
         assert saved["pieces"] == {}  # folded into the full entry once complete
         assert any(k.startswith("35.0000,-86.0000,5,") for k in saved["entries"])
 
+    def test_roads_ready_needs_equal_or_wider_cache(self, tmp_path, monkeypatch):
+        import json, time
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "data").mkdir()
+        assert weather._roads_ready(35.0, -86.0, 5) is False  # no cache file
+        ways = [{"m": 1, "p": [[35.0, -86.1], [35.0, -85.9]]}]
+        entries = {"35.0000,-86.0000,6,motorway,v2": {"ts": time.time(), "ways": ways}}
+        (tmp_path / "data" / "osm_roads_cache.json").write_text(
+            json.dumps({"entries": entries, "failed": {}}))
+        assert weather._roads_ready(35.0, -86.0, 6) is True
+        assert weather._roads_ready(35.0, -86.0, 5) is False  # zoom-6 roads don't cover zoom 5
+        entries["35.0000,-86.0000,5,motorway,v2"] = {"ts": time.time(), "ways": ways}
+        (tmp_path / "data" / "osm_roads_cache.json").write_text(
+            json.dumps({"entries": entries, "failed": {}}))
+        assert weather._roads_ready(35.0, -86.0, 5) is True
+
     def test_strict_frame_raises_on_missing_tile(self, tmp_path, monkeypatch):
         from unittest.mock import patch, MagicMock
         monkeypatch.setattr(weather, "_TILE_CACHE_DIR", str(tmp_path))
