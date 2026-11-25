@@ -12,6 +12,7 @@ from modules.forecast import get_detailed_forecast, generate_forecast_image
 from modules.moon_phase import _moon_age, _phase_fraction, _phase_name, _illumination
 from modules.river_height import _get_river_data, _resolve_thresholds, _stage_color_and_label
 from modules.air_quality import _get_aqi_data, _aqi_color, _aqi_category
+from modules.election_common import _load_shapes
 from datetime import datetime as _dt, date as _date, timedelta as _td
 from zoneinfo import ZoneInfo
 from astral import LocationInfo
@@ -2219,12 +2220,52 @@ def _pick_adaptive_zoom(
     return None
 
 
+_NEAREST_CELL_PX = 4  # block size used to ignore single-pixel radar clutter
+
+
+def _nearest_rain_label(frame: Image.Image, km_per_px: float, config: dict) -> str:
+    """"Nearest rain 42 mi W": distance and direction from home (the frame centre)."""
+    wet = np.array(frame.split()[-1]) > 0
+    n = _NEAREST_CELL_PX
+    h, w = (wet.shape[0] // n) * n, (wet.shape[1] // n) * n
+    blocks = wet[:h, :w].reshape(h // n, n, w // n, n).sum(axis=(1, 3)) >= n * n // 2
+    ys, xs = np.nonzero(blocks)
+    if not len(xs):
+        return "No rain on radar"
+    dx = (xs + 0.5) * n - wet.shape[1] / 2.0
+    dy = (ys + 0.5) * n - wet.shape[0] / 2.0
+    i = int(np.argmin(np.hypot(dx, dy)))
+    dist_km = math.hypot(dx[i], dy[i]) * km_per_px
+    if dist_km < 5:
+        return "Rain overhead"
+    metric = config.get("radar_speed_units", "mph").lower() in ("kmh", "km/h", "kph")
+    dist = f"{dist_km:.0f} km" if metric else f"{dist_km * 0.621371:.0f} mi"
+    return f"Nearest rain {dist} {_deg_to_compass(_bearing_from_vector(dx[i], dy[i]))}"
+
+
+def _weather_info_items(config: dict, headers: dict) -> List[str]:
+    """Current conditions for the bottom strip of layouts with no side panel."""
+    loc = config.get("forecast_location", {})
+    lat, lon = loc.get("latitude"), loc.get("longitude")
+    c = fetch_current_conditions(lat, lon, headers) if lat is not None and lon is not None else None
+    if not c:
+        return []
+    return [
+        f"Now {c['temp']}° {c['weather_desc']}",
+        f"H {c['high_today']}° L {c['low_today']}°",
+        f"Wind {c['wind_dir']} {c['wind_speed']} mph",
+        f"Rain today {c['rain_today']:.2f}\"",
+        f"Sunset {c['sunset']}",
+    ]
+
+
 _RV_FRAME_FALLBACKS = 3  # newest N past frames tried before giving up
 
 
 def _fetch_rainviewer_image(
     lat: float, lon: float, zoom: int, width: int, height: int,
     color_scheme: int, headers: dict, config: dict = None,
+    caption_out: Optional[List] = None,
 ) -> Tuple[Optional[Image.Image], Optional[int]]:
     """
     Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
@@ -2233,6 +2274,9 @@ def _fetch_rainviewer_image(
     per-cell storm motion arrows computed from consecutive radar frames, traces the
     projected +30 min precipitation edge from the nowcast frames, and captions the
     bottom-left corner with the frame time, storm speed/heading and arrival estimate.
+
+    If `caption_out` is given, the caption lines are appended to it (for the caller
+    to show in the bottom key) and nothing is written over the radar.
 
     Returns (RGB PIL Image sized exactly width×height, frame Unix timestamp), or (None, None).
     """
@@ -2441,7 +2485,12 @@ def _fetch_rainviewer_image(
             caption_lines.insert(
                 0, _dt.fromtimestamp(frame_ts).strftime("Radar: %-I:%M %p")
             )
-    _draw_corner_labels(result, caption_lines, cfg)
+    if caption_out is None:
+        _draw_corner_labels(result, caption_lines, cfg)
+    else:
+        caption_lines.insert(1 if frame_ts else 0,
+                             _nearest_rain_label(curr_radar, km_per_px, cfg))
+        caption_out.extend(caption_lines)
 
     return result, frame_ts
 
@@ -2512,6 +2561,8 @@ _SEVEN_COLOR_LEGEND = [
 ]
 
 _LEGEND_H = 36  # height of the bottom legend strip in pixels
+_SCALE_CELL_W = 24  # width of one tier in the strip's color scale
+_SCALE_LABELS = ("5", "25", "35", "45", "50", "60+")  # dBZ, per non-white tier
 
 
 def _remap_radar_seven_color(image: Image.Image) -> Image.Image:
@@ -2699,11 +2750,16 @@ def _draw_seven_color_legend(
     x0: int = 0,
     x1: Optional[int] = None,
     show_station_time: bool = True,
+    info_lines: Optional[List] = None,
 ) -> None:
-    """Draw the bottom legend strip showing all 7 e-ink colors with dBZ labels.
+    """Draw the bottom strip: info text on the left, compact color scale on the right.
 
     x0/x1 scope the strip to a sub-range of the canvas width (e.g. just the
-    radar side of panel mode); defaults draw across the full canvas as before.
+    radar side of panel mode); defaults draw across the full canvas.
+
+    `info_lines` (strings or `(text, rgb)` tuples, as for `_draw_corner_labels`)
+    are listed most important first and wrap onto two rows. Without them the
+    strip shows the station and frame time, unless `show_station_time` is False.
     """
     W, H = canvas.size
     if x1 is None:
@@ -2728,63 +2784,63 @@ def _draw_seven_color_legend(
                     continue
         return ImageFont.load_default()
 
-    font = _lfont(11)
-    swatch_side = 20
-    pad = 6
-    text_pad = 3
-    swatch_y = y0 + (_LEGEND_H - swatch_side) // 2
-
-    x = x0 + 8
-    for swatch_rgb, label, text_rgb in _SEVEN_COLOR_LEGEND:
-        # Color swatch with black outline
-        draw.rectangle(
-            [(x, swatch_y), (x + swatch_side - 1, swatch_y + swatch_side - 1)],
-            fill=swatch_rgb, outline=(0, 0, 0),
-        )
-        # Label to the right of swatch
-        bb = draw.textbbox((0, 0), label, font=font)
-        lh = bb[3] - bb[1]
-        label_x = x + swatch_side + text_pad
-        label_y = swatch_y + (swatch_side - lh) // 2
-        draw.text((label_x, label_y), label, fill=(0, 0, 0), font=font)
+    def _text(x, y, text, font, color, anchor):
+        draw.text((x, y), text, fill=color, font=font, anchor=anchor)
+        bb = draw.textbbox((x, y), text, font=font, anchor=anchor)
         _snap_region_2color(
             canvas,
-            (label_x + bb[0], label_y + bb[1], label_x + bb[2] + 1, label_y + bb[3] + 1),
-            (255, 255, 255), (0, 0, 0),
+            (int(bb[0]), max(y0 + 1, int(bb[1])), min(x1, int(bb[2]) + 1), min(H, int(bb[3]) + 1)),
+            (255, 255, 255), color,
         )
-        x += swatch_side + text_pad + (bb[2] - bb[0]) + pad
 
-    # Right side: station + frame timestamp
-    if not show_station_time:
-        return
+    # --- color scale: a swatch per tier with its lower dBZ bound underneath ---
+    scale_x = x1 - len(_SCALE_LABELS) * _SCALE_CELL_W - 6
+    scale_font = _lfont(11)
+    # "None" (white) is just the map background, so it gets no cell.
+    for i, ((swatch_rgb, _, _), label) in enumerate(zip(_SEVEN_COLOR_LEGEND[1:], _SCALE_LABELS)):
+        cx = scale_x + i * _SCALE_CELL_W
+        draw.rectangle([(cx, y0 + 4), (cx + _SCALE_CELL_W, y0 + 18)],
+                       fill=swatch_rgb, outline=(0, 0, 0))
+        _text(cx + _SCALE_CELL_W // 2, y0 + 27, label, scale_font, (0, 0, 0), "mm")
 
-    stale = False
-    if frame_ts:
-        try:
+    # --- info rows --------------------------------------------------------
+    entries = [e if isinstance(e, tuple) else (e, (0, 0, 0)) for e in info_lines or []]
+    if not entries and show_station_time:
+        entries = [(station, (0, 0, 0))]
+        if frame_ts:
             age_min = (time.time() - frame_ts) / 60.0
             if age_min > _STALE_RADAR_MIN:
-                stale = True
-                ts_str = f"{age_min:.0f} min old"
+                entries.append((f"{age_min:.0f} min old", _STALE_COLOR))
             else:
-                from datetime import timezone as _tz_mod
-                ts_str = _dt.fromtimestamp(int(frame_ts), tz=_tz_mod.utc).astimezone().strftime("%-I:%M %p")
-        except Exception:
-            ts_str = ""
-    else:
-        ts_str = ""
+                entries.append((_dt.fromtimestamp(int(frame_ts)).strftime("%-I:%M %p"), (0, 0, 0)))
+    if not entries:
+        return
 
-    right_str = f"{station}  {ts_str}" if ts_str else station
-    text_color = _STALE_COLOR if stale else (0, 0, 0)
-    rb = draw.textbbox((0, 0), right_str, font=font)
-    rw, rh = rb[2] - rb[0], rb[3] - rb[1]
-    right_x = x1 - rw - 8
-    right_y = y0 + (_LEGEND_H - rh) // 2
-    draw.text((right_x, right_y), right_str, fill=text_color, font=font)
-    _snap_region_2color(
-        canvas,
-        (right_x + rb[0], right_y + rb[1], right_x + rb[2] + 1, right_y + rb[3] + 1),
-        (255, 255, 255), text_color,
-    )
+    left, right, min_gap = x0 + 6, scale_x - 8, 12
+    # Largest size at which everything fits on two rows; at the smallest size
+    # the least important (last) items are dropped.
+    for size in range(13, 8, -1):
+        font = _lfont(size)
+        rows, used, fits = [[]], 0.0, True
+        for text, color in entries:
+            w = draw.textlength(text, font=font)
+            if rows[-1] and used + min_gap + w > right - left:
+                if len(rows) == 2:
+                    fits = False
+                    break
+                rows.append([])
+                used = 0.0
+            used += (min_gap if rows[-1] else 0) + w
+            rows[-1].append((text, color, w))
+        if fits:
+            break
+
+    row_ys = [y0 + 10, y0 + 26] if len(rows) == 2 else [y0 + _LEGEND_H // 2]
+    for row, y in zip(rows, row_ys):
+        x = left
+        for text, color, w in row:
+            _text(x, y, text, font, color, "lm")
+            x += w + min_gap
 
 
 _NWS_STATES_CACHE = os.path.join("data", "nws_view_states.json")
@@ -3100,6 +3156,11 @@ def _draw_lightning_overlay(
         canvas.paste(layer, (x_off, y_off))
 
 
+_RADAR_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
+
+
 def _first_set(*values):
     """First value that is not None. Unlike `or`, a valid 0.0 (equator/prime
     meridian latitude or longitude) is not treated as missing."""
@@ -3172,6 +3233,107 @@ def _resolve_radar_mode(config: dict, headers: dict) -> str:
     return mode
 
 
+# Full-country view: the lower 48 fills the full-screen radar canvas at this zoom.
+_NATIONAL_LAT, _NATIONAL_LON, _NATIONAL_ZOOM = 38.3, -96.0, 3
+
+# d3 geoAlbersUsa constants that data/us_states_albers.json was projected with
+# (lower 48 only; Alaska and Hawaii are separate insets).
+_ALBERS_SCALE, _ALBERS_TX, _ALBERS_TY = 1300.0, 487.5, 305.0
+_ALBERS_N = (math.sin(math.radians(29.5)) + math.sin(math.radians(45.5))) / 2
+_ALBERS_C = 1 + math.sin(math.radians(29.5)) * (2 * _ALBERS_N - math.sin(math.radians(29.5)))
+_ALBERS_R0 = math.sqrt(_ALBERS_C) / _ALBERS_N
+
+
+def _albers_to_latlon(x: float, y: float) -> Tuple[float, float]:
+    """Invert the us-atlas Albers projection back to (lat, lon)."""
+    # Raw coordinates of the projection centre (-0.6, 38.7), which lands on the translate point.
+    rc = math.sqrt(_ALBERS_C - 2 * _ALBERS_N * math.sin(math.radians(38.7))) / _ALBERS_N
+    theta_c = _ALBERS_N * math.radians(-0.6)
+    px = (x - _ALBERS_TX) / _ALBERS_SCALE + rc * math.sin(theta_c)
+    dy = _ALBERS_R0 - (_ALBERS_R0 - rc * math.cos(theta_c) - (y - _ALBERS_TY) / _ALBERS_SCALE)
+    lat = math.degrees(math.asin((_ALBERS_C - (px * px + dy * dy) * _ALBERS_N ** 2) / (2 * _ALBERS_N)))
+    lon = math.degrees(math.atan2(px, dy) / _ALBERS_N) - 96.0
+    return lat, lon
+
+
+def _draw_state_outlines(img: Image.Image) -> None:
+    """Draw lower-48 state borders onto a national-view canvas (Web Mercator)."""
+    scale = (2 ** _NATIONAL_ZOOM) * _RV_TILE_SIZE
+    cx, cy = _merc_xy(_NATIONAL_LAT, _NATIONAL_LON, scale)
+    left, top = cx - img.width / 2.0, cy - img.height / 2.0
+    draw = ImageDraw.Draw(img)
+    for postal, rings in _load_shapes().items():
+        if postal in ("AK", "HI"):
+            continue
+        for ring in rings:
+            pts = [_merc_xy(*_albers_to_latlon(x, y), scale) for x, y in ring]
+            pts = [(x - left, y - top) for x, y in pts]
+            draw.line(pts + [pts[0]], fill=(0, 0, 0), width=1)
+
+
+def _render_national_radar(config: dict, headers: dict, output_path: str) -> bool:
+    """Render the full-country radar to `output_path`. False if radar is unavailable."""
+    width = config.get("width", 800)
+    height = config.get("height", 480)
+    radar_h = height - _LEGEND_H
+    try:
+        resp = requests.get("https://api.rainviewer.com/public/weather-maps.json",
+                            headers=headers, timeout=10)
+        resp.raise_for_status()
+        past = resp.json().get("radar", {}).get("past", [])
+    except Exception as e:
+        logger.warning("National radar: RainViewer API failed: %s", e)
+        return False
+    geometry = _rv_tile_geometry(_NATIONAL_LAT, _NATIONAL_LON, _NATIONAL_ZOOM,
+                                 width, radar_h, _RV_TILE_SIZE)
+    tx_min, ty_min, tx_max, ty_max, crop_x, crop_y = geometry
+    for frame in reversed(past[-_RV_FRAME_FALLBACKS:]):
+        try:
+            echoes = _fetch_rv_frame(
+                frame["path"], tx_min, ty_min, tx_max, ty_max, _NATIONAL_ZOOM,
+                _RV_TILE_SIZE, config.get("rainviewer_color_scheme", 4), headers,
+                crop_x, crop_y, width, radar_h, strict=True)
+        except _RVTileError:
+            continue
+        break
+    else:
+        logger.warning("National radar: no complete frame available")
+        return False
+
+    flat = Image.new("RGBA", echoes.size, (255, 255, 255, 255))
+    flat.alpha_composite(echoes)
+    colored = _remap_radar_seven_color(flat.convert("RGB"))
+    # Borders go underneath so precipitation is never hidden by linework.
+    base = Image.new("RGB", echoes.size, (255, 255, 255))
+    _draw_state_outlines(base)
+    wet = (np.array(colored) != 255).any(axis=2)
+    base.paste(colored, (0, 0), Image.fromarray(wet.astype(np.uint8) * 255))
+
+    canvas = Image.new("RGB", (width, height), (255, 255, 255))
+    canvas.paste(base, (0, 0))
+    info = ["US radar"]
+    if frame.get("time"):
+        info.append(_dt.fromtimestamp(frame["time"]).strftime("Radar: %-I:%M %p"))
+    info.append("Quiet near home")
+    _draw_seven_color_legend(canvas, frame.get("time"), "US", config,
+                             info_lines=info + _weather_info_items(config, headers))
+    canvas.save(output_path, format="bmp")
+    logger.info("Saved national radar to %s", output_path)
+    return True
+
+
+def _national_radar_due(config: dict, state: dict, now: float, special_msg) -> bool:
+    """True when it's quiet around home and the last national view is old enough."""
+    if not config.get("national_radar_when_quiet", False) or special_msg:
+        return False
+    interval_s = config.get("national_radar_interval_minutes", 60) * 60
+    # 30s of slack so scheduler jitter doesn't push an hourly view to 65 minutes.
+    if now - state.get("national_radar_ts", 0) < interval_s - 30:
+        return False
+    # None means "couldn't tell" — only a definite all-clear counts as quiet.
+    return _precip_nearby(config, _RADAR_HEADERS) is False
+
+
 def generate_weather_image(config, special_msg=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
@@ -3187,9 +3349,7 @@ def generate_weather_image(config, special_msg=None):
 
     final_img = Image.new("RGB", (width, height), color=background_color)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
+    headers = _RADAR_HEADERS
 
     radar_mode = _resolve_radar_mode(config, headers)
     radar_source = config.get("radar_source", "rainviewer").lower()
@@ -3214,6 +3374,10 @@ def generate_weather_image(config, special_msg=None):
     # seven_color always carries the legend strip; panel mode carries it optionally.
     radar_h = (height - _LEGEND_H) if (panel_legend or radar_mode == "seven_color") else height
 
+    # With a bottom key on screen the radar captions go there, not over the map.
+    has_legend = panel_legend or radar_mode == "seven_color"
+    radar_info: List = []
+
     if radar_source == "rainviewer":
         forecast_loc = config.get("forecast_location", {})
         rv_lat = _first_set(config.get("rainviewer_lat"), forecast_loc.get("latitude"))
@@ -3226,7 +3390,8 @@ def generate_weather_image(config, special_msg=None):
             rv_color = config.get("rainviewer_color_scheme", 4)
             # Pre-size to the exact radar canvas so mode scaling is a no-op
             rv_w = width - config.get("panel_width", 280) if radar_mode == "panel" else width
-            radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config)
+            radar_img, rv_frame_ts = _fetch_rainviewer_image(rv_lat, rv_lon, rv_zoom, rv_w, radar_h, rv_color, headers, config,
+                                                             caption_out=radar_info if has_legend else None)
         if radar_img is None:
             logger.error("RainViewer fetch failed — falling back to the NWS %s radar image.", station)
             radar_source = "ridge"
@@ -3325,7 +3490,8 @@ def generate_weather_image(config, special_msg=None):
 
         if panel_legend:
             _draw_seven_color_legend(final_img, rv_frame_ts, station, config,
-                                      x0=0, x1=radar_w, show_station_time=False)
+                                      x0=0, x1=radar_w, show_station_time=False,
+                                      info_lines=radar_info)
 
         # White panel background (full height on right side)
         draw_tmp = ImageDraw.Draw(final_img)
@@ -3422,9 +3588,8 @@ def generate_weather_image(config, special_msg=None):
         # not a palette entry, so a grey line lands on the nearest ink — orange.
         draw_tmp.line([(radar_w, 0), (radar_w, height - 1)], fill=(0, 0, 0), width=1)
 
-        # Note: the radar frame timestamp is already baked into the bottom-left
-        # corner of the radar tile itself (see the caption stack in
-        # _fetch_rainviewer_image) — no separate label needed here.
+        # Note: the radar frame timestamp is in the bottom key (or, without one,
+        # the caption box on the radar) — no separate label needed here.
 
         primary_region = (0, 0, radar_w, radar_h)
         overlay_geom = (0, 0, radar_w, radar_h)
@@ -3436,7 +3601,8 @@ def generate_weather_image(config, special_msg=None):
         # each color with its approximate dBZ tier.
         # radar_img was already fetched at width×radar_h and remapped above.
         final_img.paste(radar_img, (0, 0))
-        _draw_seven_color_legend(final_img, rv_frame_ts, station, config)
+        _draw_seven_color_legend(final_img, rv_frame_ts, station, config,
+                                  info_lines=radar_info + _weather_info_items(config, headers))
         primary_region = (0, 0, width, radar_h)
         overlay_geom = (0, 0, width, radar_h)
         processed_radar = None
@@ -3586,6 +3752,14 @@ def generate(config):
     default_station = config.get("station", {}).get("name", "KTYX")
     config["output_path"] = os.path.join(radar_folder, f"eink_display_{default_station}.bmp")
     config["quantized_path"] = os.path.join(radar_folder, f"eink_quantized_display_{default_station}.bmp")
+    # Written over the normal render's path on purpose: the next local render then
+    # differs from what's there (and from main.py's last-pushed hash), so it
+    # always replaces the national view on the panel.
+    if (_national_radar_due(config, state, now, special_msg)
+            and _render_national_radar(config, _RADAR_HEADERS, config["quantized_path"])):
+        state["national_radar_ts"] = now
+        save_state(STATE_FILE, state)
+        return config["quantized_path"]
     default_image_path, default_updated, default_region = generate_weather_image(config, special_msg=special_msg)
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous

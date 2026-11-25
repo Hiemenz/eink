@@ -100,3 +100,24 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 - Rendered 6:20, 12:20, 18:20, 22:20: early light, midday sun, golden hour, full night with lit windows and moon.
 - Bug caught by looking at the render, not the tests: keyframe stops were comma-joined (invalid CSS), so nothing animated and the scene sat at the wrong hour. Lesson added.
 - Page size grew ~150KB -> ~260KB (every sprite carries a night image). Real-browser perf not re-measured.
+
+---
+
+# National radar when quiet (2026-11-25)
+
+- [x] Hourly full-US view (one refresh cycle) when no echoes near home and no alert; `national_radar_when_quiet`
+- [x] State borders from `data/us_states_albers.json` (inverse Albers), no Overpass calls
+- [x] Rendered over the local radar's path so the next cycle always replaces it on the panel
+- [x] Tests; live render checked by eye
+
+## Review
+- Live render looked right (12:20 PM data). Rain was near home then, so the quiet trigger is only tested with mocks.
+- Not pushed to the physical panel by hand. Not committed.
+
+---
+
+# Radar info in the bottom key (2026-11-25)
+
+- [x] Radar captions moved into the bottom key; corner box kept only for layouts with no key
+- [x] Follow-up: key stays 36px (the 52px version was rejected). Compact color scale on the right, two info rows on the left, nearest rain added; current weather on full-screen and US views
+- [x] Live renders checked in panel, full-screen and US views; tests pass
