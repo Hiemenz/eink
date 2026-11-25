@@ -783,13 +783,13 @@ class TestRadarStaleness:
     than the whole canvas."""
 
     def _render_right_label(self, frame_ts, now):
-        # Wide enough that the 7 left-aligned color swatches (which legitimately
-        # include red/orange) don't reach anywhere near the right-aligned label.
+        # Wide enough that the right-aligned color scale (which legitimately
+        # includes red/orange) is nowhere near the left-aligned label.
         canvas = Image.new("RGB", (1200, 100), (255, 255, 255))
         with patch("modules.weather.time.time", return_value=now):
             _draw_seven_color_legend(canvas, frame_ts, "KOHX", {})
         y0 = canvas.height - _LEGEND_H
-        return canvas.crop((canvas.width - 160, y0, canvas.width, canvas.height))
+        return canvas.crop((0, y0, 200, canvas.height))
 
     def test_fresh_frame_shows_black_clock_time_not_red(self):
         now = 1_700_000_000
@@ -1688,3 +1688,91 @@ class TestAuditRegressions:
         resp.json.return_value = {"response": {"error": "x"}}
         with patch.object(W_MOD.requests, "get", return_value=resp):
             assert W_MOD._fetch_lightning_strikes(36, -86, {}, "id", "secret") == []
+
+
+class TestNationalRadar:
+    ON = {"national_radar_when_quiet": True}
+
+    def _due(self, config, last=0, special=None, nearby=False):
+        with patch.object(W_MOD, "_precip_nearby", return_value=nearby):
+            return W_MOD._national_radar_due(
+                config, {"national_radar_ts": last}, 100_000, special)
+
+    def test_due_when_quiet_and_an_hour_has_passed(self):
+        assert self._due(self.ON, last=100_000 - 3600)
+
+    def test_not_due_within_the_hour(self):
+        assert not self._due(self.ON, last=100_000 - 3300)
+
+    def test_not_due_with_rain_unknown_alert_or_disabled(self):
+        assert not self._due(self.ON, nearby=True)
+        assert not self._due(self.ON, nearby=None)
+        assert not self._due(self.ON, special="Tornado Warning")
+        assert not self._due({})
+
+    def test_albers_inverse_matches_lower_48_extent(self):
+        pts = [W_MOD._albers_to_latlon(x, y)
+               for postal, rings in W_MOD._load_shapes().items() if postal not in ("AK", "HI")
+               for ring in rings for x, y in ring]
+        lats, lons = zip(*pts)
+        assert (min(lats), max(lats)) == pytest.approx((24.52, 49.38), abs=0.1)
+        assert (min(lons), max(lons)) == pytest.approx((-124.73, -66.95), abs=0.1)
+
+    def test_generate_shows_national_once_then_local_again(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        local_calls = []
+
+        def fake_national(config, headers, path):
+            Image.new("RGB", (8, 8), (0, 0, 255)).save(path, format="bmp")
+            return True
+
+        def fake_local(config, special_msg=None):
+            local_calls.append(1)
+            Image.new("RGB", (8, 8), (255, 255, 255)).save(config["quantized_path"], format="bmp")
+            return config["quantized_path"], True, None
+
+        with patch.object(W_MOD, "_render_national_radar", side_effect=fake_national), \
+             patch.object(W_MOD, "_precip_nearby", return_value=False), \
+             patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
+             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+            cfg = {**self.ON, "station": {"name": "KOHX"}}
+            first = W_MOD.generate(dict(cfg))
+            assert not local_calls
+            second = W_MOD.generate(dict(cfg))
+        assert first == second and local_calls == [1]
+
+    def test_failed_national_render_falls_back_to_local(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        with patch.object(W_MOD, "_render_national_radar", return_value=False), \
+             patch.object(W_MOD, "_precip_nearby", return_value=False), \
+             patch.object(W_MOD, "generate_weather_image", return_value=(None, False, None)) as local, \
+             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+            W_MOD.generate({**self.ON, "station": {"name": "KOHX"}})
+        assert local.called
+
+
+class TestBottomStripInfo:
+    @staticmethod
+    def _frame(box=None):
+        a = np.zeros((408, 800, 4), dtype=np.uint8)
+        if box:
+            x0, y0, x1, y1 = box
+            a[y0:y1, x0:x1] = (0, 0, 255, 255)
+        return Image.fromarray(a, "RGBA")
+
+    def test_nearest_rain_distance_and_direction(self):
+        label = W_MOD._nearest_rain_label(self._frame((500, 188, 540, 220)), 1.0, {})
+        assert label.startswith("Nearest rain 6") and label.endswith(" mi E")
+
+    def test_nearest_rain_ignores_specks_and_reports_clear(self):
+        assert W_MOD._nearest_rain_label(self._frame((400, 100, 401, 101)), 1.0, {}) == "No rain on radar"
+
+    def test_rain_at_home_is_overhead(self):
+        assert W_MOD._nearest_rain_label(self._frame((390, 194, 412, 214)), 1.0, {}) == "Rain overhead"
+
+    def test_overflowing_info_stays_inside_the_strip(self):
+        canvas = Image.new("RGB", (800, 480), (255, 255, 255))
+        _draw_seven_color_legend(canvas, None, "KOHX", {}, x1=520,
+                                 info_lines=["A fairly long radar detail"] * 20)
+        assert set(canvas.crop((0, 0, 800, 480 - _LEGEND_H)).getdata()) == {(255, 255, 255)}
+        assert set(canvas.crop((520, 0, 800, 480)).getdata()) == {(255, 255, 255)}

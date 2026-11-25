@@ -13,3 +13,5 @@
 - **A generated @keyframes body is not comma-separated.** `0%{..},50%{..}` is invalid CSS and the browser
   silently drops the whole rule, so the animation just never runs; asserting on the string passes while the
   render is wrong. Join stops with "" and check a screenshot at two different times of day.
+- **Fitting more into the display means rearranging, not growing chrome.** Adding a row to the bottom key (36 -> 52px)
+  was rejected because it takes space from the radar. Keep strip height fixed; compact what's there first.

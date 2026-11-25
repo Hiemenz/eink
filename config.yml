@@ -49,6 +49,8 @@ radar_mode: panel # "crop" | "fit" | "panel" | "seven_color" | "full" | "dynamic
                   # dynamic = panel normally; full-screen radar while precip is near home
 dynamic_radius_km: 100      # dynamic: how close echoes must be to count as "weather in the area"
 dynamic_min_area_km2: 100   # dynamic: how much echo area inside that radius triggers full-screen
+national_radar_when_quiet: true      # no echoes near home and no alert: periodically show the full US radar
+national_radar_interval_minutes: 60  # how often; it stays up for one refresh cycle (uses the two dynamic_* thresholds)
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_legend: true        # show 7-color dBZ legend strip under the radar in panel mode
 panel_header: "Franklin, TN"   # text shown in the panel header bar
