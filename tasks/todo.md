@@ -163,3 +163,13 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 ## Review
 - User approved. OpenCV read the inverted panel QR only after un-inverting it; phone scanning is untested.
 - The full-screen QR was not previewed or decoded.
+
+---
+
+# QR in the alert color (2026-11-26)
+
+- [x] QR field takes the alert color, dots stay white (tinted after the panel B/W snap)
+
+## Review
+- User approved the sample. OpenCV read the codes only after converting them back to black on white;
+  scanning the colored code from the real panel is untested. Full-screen QR not previewed.

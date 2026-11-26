@@ -1847,3 +1847,12 @@ class TestPanelQr:
         assert img.getpixel((img.width // 2, 0)) == (0, 0, 0)
         assert W_MOD._alert_url({"forecast_location": {"latitude": 35.9251,
                                                        "longitude": -86.8689}}) == self.URL
+
+    def test_tint_swaps_only_the_black_field(self):
+        canvas = Image.new("RGB", (120, 120), (0, 0, 0))
+        qr = W_MOD._crisp_qr(self.URL, 87)
+        canvas.paste(qr, (10, 10))
+        box = (10, 10, 10 + qr.width, 10 + qr.height)
+        W_MOD._tint_qr(canvas, box, (0, 255, 0))
+        assert {c for _, c in canvas.crop(box).getcolors()} == {(0, 255, 0), (255, 255, 255)}
+        assert canvas.getpixel((0, 0)) == (0, 0, 0)  # outside the code is untouched
