@@ -15,3 +15,6 @@
   render is wrong. Join stops with "" and check a screenshot at two different times of day.
 - **Fitting more into the display means rearranging, not growing chrome.** Adding a row to the bottom key (36 -> 52px)
   was rejected because it takes space from the radar. Keep strip height fixed; compact what's there first.
+- **The radar is unreadable without the map on top of it.** Layering roads under echo "so rain is never
+  hidden" erased them in any real storm; the user couldn't tell where the rain was. Draw thin geographic
+  linework over radar, and preview display changes with heavy echo, not just a mostly clear frame.

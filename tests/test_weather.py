@@ -846,7 +846,7 @@ class TestGenerateStaleFallback:
         os.utime(cached, (old, old))
 
         with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
-             patch("modules.weather.get_special_weather_messages", return_value=None):
+             patch("modules.weather.get_local_alert", return_value=None):
             result = W_MOD.generate({"station": {"name": "KOHX"}})
 
         assert result is not None
@@ -859,7 +859,7 @@ class TestGenerateStaleFallback:
     def test_cold_start_with_no_cache_returns_none(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         with patch("modules.weather.generate_weather_image", return_value=(None, False, None)), \
-             patch("modules.weather.get_special_weather_messages", return_value=None):
+             patch("modules.weather.get_local_alert", return_value=None):
             assert W_MOD.generate({"station": {"name": "KOHX"}}) is None
 
 
@@ -1646,7 +1646,7 @@ class TestRainViewerFallsBackToRidge:
             monkeypatch.chdir(tmp_path / mode)
             with patch.object(W_MOD, "_fetch_rainviewer_image", return_value=(None, None)), \
                  patch.object(W_MOD, "_fetch_radar_image", return_value=resp) as ridge, \
-                 patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+                 patch.object(W_MOD, "get_local_alert", return_value=None):
                 path, updated, _ = W_MOD.generate_weather_image(self._cfg(mode))
             assert ridge.called, mode
             assert path is not None, mode
@@ -1668,7 +1668,7 @@ class TestAuditRegressions:
         cfg = {"station": {"name": "KOHX", "location": "Nashville"}, "radar_source": "ridge",
                "radar_mode": "fit"}
         with patch.object(W_MOD, "_fetch_radar_image", return_value=resp), \
-             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+             patch.object(W_MOD, "get_local_alert", return_value=None):
             first = W_MOD.generate_weather_image(cfg)
             second = W_MOD.generate_weather_image(cfg)
         assert first[0] is not None and first[1] is True
@@ -1726,7 +1726,7 @@ class TestNationalRadar:
             Image.new("RGB", (8, 8), (0, 0, 255)).save(path, format="bmp")
             return True
 
-        def fake_local(config, special_msg=None):
+        def fake_local(config, alert=None):
             local_calls.append(1)
             Image.new("RGB", (8, 8), (255, 255, 255)).save(config["quantized_path"], format="bmp")
             return config["quantized_path"], True, None
@@ -1734,7 +1734,7 @@ class TestNationalRadar:
         with patch.object(W_MOD, "_render_national_radar", side_effect=fake_national), \
              patch.object(W_MOD, "_precip_nearby", return_value=False), \
              patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
-             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+             patch.object(W_MOD, "get_local_alert", return_value=None):
             cfg = {**self.ON, "station": {"name": "KOHX"}}
             first = W_MOD.generate(dict(cfg))
             assert not local_calls
@@ -1746,7 +1746,7 @@ class TestNationalRadar:
         with patch.object(W_MOD, "_render_national_radar", return_value=False), \
              patch.object(W_MOD, "_precip_nearby", return_value=False), \
              patch.object(W_MOD, "generate_weather_image", return_value=(None, False, None)) as local, \
-             patch.object(W_MOD, "get_special_weather_messages", return_value=None):
+             patch.object(W_MOD, "get_local_alert", return_value=None):
             W_MOD.generate({**self.ON, "station": {"name": "KOHX"}})
         assert local.called
 
@@ -1776,3 +1776,49 @@ class TestBottomStripInfo:
                                  info_lines=["A fairly long radar detail"] * 20)
         assert set(canvas.crop((0, 0, 800, 480 - _LEGEND_H)).getdata()) == {(255, 255, 255)}
         assert set(canvas.crop((520, 0, 800, 480)).getdata()) == {(255, 255, 255)}
+
+
+class TestRoadsOverRadar:
+    def test_road_stays_visible_under_heavy_echo(self):
+        api = MagicMock()
+        api.json.return_value = {"radar": {"past": [{"path": "/a", "time": 0}]}}
+        echo = Image.new("RGBA", (200, 100), (255, 255, 0, 255))
+        roads = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+        ImageDraw.Draw(roads).line([(0, 50), (199, 50)], fill=(0, 0, 0, 255), width=3)
+        cfg = {"rainviewer_adaptive_zoom": False, "rainviewer_storm_motion": False,
+               "rainviewer_trend_badge": False, "rainviewer_nowcast": False,
+               "rainviewer_range_rings": False}
+        with patch.object(W_MOD.requests, "get", return_value=api), \
+                patch.object(W_MOD, "_fetch_rv_frame", return_value=echo), \
+                patch.object(W_MOD, "_fetch_osm_roads", return_value=roads):
+            img, _ = W_MOD._fetch_rainviewer_image(35.0, -86.0, 6, 200, 100, 4, {},
+                                                   cfg, caption_out=[])
+        assert img.getpixel((20, 50)) == (0, 0, 0)
+        assert img.getpixel((20, 20)) == (255, 255, 0)
+
+    def test_state_borders_and_city_names_are_drawn_in_pure_colors(self):
+        img = Image.new("RGBA", (520, 444), (255, 255, 0, 255))
+        W_MOD._draw_state_borders(img, 36.16, -86.78, 7)
+        W_MOD._draw_city_labels(img, 36.16, -86.78, 7, [["Nashville", 36.163, -86.781]])
+        assert {c for _, c in img.getcolors()} == {
+            (255, 255, 0, 255), (0, 0, 0, 255), (255, 255, 255, 255)}
+
+    def test_overlapping_and_offscreen_city_labels_are_skipped(self):
+        def draw(cities):
+            img = Image.new("RGBA", (520, 444), (255, 255, 0, 255))
+            W_MOD._draw_city_labels(img, 36.16, -86.78, 7, cities)
+            return img.tobytes()
+
+        first = ["Nashville", 36.163, -86.781]
+        assert draw([first, ["Overlapping", 36.17, -86.79], ["Far", 47.0, -122.0]]) == draw([first])
+
+    def test_only_interstates_are_drawn_one_pixel_wide(self, tmp_path, monkeypatch):
+        import json
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "data").mkdir()
+        ways = [{"m": 1, "p": [[35.0, -86.5], [35.0, -85.5]]},
+                {"m": 0, "p": [[35.3, -86.5], [35.3, -85.5]]}]
+        (tmp_path / "data" / "osm_roads_cache.json").write_text(json.dumps(
+            {"entries": {"35.0000,-86.0000,7,motorway|trunk,v2": {"ts": time.time(), "ways": ways}}}))
+        alpha = np.array(W_MOD._fetch_osm_roads(35.0, -86.0, 7, 512, 520, 480))[:, :, 3]
+        assert (alpha[:, 260] > 0).sum() == 1

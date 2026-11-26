@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 import qrcode
-from modules.special_weather import get_special_weather_messages, get_alert_headline
+from modules.special_weather import ALERT_LEVELS, alert_headline, get_local_alert
 from eink_generator import load_config
 from modules.forecast import get_detailed_forecast, generate_forecast_image
 from modules.moon_phase import _moon_age, _phase_fraction, _phase_name, _illumination
@@ -919,7 +919,7 @@ def _draw_parking_bars(canvas, config, panel_x, panel_w, start_y) -> int:
     return start_y + row_h + 3
 
 
-def _snap_panel_bw(canvas, box, alert_bg=None, keep_boxes=()) -> None:
+def _snap_panel_bw(canvas, box, alert_bg=None, keep_boxes=(), alert_fg=(255, 255, 255)) -> None:
     """Resolve neutral (grey) pixels in box to pure black/white.
 
     The colored hourly boxes are drawn after the panel's B/W snap, so their
@@ -929,7 +929,7 @@ def _snap_panel_bw(canvas, box, alert_bg=None, keep_boxes=()) -> None:
     leaves the exact palette.
 
     alert_bg (an RGB tuple) is the alert look: the white field becomes alert_bg
-    and the black text becomes white. keep_boxes are restored untouched — the
+    and the black text becomes alert_fg. keep_boxes are restored untouched — the
     QR code (scanners want dark-on-light) and the colored badge / parking row,
     whose own colors and black text would otherwise be lost on the new field.
     """
@@ -939,7 +939,7 @@ def _snap_panel_bw(canvas, box, alert_bg=None, keep_boxes=()) -> None:
     light = arr.mean(axis=-1) > 128
     out = arr.copy()
     out[neutral & light] = alert_bg if alert_bg is not None else 255
-    out[neutral & ~light] = 255 if alert_bg is not None else 0
+    out[neutral & ~light] = alert_fg if alert_bg is not None else 0
     for kb in keep_boxes:
         x0, y0, x1, y1 = (kb[0] - box[0], kb[1] - box[1], kb[2] - box[0], kb[3] - box[1])
         out[max(y0, 0):y1, max(x0, 0):x1] = arr[max(y0, 0):y1, max(x0, 0):x1]
@@ -1273,16 +1273,14 @@ def _roads_ready(lat: float, lon: float, zoom: int) -> bool:
 def _fetch_osm_roads(
     lat: float, lon: float, zoom: int, tile_size: int, width: int, height: int,
 ) -> Image.Image:
-    """Render interstate and trunk highways from OSM Overpass onto a transparent layer.
+    """Render interstate highways from OSM Overpass onto a transparent layer.
 
     Uses actual road geometry (not raster tiles), so lines are crisp and correctly
     sized at any zoom level.  Results are cached for 24 hours to avoid re-fetching.
     Falls back to a fully transparent layer on network failure.
 
-    Each road is drawn as a black core inside a white casing. Without the casing a
-    road is indistinguishable from the black ">60 dBZ" reflectivity tier once the
-    image is quantized to the 7-color palette — no precipitation core is ever
-    outlined in white, so the casing is what makes a road read as a road.
+    Drawn NWS-style, to sit on top of the radar: interstates only, as 1px black
+    lines, thin enough to orient by without covering the precipitation.
     """
     import json, time
 
@@ -1381,22 +1379,83 @@ def _fetch_osm_roads(
     img  = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    polylines = []
     for way in ways:
+        if not way["m"]:  # trunk roads are cached too, but they crowd the radar
+            continue
         pts = []
         for la, lo in way["p"]:
             wx, wy = _lpx(la, lo)
             pts.append((wx - x0, wy - y0))
         if len(pts) >= 2:
-            polylines.append((pts, 3 if way["m"] else 2))
-
-    # Casing first (all roads), then cores — otherwise a later road's casing
-    # would erase an earlier road's core at every junction.
-    for pts, lw in polylines:
-        draw.line(pts, fill=(255, 255, 255, 255), width=lw + 4)
-    for pts, lw in polylines:
-        draw.line(pts, fill=(0, 0, 0, 255), width=lw)
+            draw.line(pts, fill=(0, 0, 0, 255), width=1)
     return img
+
+
+def _draw_state_borders(img: Image.Image, lat: float, lon: float, zoom: int) -> None:
+    """Dashed state borders on a local radar view, so none of them reads as a road."""
+    from modules.election_common import _load_shapes
+
+    scale = 2 ** zoom * _RV_TILE_SIZE
+    cx, cy = _merc_xy(lat, lon, scale)
+    left, top = cx - img.width / 2.0, cy - img.height / 2.0
+    draw = ImageDraw.Draw(img)
+    # Neighbours share their border points. Drawing a shared stretch twice would
+    # let one pass's dashes fill the other's gaps, so each edge is drawn once.
+    seen: set = set()
+    for postal, rings in _load_shapes().items():
+        if postal in ("AK", "HI"):  # drawn as insets, not at their real positions
+            continue
+        for ring in rings:
+            run: List[Tuple[float, float]] = []
+            for a, b in zip(ring, ring[1:] + ring[:1]):
+                edge = frozenset((tuple(a), tuple(b)))
+                if edge in seen:
+                    _draw_dashed_polyline(draw, run, fill=(0, 0, 0, 255), width=1)
+                    run = []
+                    continue
+                seen.add(edge)
+                ends = []
+                for point in (a, b):
+                    wx, wy = _merc_xy(*_albers_to_latlon(*point), scale)
+                    ends.append((wx - left, wy - top))
+                run = run + ends[1:] if run else ends
+            _draw_dashed_polyline(draw, run, fill=(0, 0, 0, 255), width=1)
+
+
+def _draw_city_labels(
+    img: Image.Image, lat: float, lon: float, zoom: int, cities: list,
+) -> None:
+    """Dot and name for each `[name, lat, lon]` city that fits in the view.
+
+    The list is in priority order: a label that would overlap an earlier one is
+    skipped, which thins them out by itself when the radar zooms out.
+    """
+    scale = 2 ** zoom * _RV_TILE_SIZE
+    cx, cy = _merc_xy(lat, lon, scale)
+    draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"  # no anti-aliasing: grey fringes would quantize to color
+    font = get_font(12, bold=True)
+    placed: List[Tuple[float, float, float, float]] = []
+    for name, city_lat, city_lon in cities:
+        wx, wy = _merc_xy(city_lat, city_lon, scale)
+        x, y = wx - cx + img.width / 2.0, wy - cy + img.height / 2.0
+        half = draw.textlength(name, font=font) / 2 + 2
+        box = (x - half, y - 3, x + half, y + 19)
+        if box[0] < 0 or box[1] < 0 or box[2] > img.width or box[3] > img.height:
+            continue
+        if any(box[0] < r and l < box[2] and box[1] < b and t < box[3]
+               for l, t, r, b in placed):
+            continue
+        placed.append(box)
+        draw.ellipse([x - 2, y - 2, x + 2, y + 2], fill=(0, 0, 0, 255),
+                     outline=(255, 255, 255, 255))
+        tx, ty = x - half + 2, y + 3
+        # White edge made from offset copies: PIL anti-aliases `stroke_width`
+        # even with fontmode "1".
+        for dx in range(-2, 3):
+            for dy in range(-2, 3):
+                draw.text((tx + dx, ty + dy), name, font=font, fill=(255, 255, 255, 255))
+        draw.text((tx, ty), name, font=font, fill=(0, 0, 0, 255))
 
 
 def _draw_dashed_polyline(
@@ -2270,7 +2329,7 @@ def _fetch_rainviewer_image(
     """
     Fetch a composite radar image from RainViewer XYZ tiles centered on lat/lon.
 
-    Layers OSM highway geometry over the radar for geographic orientation, overlays
+    Layers interstates, state borders and city names over the radar for orientation, overlays
     per-cell storm motion arrows computed from consecutive radar frames, traces the
     projected +30 min precipitation edge from the nowcast frames, and captions the
     bottom-left corner with the frame time, storm speed/heading and arrival estimate.
@@ -2366,7 +2425,7 @@ def _fetch_rainviewer_image(
             return None, None
         km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
 
-    # Road overlay — OSM interstate/trunk geometry, black core in a white casing
+    # Road overlay — OSM interstate geometry as thin black lines
     show_map = cfg.get("rainviewer_map_overlay", True)
     road_img = None
     if show_map:
@@ -2379,16 +2438,20 @@ def _fetch_rainviewer_image(
     if show_boundaries:
         boundary_img = _fetch_admin_boundaries(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
-    # Start with white background, then layer: boundaries → roads → radar on top,
-    # so precipitation is never hidden by map linework. Roads go over the dashed
-    # boundary lines sharing the same pixels.
+    # Layer on white: radar → boundaries → roads → city names. The map goes on top
+    # because heavy echo painted over it leaves no way to tell where the rain is;
+    # its lines are thin enough to hide very little of it.
     canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
 
+    canvas.alpha_composite(curr_radar)
     if boundary_img is not None:
         canvas.alpha_composite(boundary_img)
+    if show_map:
+        _draw_state_borders(canvas, lat, lon, zoom)
     if road_img is not None:
         canvas.alpha_composite(road_img)
-    canvas.alpha_composite(curr_radar)
+    if show_map:
+        _draw_city_labels(canvas, lat, lon, zoom, cfg.get("radar_cities") or [])
 
     result = canvas.convert("RGB")
     _draw_range_rings(result, km_per_px, cfg)
@@ -2711,6 +2774,14 @@ def _snap_region_2color(
 
 
 _STALE_BANNER_H = 22
+
+
+def _alert_url(config: dict) -> str:
+    """Where the alert QR code points: the NWS page for the display's location."""
+    location = config.get("forecast_location") or {}
+    return config.get("special_url") or (
+        "https://forecast.weather.gov/MapClick.php?"
+        f"lat={location.get('latitude')}&lon={location.get('longitude')}")
 
 
 def _draw_stale_banner(img: Image.Image, age_min: float, config: dict) -> Image.Image:
@@ -3322,9 +3393,9 @@ def _render_national_radar(config: dict, headers: dict, output_path: str) -> boo
     return True
 
 
-def _national_radar_due(config: dict, state: dict, now: float, special_msg) -> bool:
+def _national_radar_due(config: dict, state: dict, now: float, alert) -> bool:
     """True when it's quiet around home and the last national view is old enough."""
-    if not config.get("national_radar_when_quiet", False) or special_msg:
+    if not config.get("national_radar_when_quiet", False) or alert:
         return False
     interval_s = config.get("national_radar_interval_minutes", 60) * 60
     # 30s of slack so scheduler jitter doesn't push an hourly view to 65 minutes.
@@ -3334,7 +3405,7 @@ def _national_radar_due(config: dict, state: dict, now: float, special_msg) -> b
     return _precip_nearby(config, _RADAR_HEADERS) is False
 
 
-def generate_weather_image(config, special_msg=None):
+def generate_weather_image(config, alert=None):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
 
@@ -3503,8 +3574,8 @@ def generate_weather_image(config, special_msg=None):
         lon = forecast_loc.get("longitude")
         conditions = (fetch_current_conditions(lat, lon, headers)
                       if lat is not None and lon is not None else None)
-        if special_msg:
-            panel_qr = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
+        if alert:
+            panel_qr = _alert_url(config)
         elif config.get('panel_qr_radar', False):
             panel_qr = radar_url_qr
         else:
@@ -3531,14 +3602,16 @@ def generate_weather_image(config, special_msg=None):
             if badge_y > hourly_start_y:  # a badge was drawn; remember where
                 keep_boxes.append((radar_w + 8, hourly_start_y, width - 7, badge_y - 2))
 
-        # Alert: turn the panel's white field red (white text) — this is a color
-        # display, so red reads as an alarm better than an inverted black field.
+        # Alert: turn the panel's white field the alert level's color — red warning,
+        # orange watch, yellow advisory.
         # Runs in normal mode too (no recolor) to clean up the boxes' grey text.
+        style = ALERT_LEVELS[alert["level"]] if alert else None
         _snap_panel_bw(final_img, (radar_w + 1, header_h, width, height),
-                       alert_bg=(255, 0, 0) if special_msg else None, keep_boxes=keep_boxes)
+                       alert_bg=style["color"] if style else None, keep_boxes=keep_boxes,
+                       alert_fg=style["text"] if style else (255, 255, 255))
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
-        # Always black: the alert panel below it is red, so a red bar would vanish
+        # Always black, so it stands apart from every alert color on the panel below
         draw_tmp = ImageDraw.Draw(final_img)
         header_color = (0, 0, 0)
         draw_tmp.rectangle([(radar_w, 0), (width - 1, header_h - 1)], fill=header_color)
@@ -3642,10 +3715,9 @@ def generate_weather_image(config, special_msg=None):
         old_quant = Image.open(quantized_output_path).convert("RGB")
 
     # In panel mode the conditions panel has its own QR; top-right QR is for crop/fit only.
-    if config.get("check_special_weather", True) and special_msg and radar_mode != "panel":
+    if alert and radar_mode != "panel":
         try:
-            special_url = config.get('special_url', "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN")
-            qr_topright = qrcode.make(special_url).convert("RGB").resize((138, 138), Image.NEAREST)
+            qr_topright = qrcode.make(_alert_url(config)).convert("RGB").resize((138, 138), Image.NEAREST)
             _banner_h = config.get("alert_banner_height", 40)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:
@@ -3654,23 +3726,23 @@ def generate_weather_image(config, special_msg=None):
     draw = ImageDraw.Draw(final_img)
 
     # --- Alert Banner ---
-    if config.get("check_special_weather", True) and special_msg:
+    if alert:
         alert_banner_height = config.get("alert_banner_height", 40)
-        headline = get_alert_headline(special_msg)
-        if headline:
-            # In panel mode restrict the banner to the radar side so it doesn't overwrite the
-            # conditions panel QR code (the panel header already turns red for alerts).
-            _banner_right = (width - config.get("panel_width", 280) - 1) if radar_mode == "panel" else (width - 1)
-            draw.rectangle([(0, 0), (_banner_right, alert_banner_height - 1)], fill=(0, 0, 0))
-            font_path = config.get("font_path", "")
-            try:
-                banner_font = ImageFont.truetype(font_path, 20)
-            except Exception:
-                banner_font = ImageFont.load_default()
-            bbox = draw.textbbox((0, 0), headline, font=banner_font)
-            text_h = bbox[3] - bbox[1]
-            text_y = (alert_banner_height - text_h) // 2
-            draw.text((8, text_y), headline, fill=(255, 255, 255), font=banner_font)
+        style = ALERT_LEVELS[alert["level"]]
+        headline = alert_headline(alert)
+        # In panel mode restrict the banner to the radar side so it doesn't overwrite the
+        # conditions panel QR code (the panel itself already takes the alert color).
+        _banner_right = (width - config.get("panel_width", 280) - 1) if radar_mode == "panel" else (width - 1)
+        draw.rectangle([(0, 0), (_banner_right, alert_banner_height - 1)], fill=style["color"])
+        for size in range(22, 11, -1):
+            banner_font = get_font(size, bold=True, config=config)
+            if draw.textlength(headline, font=banner_font) <= _banner_right - 16:
+                break
+        bbox = draw.textbbox((0, 0), headline, font=banner_font)
+        text_y = (alert_banner_height - (bbox[3] - bbox[1])) // 2 - bbox[1]
+        draw.text((8, text_y), headline, fill=style["text"], font=banner_font)
+        _snap_region_2color(final_img, (0, 0, _banner_right + 1, alert_banner_height),
+                            style["color"], style["text"])
     # --- End Alert Banner ---
 
     final_img.save(output_path)
@@ -3707,7 +3779,7 @@ def full_station_scan(config, skip_station=None):
     saved_mode = config.get("radar_mode")
     config["radar_mode"] = "fit"
     percentages = {}
-    special_msg = get_special_weather_messages()
+    alert = get_local_alert(config, _RADAR_HEADERS)
     for station_data in config.get("stations", []):
         station = station_data.get("name")
         if not station or station == skip_station:
@@ -3715,7 +3787,7 @@ def full_station_scan(config, skip_station=None):
         config["station"] = station_data
         config["output_path"] = os.path.join("radar", f"eink_display_{station}.bmp")
         config["quantized_path"] = os.path.join("radar", f"eink_quantized_display_{station}.bmp")
-        path, updated, _ = generate_weather_image(config, special_msg=special_msg)
+        path, updated, _ = generate_weather_image(config, alert=alert)
         if path is None and not updated:
             continue
         perc = calculate_non_bw_percentage(config["quantized_path"])
@@ -3737,7 +3809,7 @@ def generate(config):
     radar_folder = "radar"
     os.makedirs(radar_folder, exist_ok=True)
 
-    special_msg = get_special_weather_messages()
+    alert = get_local_alert(config, _RADAR_HEADERS)
     state = load_state(STATE_FILE) or {}
     now = time.time()
     full_scan_interval = config.get('full_scan_interval', 3600)
@@ -3755,12 +3827,12 @@ def generate(config):
     # Written over the normal render's path on purpose: the next local render then
     # differs from what's there (and from main.py's last-pushed hash), so it
     # always replaces the national view on the panel.
-    if (_national_radar_due(config, state, now, special_msg)
+    if (_national_radar_due(config, state, now, alert)
             and _render_national_radar(config, _RADAR_HEADERS, config["quantized_path"])):
         state["national_radar_ts"] = now
         save_state(STATE_FILE, state)
         return config["quantized_path"]
-    default_image_path, default_updated, default_region = generate_weather_image(config, special_msg=special_msg)
+    default_image_path, default_updated, default_region = generate_weather_image(config, alert=alert)
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous
         # render if there is one. On a cold start (or after `radar/` is cleaned)

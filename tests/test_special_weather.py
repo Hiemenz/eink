@@ -1,115 +1,71 @@
 """
 Unit tests for modules/special_weather.py
 
-Covers the pure headline-extraction logic (get_alert_headline) and the
-network-backed message fetch (get_special_weather_messages), mocked so no
-real HTTP calls are made.
+Covers alert selection by level, the banner headline, and the location-based
+api.weather.gov request (mocked so no real network calls are made).
 """
 
-import sys
 import os
-from unittest.mock import patch, MagicMock
+import sys
+from unittest.mock import MagicMock, patch
 
-import pytest
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+from modules.special_weather import alert_headline, get_local_alert, pick_alert
 
-from modules.special_weather import get_special_weather_messages, get_alert_headline
-
-
-class TestGetAlertHeadline:
-    def test_empty_input_returns_empty_string(self):
-        assert get_alert_headline("") == ""
-        assert get_alert_headline(None) == ""
-
-    def test_skips_zone_codes_and_picks_headline(self):
-        messages = "TNZ027-TNC037-\nSpecial Weather Statement\nissued by NWS"
-        assert get_alert_headline(messages) == "Special Weather Statement"
-
-    def test_skips_national_weather_service_line(self):
-        messages = "National Weather Service Nashville TN\nSevere Thunderstorm Warning"
-        assert get_alert_headline(messages) == "Severe Thunderstorm Warning"
-
-    def test_skips_time_am_pm_line(self):
-        messages = "1230 PM CDT\nFlash Flood Watch in effect"
-        assert get_alert_headline(messages) == "Flash Flood Watch in effect"
-
-    def test_skips_blank_and_dash_only_lines(self):
-        messages = "\n\n---\n...\nTornado Warning"
-        assert get_alert_headline(messages) == "Tornado Warning"
-
-    def test_truncates_to_80_chars(self):
-        long_line = "A" * 120
-        assert get_alert_headline(long_line) == long_line[:80]
-        assert len(get_alert_headline(long_line)) == 80
-
-    def test_all_lines_skippable_falls_back_to_first_nonblank(self):
-        # Every line matches a skip pattern except none survive the first pass;
-        # the second pass should return the first non-blank line verbatim.
-        messages = "TNZ027\n1200 PM CDT"
-        result = get_alert_headline(messages)
-        assert result == "TNZ027"
-
-    def test_only_blank_lines_returns_default(self):
-        messages = "\n   \n\t\n"
-        assert get_alert_headline(messages) == "Special Weather Alert"
-
-    def test_case_insensitive_skip_matching(self):
-        messages = "national weather service office\nActual Headline Text"
-        assert get_alert_headline(messages) == "Actual Headline Text"
+FRANKLIN = {"forecast_location": {"latitude": 35.9251, "longitude": -86.8689}}
 
 
-class TestGetSpecialWeatherMessages:
+def _feature(event, **props):
+    return {"properties": {"event": event, **props}}
+
+
+class TestPickAlert:
+    def test_each_level_is_recognised(self):
+        for level in ("Warning", "Watch", "Advisory"):
+            assert pick_alert([_feature(f"Flood {level}")])["level"] == level
+
+    def test_most_urgent_wins_regardless_of_order(self):
+        features = [_feature("Wind Advisory"), _feature("Tornado Warning"),
+                    _feature("Flood Watch")]
+        assert pick_alert(features)["event"] == "Tornado Warning"
+        assert pick_alert(features[::-1])["event"] == "Tornado Warning"
+
+    def test_statements_tests_and_cancellations_are_ignored(self):
+        assert pick_alert([
+            _feature("Special Weather Statement"),
+            _feature("Tornado Warning", status="Test"),
+            _feature("Flood Warning", messageType="Cancel"),
+        ]) is None
+
+    def test_nothing_active(self):
+        assert pick_alert([]) is None
+
+
+class TestAlertHeadline:
+    def test_includes_end_time(self):
+        alert = {"event": "Wind Advisory", "ends": "2001-01-01T21:00:00-06:00"}
+        assert alert_headline(alert) == "Wind Advisory until Mon 9:00 PM"
+
+    def test_without_end_time(self):
+        assert alert_headline({"event": "Wind Advisory", "ends": None}) == "Wind Advisory"
+
+
+class TestGetLocalAlert:
     @patch("modules.special_weather.requests.get")
-    def test_non_200_status_returns_none(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 503
-        mock_get.return_value = mock_resp
+    def test_queries_the_configured_location(self, get):
+        resp = MagicMock()
+        resp.json.return_value = {"features": [_feature("Winter Weather Advisory")]}
+        get.return_value = resp
+        assert get_local_alert(FRANKLIN, {})["level"] == "Advisory"
+        assert get.call_args[0][0].endswith("point=35.9251,-86.8689")
 
-        assert get_special_weather_messages("http://example.com") is None
+    @patch("modules.special_weather.requests.get", side_effect=OSError("down"))
+    def test_network_failure_returns_none(self, get):
+        assert get_local_alert(FRANKLIN, {}) is None
 
     @patch("modules.special_weather.requests.get")
-    def test_extracts_and_strips_pre_tag_contents(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = "<html><body><pre>Line one\n<b>Line two</b></pre></body></html>"
-        mock_get.return_value = mock_resp
-
-        result = get_special_weather_messages("http://example.com")
-        assert result == "Line one\nLine two"
-
-    @patch("modules.special_weather.requests.get")
-    def test_multiple_pre_blocks_joined_with_blank_line(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = "<pre>First block</pre><div>ignored</div><pre>Second block</pre>"
-        mock_get.return_value = mock_resp
-
-        result = get_special_weather_messages("http://example.com")
-        assert result == "First block\n\nSecond block"
-
-    @patch("modules.special_weather.requests.get")
-    def test_no_pre_tags_returns_none(self, mock_get):
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_resp.text = "<html><body>No preformatted content here</body></html>"
-        mock_get.return_value = mock_resp
-
-        assert get_special_weather_messages("http://example.com") is None
-
-    @patch("modules.special_weather.requests.get")
-    def test_network_exception_returns_none(self, mock_get):
-        """A network failure must degrade gracefully like every other fetch
-        helper in this codebase, not crash modules/weather.py's generate()
-        (which calls this unguarded) or the watchdog health tracking that
-        treats any uncaught exception as a module failure."""
-        mock_get.side_effect = ConnectionError("network unreachable")
-        assert get_special_weather_messages("http://example.com") is None
-
-    @patch("modules.special_weather.requests.get")
-    def test_request_timeout_returns_none(self, mock_get):
-        import requests
-        mock_get.side_effect = requests.exceptions.Timeout("timed out")
-        assert get_special_weather_messages("http://example.com") is None
+    def test_disabled_or_unlocated_makes_no_request(self, get):
+        assert get_local_alert({**FRANKLIN, "check_special_weather": False}, {}) is None
+        assert get_local_alert({}, {}) is None
+        get.assert_not_called()
