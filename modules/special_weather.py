@@ -12,8 +12,8 @@ logger = get_logger("special_weather")
 # Most urgent first. Colors are exact e-ink palette entries.
 ALERT_LEVELS = {
     "Warning":  {"color": (255, 0, 0),   "text": (255, 255, 255)},
-    "Watch":    {"color": (255, 128, 0), "text": (0, 0, 0)},
-    "Advisory": {"color": (0, 255, 0),   "text": (0, 0, 0)},
+    "Watch":    {"color": (255, 128, 0), "text": (255, 255, 255)},
+    "Advisory": {"color": (0, 255, 0),   "text": (255, 255, 255)},
 }
 
 

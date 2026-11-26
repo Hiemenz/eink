@@ -152,3 +152,14 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 ## Review
 - Previews rendered from live radar and a live advisory; user approved. Phone scan from the real panel is untested.
 - The large QR on the full-screen radar is unchanged apart from its link.
+
+---
+
+# White alert text and inverted QR (2026-11-26)
+
+- [x] White text on advisory and watch (warning already was)
+- [x] QR codes white on black; full-screen QR now uses the same whole-pixel renderer
+
+## Review
+- User approved. OpenCV read the inverted panel QR only after un-inverting it; phone scanning is untested.
+- The full-screen QR was not previewed or decoded.
