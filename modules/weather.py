@@ -391,6 +391,11 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     draw.ellipse(bb, outline=B)
 
 
+def _whiten_moon(canvas: Image.Image, box: Tuple[int, int, int, int]) -> None:
+    """Fill the moon disc in box solid white."""
+    ImageDraw.Draw(canvas).ellipse(box, fill=(255, 255, 255))
+
+
 def _crisp_qr(url: str, max_side: int) -> Image.Image:
     """A white-on-black QR code no larger than max_side (unless 1px modules exceed it).
 
@@ -416,13 +421,15 @@ def _tint_qr(canvas: Image.Image, box: Tuple[int, int, int, int], color) -> None
     canvas.paste(Image.fromarray(arr, "RGB"), box[:2])
 
 
-def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None):
+def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None,
+                          moon_out=None):
     """
     Draw the current-conditions data panel on an existing PIL Image.
     panel_x:  left edge of the panel in canvas pixels
     panel_w:  width of the panel in pixels
     header_h: vertical offset where content starts (header drawn externally)
     qr_box_out: optional list; the pasted QR's (x0, y0, x1, y1) is appended to it
+    moon_out: optional list; the moon disc's (x0, y0, x1, y1) is appended to it
     """
     draw = ImageDraw.Draw(canvas)
     height = canvas.size[1]
@@ -649,6 +656,8 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     age_val  = _moon_age()
     frac_val = _phase_fraction(age_val)
     _draw_panel_moon(draw, moon_cx, moon_cy, moon_r, frac_val)
+    if moon_out is not None:
+        moon_out.append((moon_cx - moon_r, moon_cy - moon_r, moon_cx + moon_r, moon_cy + moon_r))
 
     return y
 
@@ -3633,7 +3642,9 @@ def generate_weather_image(config, alert=None):
             panel_qr = None
         keep_boxes = []  # regions the alert recolor must leave alone
         qr_boxes: list = []
-        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr, qr_box_out=qr_boxes)
+        moon_boxes: list = []
+        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr, qr_box_out=qr_boxes,
+                                                 moon_out=moon_boxes)
         keep_boxes.extend(qr_boxes)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
@@ -3665,6 +3676,9 @@ def generate_weather_image(config, alert=None):
         if style:
             for box in qr_boxes:
                 _tint_qr(final_img, box, style["color"])
+            # The color swap leaves only a thin moon outline; draw it solid white.
+            for box in moon_boxes:
+                _whiten_moon(final_img, box)
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
         # Always black, so it stands apart from every alert color on the panel below
