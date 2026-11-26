@@ -173,3 +173,13 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 ## Review
 - User approved the sample. OpenCV read the codes only after converting them back to black on white;
   scanning the colored code from the real panel is untested. Full-screen QR not previewed.
+
+---
+
+# Solid white moon on alert screens (2026-11-26)
+
+- [x] Draw the panel moon solid white after the alert color swap (normal screen unchanged)
+
+## Review
+- User approved the preview of advisory, watch and warning. The alert-screen moon no longer shows
+  the phase shape; the phase name and percentage beside it still do.

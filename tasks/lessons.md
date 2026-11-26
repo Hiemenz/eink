@@ -21,3 +21,5 @@
 - **A PNG preview overstates contrast on the e-ink panel.** Its blue ink is near navy: 1px black roads
   looked fine on the PC render and vanished on the real screen. Never put black linework or text on blue
   or black echo; use white there.
+- **A panel-wide color swap hits icons too.** Turning white into the alert color hollowed the moon to a
+  thin ring. After recoloring, check every drawn icon, not just the text.

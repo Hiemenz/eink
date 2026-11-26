@@ -1856,3 +1856,13 @@ class TestPanelQr:
         W_MOD._tint_qr(canvas, box, (0, 255, 0))
         assert {c for _, c in canvas.crop(box).getcolors()} == {(0, 255, 0), (255, 255, 255)}
         assert canvas.getpixel((0, 0)) == (0, 0, 0)  # outside the code is untouched
+
+    def test_alert_moon_is_solid_white(self):
+        from modules.special_weather import ALERT_LEVELS
+        disc = Image.new("RGB", (40, 40), (255, 255, 255))
+        W_MOD._draw_panel_moon(ImageDraw.Draw(disc), 20, 20, 15, 0.57)
+        W_MOD._snap_panel_bw(disc, (0, 0, 40, 40), alert_bg=ALERT_LEVELS["Advisory"]["color"])
+        assert disc.getpixel((15, 20)) == (0, 255, 0)  # the swap hollows the moon
+        W_MOD._whiten_moon(disc, (5, 5, 35, 35))
+        assert disc.getpixel((15, 20)) == disc.getpixel((33, 20)) == (255, 255, 255)
+        assert disc.getpixel((0, 0)) == (0, 255, 0)
