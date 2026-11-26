@@ -140,3 +140,15 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 - [x] Warning red / watch orange / advisory yellow; most urgent wins; statements ignored
 - [x] Panel, banner and QR code follow; tests; full-screen preview
 - [ ] User approves previews, then commit, PR and merge (with the radar change)
+
+---
+
+# Fixes after seeing the real screen (2026-11-26)
+
+- [x] Advisory green; map lines white over blue/black echo (black vanished into the panel's navy blue)
+- [x] Alert banner 21px to match the station bar; both labels centered on capital height
+- [x] Panel QR no longer clipped: whole-pixel modules, shorter forecast link; preview decoded with OpenCV
+
+## Review
+- Previews rendered from live radar and a live advisory; user approved. Phone scan from the real panel is untested.
+- The large QR on the full-screen radar is unchanged apart from its link.

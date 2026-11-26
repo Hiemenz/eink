@@ -18,3 +18,6 @@
 - **The radar is unreadable without the map on top of it.** Layering roads under echo "so rain is never
   hidden" erased them in any real storm; the user couldn't tell where the rain was. Draw thin geographic
   linework over radar, and preview display changes with heavy echo, not just a mostly clear frame.
+- **A PNG preview overstates contrast on the e-ink panel.** Its blue ink is near navy: 1px black roads
+  looked fine on the PC render and vanished on the real screen. Never put black linework or text on blue
+  or black echo; use white there.

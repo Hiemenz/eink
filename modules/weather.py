@@ -391,6 +391,20 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
     draw.ellipse(bb, outline=B)
 
 
+def _crisp_qr(url: str, max_side: int) -> Image.Image:
+    """A QR code no larger than max_side (unless it needs 1px modules to exceed it).
+
+    Every module is the same whole number of pixels: resampling to an arbitrary
+    size gives uneven, grey-edged modules that are hard to scan off e-ink.
+    """
+    code = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_L,
+                         box_size=1, border=2)
+    code.add_data(url)
+    code.make(fit=True)
+    code.box_size = max(1, max_side // (code.modules_count + 2 * code.border))
+    return code.make_image().convert("RGB")
+
+
 def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None):
     """
     Draw the current-conditions data panel on an existing PIL Image.
@@ -495,13 +509,14 @@ def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h
     # Paste QR filling temperature + feels-like height
     if qr_url:
         try:
-            qr_img = qrcode.make(qr_url).convert("RGB")
-            qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
-            qr_x = panel_x + panel_w - margin - qr_size - config.get('panel_qr_x_offset', 0)
-            qr_y = header_h + 6 + config.get('panel_qr_y_offset', 0)
+            qr_img = _crisp_qr(qr_url, qr_size)
+            side = qr_img.width
+            qr_x = right_x - side - config.get('panel_qr_x_offset', 0)
+            # Centered on the temperature + feels-like block it sits beside
+            qr_y = header_h + 6 + max(0, qr_size - side) // 2 + config.get('panel_qr_y_offset', 0)
             canvas.paste(qr_img, (qr_x, qr_y))
             if qr_box_out is not None:
-                qr_box_out.append((qr_x, qr_y, qr_x + qr_size, qr_y + qr_size))
+                qr_box_out.append((qr_x, qr_y, qr_x + side, qr_y + side))
         except Exception as e:
             logger.error("QR code error: %s", e)
 
@@ -1389,6 +1404,19 @@ def _fetch_osm_roads(
         if len(pts) >= 2:
             draw.line(pts, fill=(0, 0, 0, 255), width=1)
     return img
+
+
+def _contrast_lines(lines: Image.Image, under: Image.Image) -> Image.Image:
+    """Turn map linework white where it will sit on blue or black echo.
+
+    The panel's blue ink is close to navy, and black lines vanish into it. The
+    test uses the colors the radar will have after the e-ink remap.
+    """
+    inked = np.array(_remap_radar_seven_color(under.convert("RGB")))
+    dark = (inked == _EINK_BLUE).all(axis=-1) | (inked == _EINK_BLACK).all(axis=-1)
+    out = np.array(lines)
+    out[dark & (out[:, :, 3] > 0), :3] = 255
+    return Image.fromarray(out, "RGBA")
 
 
 def _draw_state_borders(img: Image.Image, lat: float, lon: float, zoom: int) -> None:
@@ -2444,12 +2472,14 @@ def _fetch_rainviewer_image(
     canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
 
     canvas.alpha_composite(curr_radar)
+    lines = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     if boundary_img is not None:
-        canvas.alpha_composite(boundary_img)
+        lines.alpha_composite(boundary_img)
     if show_map:
-        _draw_state_borders(canvas, lat, lon, zoom)
+        _draw_state_borders(lines, lat, lon, zoom)
     if road_img is not None:
-        canvas.alpha_composite(road_img)
+        lines.alpha_composite(road_img)
+    canvas.alpha_composite(_contrast_lines(lines, canvas))
     if show_map:
         _draw_city_labels(canvas, lat, lon, zoom, cfg.get("radar_cities") or [])
 
@@ -2774,6 +2804,16 @@ def _snap_region_2color(
 
 
 _STALE_BANNER_H = 22
+
+
+def _centered_text_y(draw: ImageDraw.ImageDraw, font, bar_h: int) -> int:
+    """Draw-y that centers capital letters in a bar starting at y=0.
+
+    Measured on a capital rather than the string, so descenders don't push the
+    line off center and neighbouring bars share a baseline.
+    """
+    top, bottom = draw.textbbox((0, 0), "H", font=font)[1::2]
+    return (bar_h - (bottom - top)) // 2 - top
 
 
 def _alert_url(config: dict) -> str:
@@ -3603,7 +3643,7 @@ def generate_weather_image(config, alert=None):
                 keep_boxes.append((radar_w + 8, hourly_start_y, width - 7, badge_y - 2))
 
         # Alert: turn the panel's white field the alert level's color — red warning,
-        # orange watch, yellow advisory.
+        # orange watch, green advisory.
         # Runs in normal mode too (no recolor) to clean up the boxes' grey text.
         style = ALERT_LEVELS[alert["level"]] if alert else None
         _snap_panel_bw(final_img, (radar_w + 1, header_h, width, height),
@@ -3645,8 +3685,7 @@ def generate_weather_image(config, alert=None):
                 break
         if hdr_font is None:
             hdr_font = ImageFont.load_default()
-        bb = draw_tmp.textbbox((0, 0), hdr_str, font=hdr_font)
-        text_y = (header_h - (bb[3] - bb[1])) // 2
+        text_y = _centered_text_y(draw_tmp, hdr_font, header_h)
         draw_tmp.text((radar_w + 8, text_y), hdr_str, fill=(255, 255, 255), font=hdr_font)
         # The header is drawn after the panel B/W snap (so the snap can't erode the
         # text), which leaves its anti-aliased white-on-header-color edges to reach
@@ -3718,7 +3757,7 @@ def generate_weather_image(config, alert=None):
     if alert and radar_mode != "panel":
         try:
             qr_topright = qrcode.make(_alert_url(config)).convert("RGB").resize((138, 138), Image.NEAREST)
-            _banner_h = config.get("alert_banner_height", 40)
+            _banner_h = config.get("alert_banner_height", 21)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:
             logger.error("Error adding special weather QR code: %s", e)
@@ -3727,19 +3766,18 @@ def generate_weather_image(config, alert=None):
 
     # --- Alert Banner ---
     if alert:
-        alert_banner_height = config.get("alert_banner_height", 40)
+        alert_banner_height = config.get("alert_banner_height", 21)
         style = ALERT_LEVELS[alert["level"]]
         headline = alert_headline(alert)
         # In panel mode restrict the banner to the radar side so it doesn't overwrite the
         # conditions panel QR code (the panel itself already takes the alert color).
         _banner_right = (width - config.get("panel_width", 280) - 1) if radar_mode == "panel" else (width - 1)
         draw.rectangle([(0, 0), (_banner_right, alert_banner_height - 1)], fill=style["color"])
-        for size in range(22, 11, -1):
+        for size in range(min(22, alert_banner_height * 3 // 4), 10, -1):
             banner_font = get_font(size, bold=True, config=config)
             if draw.textlength(headline, font=banner_font) <= _banner_right - 16:
                 break
-        bbox = draw.textbbox((0, 0), headline, font=banner_font)
-        text_y = (alert_banner_height - (bbox[3] - bbox[1])) // 2 - bbox[1]
+        text_y = _centered_text_y(draw, banner_font, alert_banner_height)
         draw.text((8, text_y), headline, fill=style["text"], font=banner_font)
         _snap_region_2color(final_img, (0, 0, _banner_right + 1, alert_banner_height),
                             style["color"], style["text"])
