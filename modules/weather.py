@@ -405,6 +405,17 @@ def _crisp_qr(url: str, max_side: int) -> Image.Image:
     return code.make_image(fill_color="white", back_color="black").convert("RGB")
 
 
+def _tint_qr(canvas: Image.Image, box: Tuple[int, int, int, int], color) -> None:
+    """Swap the black field of a pasted (white-on-black) QR code for `color`.
+
+    Done after the panel's B/W snap, which would turn a light color like green
+    white and erase the code.
+    """
+    arr = np.array(canvas.crop(box).convert("RGB"))
+    arr[(arr == 0).all(axis=-1)] = color
+    canvas.paste(Image.fromarray(arr, "RGB"), box[:2])
+
+
 def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None):
     """
     Draw the current-conditions data panel on an existing PIL Image.
@@ -3621,7 +3632,9 @@ def generate_weather_image(config, alert=None):
         else:
             panel_qr = None
         keep_boxes = []  # regions the alert recolor must leave alone
-        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr, qr_box_out=keep_boxes)
+        qr_boxes: list = []
+        hourly_start_y = draw_conditions_panel(final_img, conditions, config, radar_w, panel_w, header_h=header_h, qr_url=panel_qr, qr_box_out=qr_boxes)
+        keep_boxes.extend(qr_boxes)
 
         # Snap only the content area (below header) to pure B/W before drawing header text
         panel_bw = final_img.crop((radar_w, header_h, width, height)).convert("L").point(
@@ -3649,6 +3662,9 @@ def generate_weather_image(config, alert=None):
         _snap_panel_bw(final_img, (radar_w + 1, header_h, width, height),
                        alert_bg=style["color"] if style else None, keep_boxes=keep_boxes,
                        alert_fg=style["text"] if style else (255, 255, 255))
+        if style:
+            for box in qr_boxes:
+                _tint_qr(final_img, box, style["color"])
 
         # Header bar on the RIGHT panel only — drawn last so snap doesn't erode text
         # Always black, so it stands apart from every alert color on the panel below
@@ -3758,7 +3774,10 @@ def generate_weather_image(config, alert=None):
         try:
             qr_topright = _crisp_qr(_alert_url(config), 138)
             _banner_h = config.get("alert_banner_height", 21)
-            final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
+            qr_x, qr_y = final_img.width - qr_topright.width - 2, _banner_h + 2
+            final_img.paste(qr_topright, (qr_x, qr_y))
+            _tint_qr(final_img, (qr_x, qr_y, qr_x + qr_topright.width, qr_y + qr_topright.height),
+                     ALERT_LEVELS[alert["level"]]["color"])
         except Exception as e:
             logger.error("Error adding special weather QR code: %s", e)
 
