@@ -1822,3 +1822,26 @@ class TestRoadsOverRadar:
             {"entries": {"35.0000,-86.0000,7,motorway|trunk,v2": {"ts": time.time(), "ways": ways}}}))
         alpha = np.array(W_MOD._fetch_osm_roads(35.0, -86.0, 7, 512, 520, 480))[:, :, 3]
         assert (alpha[:, 260] > 0).sum() == 1
+
+    def test_lines_turn_white_over_blue_and_stay_black_elsewhere(self):
+        under = Image.new("RGBA", (30, 10), (255, 255, 0, 255))
+        ImageDraw.Draw(under).rectangle([10, 0, 19, 9], fill=(0, 0, 255, 255))
+        ImageDraw.Draw(under).rectangle([20, 0, 29, 9], fill=(255, 255, 255, 255))
+        lines = Image.new("RGBA", (30, 10), (0, 0, 0, 0))
+        ImageDraw.Draw(lines).line([(0, 5), (29, 5)], fill=(0, 0, 0, 255), width=1)
+        out = W_MOD._contrast_lines(lines, under)
+        assert out.getpixel((5, 5)) == (0, 0, 0, 255)       # yellow rain
+        assert out.getpixel((15, 5)) == (255, 255, 255, 255)  # blue rain
+        assert out.getpixel((25, 5)) == (0, 0, 0, 255)      # no rain
+        assert out.getpixel((15, 2))[3] == 0                # off the line
+
+
+class TestPanelQr:
+    URL = "https://forecast.weather.gov/MapClick.php?lat=35.9251&lon=-86.8689"
+
+    def test_modules_are_whole_pixels_and_pure_black_and_white(self):
+        img = W_MOD._crisp_qr(self.URL, 87)
+        assert img.width <= 87
+        assert {c for _, c in img.getcolors()} == {(0, 0, 0), (255, 255, 255)}
+        assert W_MOD._alert_url({"forecast_location": {"latitude": 35.9251,
+                                                       "longitude": -86.8689}}) == self.URL

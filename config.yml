@@ -20,7 +20,7 @@ bold_font_path: "/System/Library/Fonts/Supplemental/DIN Alternate Bold.ttf"
 output_path: images/eink_display.bmp
 interesting_station: false   # Auto-switch to most active radar when default is below threshold
 interesting_threshold: 12  # % colored pixels below which the default is considered boring
-alert_banner_height: 40
+alert_banner_height: 21
 full_scan_interval: 3600
 output_mode: color # Options: "color", "grayscale", "binary"
 
@@ -56,9 +56,9 @@ panel_legend: true        # show 7-color dBZ legend strip under the radar in pan
 panel_header: "Franklin, TN"   # text shown in the panel header bar
 url_qr_loop: False
 panel_qr_radar: false   # show radar link QR in panel when no alerts active
-panel_qr_size: 96         # 0 = auto-calculate from temp row height; >0 = fixed pixels
-panel_qr_x_offset: -17   # shift QR left from right edge of panel (extra pixels)
-panel_qr_y_offset: -15   # shift QR down from top of content area (extra pixels)
+panel_qr_size: 0         # 0 = auto-calculate from temp row height; >0 = fixed pixels
+panel_qr_x_offset: 0   # shift QR left from right edge of panel (extra pixels)
+panel_qr_y_offset: 0   # shift QR down from top of content area (extra pixels)
 
 # ── Module selector ──────────────────────────────────────────────────────────
 # Options: weather | text | saint_of_day | wiki_image | movie_slideshow | chess_puzzle
@@ -432,8 +432,7 @@ xweather_client_id: ""
 xweather_client_secret: ""
 
 show_top_5: False
-# Alert QR code target. Alerts themselves come from forecast_location (see below).
-special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ059&warncounty=TNC187&firewxzone=TNZ059&local_place1=Franklin%20TN"
+# special_url: ""   # alert QR code target; unset = the short NWS page for forecast_location
 show_last_ten: False
 more_colors: False
 

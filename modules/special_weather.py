@@ -13,7 +13,7 @@ logger = get_logger("special_weather")
 ALERT_LEVELS = {
     "Warning":  {"color": (255, 0, 0),   "text": (255, 255, 255)},
     "Watch":    {"color": (255, 128, 0), "text": (0, 0, 0)},
-    "Advisory": {"color": (255, 255, 0), "text": (0, 0, 0)},
+    "Advisory": {"color": (0, 255, 0),   "text": (0, 0, 0)},
 }
 
 
