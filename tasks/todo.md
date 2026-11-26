@@ -121,3 +121,22 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 - [x] Radar captions moved into the bottom key; corner box kept only for layouts with no key
 - [x] Follow-up: key stays 36px (the 52px version was rejected). Compact color scale on the right, two info rows on the left, nearest rain added; current weather on full-screen and US views
 - [x] Live renders checked in panel, full-screen and US views; tests pass
+
+---
+
+# Roads over radar (2026-11-25)
+
+- [x] Draw roads on top of the echo; white outline slimmed to 1px per side
+- [x] Before/after render from live radar; regression test added
+- [x] Follow-up: NWS style, black chosen over red. Interstates only at 1px, dashed state borders (shared edges drawn once), city names from `radar_cities`
+- [x] Full-screen preview rendered in a scratch copy from live radar; all tests pass
+- [ ] User approves the preview, then commit, PR and merge (merging auto-deploys to the color display)
+
+---
+
+# Alerts for Franklin, colored by level (2026-11-26)
+
+- [x] Alerts from api.weather.gov for `forecast_location` (the old page watched Davidson County)
+- [x] Warning red / watch orange / advisory yellow; most urgent wins; statements ignored
+- [x] Panel, banner and QR code follow; tests; full-screen preview
+- [ ] User approves previews, then commit, PR and merge (with the radar change)

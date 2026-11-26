@@ -393,7 +393,22 @@ game_of_life:
 # RainViewer is primary; if it fails the NWS RIDGE image is used for that cycle.
 radar_source: rainviewer
 rainviewer_zoom: 6             # zoom level: free tier max is 7; 8+ returns "zoom not supported". 6 shows ~±250 km, close to the NWS view; 7 is ~±130 km
-rainviewer_map_overlay: true   # overlay OSM interstate/trunk highways for geographic orientation
+rainviewer_map_overlay: true   # overlay interstates, state borders and city names for orientation
+radar_cities:                  # [name, lat, lon], most important first: a label that would overlap an earlier one is skipped
+  - [Nashville, 36.163, -86.781]
+  - [Clarksville, 36.530, -87.359]
+  - [Bowling Green, 36.990, -86.444]
+  - [Cookeville, 36.163, -85.502]
+  - [Columbia, 35.615, -87.035]
+  - [Huntsville, 34.730, -86.586]
+  - [Chattanooga, 35.046, -85.310]
+  - [Jackson, 35.614, -88.814]
+  - [Memphis, 35.150, -90.049]
+  - [Knoxville, 35.961, -83.921]
+  - [Louisville, 38.253, -85.759]
+  - [Evansville, 37.972, -87.571]
+  - [Paducah, 37.083, -88.600]
+  - [Birmingham, 33.519, -86.810]
 rainviewer_storm_motion: true  # compute and overlay storm motion arrows from consecutive frames
 rainviewer_color_scheme: 4     # NOTE: RainViewer now ignores this -- tiles are always Universal Blue; intensity is recovered from the blue ramp
 rainviewer_nowcast: true       # dashed +30min projected precip edge, and "rain here in ~N min"
@@ -417,7 +432,8 @@ xweather_client_id: ""
 xweather_client_secret: ""
 
 show_top_5: False
-special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ027&warncounty=TNC037&firewxzone=TNZ027&local_place1=Nashville%20TN"
+# Alert QR code target. Alerts themselves come from forecast_location (see below).
+special_url: "https://forecast.weather.gov/showsigwx.php?warnzone=TNZ059&warncounty=TNC187&firewxzone=TNZ059&local_place1=Franklin%20TN"
 show_last_ten: False
 more_colors: False
 
