@@ -392,7 +392,7 @@ def _draw_panel_moon(draw, cx, cy, r, fraction):
 
 
 def _crisp_qr(url: str, max_side: int) -> Image.Image:
-    """A QR code no larger than max_side (unless it needs 1px modules to exceed it).
+    """A white-on-black QR code no larger than max_side (unless 1px modules exceed it).
 
     Every module is the same whole number of pixels: resampling to an arbitrary
     size gives uneven, grey-edged modules that are hard to scan off e-ink.
@@ -402,7 +402,7 @@ def _crisp_qr(url: str, max_side: int) -> Image.Image:
     code.add_data(url)
     code.make(fit=True)
     code.box_size = max(1, max_side // (code.modules_count + 2 * code.border))
-    return code.make_image().convert("RGB")
+    return code.make_image(fill_color="white", back_color="black").convert("RGB")
 
 
 def draw_conditions_panel(canvas, conditions, config, panel_x, panel_w, header_h=30, qr_url=None, qr_box_out=None):
@@ -3756,7 +3756,7 @@ def generate_weather_image(config, alert=None):
     # In panel mode the conditions panel has its own QR; top-right QR is for crop/fit only.
     if alert and radar_mode != "panel":
         try:
-            qr_topright = qrcode.make(_alert_url(config)).convert("RGB").resize((138, 138), Image.NEAREST)
+            qr_topright = _crisp_qr(_alert_url(config), 138)
             _banner_h = config.get("alert_banner_height", 21)
             final_img.paste(qr_topright, (final_img.width - qr_topright.width - 2, _banner_h + 2))
         except Exception as e:

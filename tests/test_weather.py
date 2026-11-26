@@ -1843,5 +1843,7 @@ class TestPanelQr:
         img = W_MOD._crisp_qr(self.URL, 87)
         assert img.width <= 87
         assert {c for _, c in img.getcolors()} == {(0, 0, 0), (255, 255, 255)}
+        assert img.getpixel((0, 0)) == (0, 0, 0)            # inverted: black border
+        assert img.getpixel((img.width // 2, 0)) == (0, 0, 0)
         assert W_MOD._alert_url({"forecast_location": {"latitude": 35.9251,
                                                        "longitude": -86.8689}}) == self.URL
