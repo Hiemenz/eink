@@ -4,10 +4,10 @@
   <path d="M110 100 Q89 77 105 62 Q123 46 140 68 M181 67 Q198 48 215 64 Q229 81 205 103" fill="#E48F91" stroke="#30343A" stroke-width="4" stroke-linejoin="round"/>
   <ellipse cx="116" cy="79" rx="11" ry="17" fill="#E79AA1"/><ellipse cx="204" cy="79" rx="11" ry="17" fill="#E79AA1"/>
   <!-- dark gray furry silhouette and little feet -->
-  <path d="M119 102 Q127 91 150 92 Q175 92 183 104 Q196 127 190 172 Q186 199 178 213 L124 213 Q113 194 110 171 Q104 128 119 102Z" fill="#3C4850" stroke="#252B31" stroke-width="4"/>
-  <path d="M123 121 Q107 143 112 174 M181 121 Q194 144 187 175" fill="none" stroke="#59646A" stroke-width="5" stroke-linecap="round"/>
-  <path d="M132 205 L126 225 Q126 234 140 234 L153 232 L154 211 M166 211 L168 229 Q176 235 190 231 Q195 228 188 221 L179 204" fill="#303940"/>
-  <path d="M129 227 Q122 229 122 237 Q126 242 147 241 Q155 239 151 232Z M169 229 Q166 237 174 241 Q192 243 197 237 Q196 231 185 229Z" fill="#E79AA1"/>
+  <path d="M128 102 Q138 92 150 92 Q166 92 174 104 Q184 127 178 172 Q176 197 170 213 L130 213 Q124 194 121 171 Q116 128 128 102Z" fill="#3C4850" stroke="#252B31" stroke-width="4"/>
+  <path d="M131 124 Q120 147 124 174 M169 124 Q180 147 176 174" fill="none" stroke="#59646A" stroke-width="4" stroke-linecap="round"/>
+  <path d="M138 205 L135 225 Q135 234 145 234 L153 232 L154 211 M166 211 L168 229 Q175 235 185 231 Q190 228 184 221 L172 204" fill="#303940"/>
+  <path d="M138 227 Q131 229 131 237 Q135 242 149 241 Q156 239 152 232Z M169 229 Q166 237 174 241 Q188 243 193 237 Q192 231 183 229Z" fill="#E79AA1"/>
   <!-- one paw raised in a friendly wave -->
   <path d="M116 136 Q101 130 91 118 L77 99 Q74 94 78 90 Q83 87 87 92 L98 104 L88 85 Q86 79 91 77 Q96 76 99 82 L108 98 L103 80 Q102 74 107 73 Q112 73 114 80 L120 101 Q125 112 132 120Z" fill="#46535A" stroke="#252B31" stroke-width="4" stroke-linejoin="round"/>
   <path d="M78 97 Q74 91 79 88 Q83 87 87 92 M90 84 Q89 78 94 77 Q98 78 100 83 M104 79 Q103 74 108 74 Q112 75 113 81" fill="none" stroke="#E79AA1" stroke-width="3" stroke-linecap="round"/>
