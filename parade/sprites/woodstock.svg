@@ -1,19 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
-<!-- Woodstock, simplified from the supplied profile reference: large left-facing head, tiny body, swept rear crest. -->
-<g stroke="#1D1D1F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
- <!-- rear feather spikes, visible behind the skull -->
- <path d="M155 73 Q143 46 151 26 Q163 36 168 61 L178 15 Q189 37 183 62 L204 27 Q211 48 196 69 L219 49 Q220 66 204 81Z" fill="#F2BE35"/>
- <!-- small tail feathers -->
- <path d="M171 152 Q198 144 224 157 Q205 167 182 164Z" fill="#F2BE35"/>
- <!-- narrow tucked body -->
- <path d="M142 121 Q132 133 133 155 Q132 174 151 179 Q169 180 178 163 Q183 142 169 123Z" fill="#F2BE35"/>
- <!-- one tiny folded wing -->
- <path d="M144 139 Q131 134 130 144 Q132 153 147 154" fill="#F2BE35" stroke-width="3"/>
- <!-- oversized, soft profile head with a short beak-like forehead -->
- <path d="M109 104 Q99 98 101 87 Q103 72 120 66 Q137 57 158 62 Q178 57 194 67 Q209 76 208 91 Q218 98 212 109 Q206 120 186 117 Q176 129 159 132 Q140 134 129 126 Q115 129 106 120 Q100 114 109 104Z" fill="#F2BE35"/>
- <!-- closed, expressive eyes and a cheerful cheek smile -->
- <path d="M128 82 Q138 78 146 81 M158 81 Q167 78 176 82" fill="none" stroke-width="4.5"/>
- <path d="M108 101 Q123 111 141 100 Q145 97 146 93" fill="none" stroke-width="3.5"/>
- <!-- thin orange legs and tiny feet -->
- <path d="M145 175 L143 196 M164 175 L167 196 M143 196 L136 201 M143 196 L150 201 M167 196 L160 201 M167 196 L175 201" fill="none" stroke="#EC7C30" stroke-width="3"/>
-</g></svg>
+<!-- Woodstock: tiny bird profile with swept crest, round cheek, tiny folded wing and wire legs. -->
+<path d="M153 75 Q141 52 149 31 Q161 39 167 64 L178 20 Q188 41 182 66 L203 34 Q209 53 195 73 L219 53 Q219 70 203 84Z" fill="#F2BE35" stroke="#1D1D1F" stroke-width="2.6" stroke-linejoin="round"/>
+<path d="M108 111 Q93 103 100 91 Q106 80 126 80 Q140 69 159 75 Q179 72 192 85 Q209 89 208 103 Q218 111 210 121 Q201 131 183 126 Q170 140 151 137 Q135 137 127 128 Q112 131 104 123 Q99 118 108 111Z" fill="#F2BE35" stroke="#1D1D1F" stroke-width="2.8" stroke-linejoin="round"/>
+<path d="M105 107 Q119 116 137 105 Q142 101 144 96" fill="none" stroke="#1D1D1F" stroke-width="2.8" stroke-linecap="round"/><path d="M152 91 Q160 87 168 91" fill="none" stroke="#1D1D1F" stroke-width="3.3" stroke-linecap="round"/>
+<path d="M145 132 Q134 142 136 162 Q141 177 156 178 Q173 176 177 158 Q178 141 166 132Z" fill="#F2BE35"/><path d="M148 145 Q132 136 130 148 Q132 157 150 158" fill="#F2BE35" stroke="#1D1D1F" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M174 153 Q199 144 223 158 Q205 166 181 163Z" fill="#F2BE35"/><path d="M147 176 L145 200 M165 176 L168 200 M145 200 L138 205 M145 200 L152 205 M168 200 L161 205 M168 200 L175 205" fill="none" stroke="#EC7C30" stroke-width="2.8" stroke-linecap="round"/>
+</svg>
