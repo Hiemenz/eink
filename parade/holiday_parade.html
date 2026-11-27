@@ -214,8 +214,17 @@ function batmanBuilding(){
    +P("M-52 -30 L-52 -70 L-40 -98 L-24 -70 Q0 -46 24 -70 L40 -98 L52 -70 L52 -30 Z",GLASS)+L("M-52 -70 L-40 -98 L-24 -70 Q0 -46 24 -70 L40 -98 L52 -70",EDGE,6)
    +mirror(L("M40 -96 V-138",INK,5)+L("M40 -138 V-150",INK,2.5)+C(40,-152,4,RED))+L("M-52 -32 H52",STONE,6)+[-30,-15,0,15,30].map(x=>L(`M${x} -42V-34`,EDGE,3)).join("")+[-60,-40,-20,0,20,40,60].map(x=>R(x-5,108,10,14,1,GLASS)).join("");
 }
+/* a smiling watermelon slice */
+function watermelon(){
+  const seeds=[[-70,-30,24],[-34,-34,8],[36,-34,-8],[72,-30,-24],[-46,52,16],[46,52,-16],[0,66,0],[-22,-4,6],[22,-4,-6]]
+    .map(([x,y,a])=>`<path d="M${x} ${y-9}q9 11 0 17q-9 -6 0 -17Z" fill="${INK}" transform="rotate(${a} ${x} ${y})"/>`).join("");
+  return P("M-128 -58 H128 C124 50 66 112 0 112 C-66 112 -124 50 -128 -58 Z",PINE)+P("M-116 -58 H116 C112 40 60 98 0 98 C-60 98 -112 40 -116 -58 Z",GRN)
+   +P("M-104 -58 H104 C100 32 54 86 0 86 C-54 86 -100 32 -104 -58 Z",CREAM)+P("M-93 -58 H93 C89 24 48 74 0 74 C-48 74 -89 24 -93 -58 Z",RED)+seeds
+   +eyes(0,6,52,16)+L("M-24 32 Q0 56 24 32",INK,6)+C(-48,30,10,PINK)+C(48,30,10,PINK)
+   +L("M0 -58 Q-2 -84 18 -92",PINE,8)+E(34,-94,24,12,GRN,-14)+L("M18 -92 L48 -97",PINE,3);
+}
 const BALLOONS=[
- ["Tom Turkey",turkey],["Twinkle",twinkle],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
+ ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
  ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
  ["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
  ["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")]];
