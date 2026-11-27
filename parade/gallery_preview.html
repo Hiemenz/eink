@@ -26,8 +26,9 @@
   .balloon { min-width: 0; height: 22.625cqw; position: relative; display: flex; align-items: flex-start; justify-content: center; }
   .balloon img {
     position: absolute; top: .25cqw; max-width: 17.75cqw; max-height: 17.25cqw;
-    object-fit: contain; image-rendering: pixelated;
+    object-fit: contain;
   }
+  .screen.dithered img { image-rendering: pixelated; }
   .balloon .name {
     position: absolute; top: 18.5cqw; left: .3cqw; right: .3cqw; text-align: center;
     font-weight: 700; font-size: 1.375cqw; line-height: 1.15; white-space: nowrap;
@@ -51,7 +52,9 @@
     <div class="grid" id="gallery"></div>
     <footer class="footer" id="footer"></footer>
   </section>
-  <nav class="controls" aria-label="Gallery page controls">
+  <nav class="controls" aria-label="Gallery controls">
+    <button id="fullColor" type="button" aria-pressed="true">Full color</button>
+    <button id="eInk" type="button" aria-pressed="false">E-ink dither</button>
     <button id="previous" type="button" aria-label="Previous page">← Previous</button>
     <span id="pageStatus" aria-live="polite"></span>
     <button id="next" type="button" aria-label="Next page">Next →</button>
@@ -59,26 +62,26 @@
 </main>
 <script>
 const balloons = [
-  {name:"Tom Turkey",file:"tom-turkey"},{name:"Melody Melon",file:"melody-melon"},
-  {name:"Twinkle",file:"twinkle"},{name:"",file:"steamboat"},
-  {name:"Snowdrift Sam",file:"snowdrift-sam"},{name:"Maple",file:"maple"},
-  {name:"Major Walnut",file:"major-walnut"},{name:"Mitzi & Pom",file:"mitzi-pom"},
-  {name:"Pip the Woodpecker",file:"pip-the-woodpecker"},{name:"Jingle",file:"jingle"},
-  {name:"",file:"sailor"},{name:"Chef Biscuit",file:"chef-biscuit"},
-  {name:"Bubbles",file:"bubbles"},{name:"Batman Building",file:"batman-building"},
-  {name:"Sprocket",file:"sprocket"},{name:"Juniper",file:"juniper"},
-  {name:"",file:"silentcat"},{name:"Peppermint Pete",file:"peppermint-pete"},
-  {name:"Ginger the Baker",file:"ginger-the-baker"},{name:"Doodle",file:"doodle"},
-  {name:"Nana Fruitcake",file:"nana-fruitcake"},{name:"Waddle",file:"waddle"},
-  {name:"Cozy Cocoa",file:"cozy-cocoa"},{name:"",file:"woodenboy"},
-  {name:"B-2 Spirit",file:"b-2-spirit"},{name:"Plum the Owl",file:"plum-the-owl"},
-  {name:"Sweetie Pie",file:"sweetie-pie"},{name:"Raccoon Band: Drum",file:"raccoon-band-drum"},
-  {name:"Raccoon Band: Horn",file:"raccoon-band-horn"},
-  {name:"Raccoon Band: Cymbals",file:"raccoon-band-cymbals"}
+  {name:"Felix the Cat",file:"felix-the-cat"},{name:"Mickey Mouse",file:"mickey-mouse"},
+  {name:"Pinocchio",file:"pinocchio"},{name:"Harold the Fireman",file:"harold-the-fireman"},
+  {name:"Mighty Mouse",file:"mighty-mouse"},{name:"Popeye",file:"popeye"},
+  {name:"Aviator Snoopy",file:"aviator-snoopy"},{name:"Smokey Bear",file:"smokey-bear"},
+  {name:"Linus the Lion",file:"linus-the-lion"},{name:"Kermit the Frog",file:"kermit-the-frog"},
+  {name:"Superman",file:"superman"},{name:"Spider-Man",file:"spider-man"},
+  {name:"Sonic the Hedgehog",file:"sonic-the-hedgehog"},{name:"Bart Simpson",file:"bart-simpson"},
+  {name:"Cat in the Hat",file:"cat-in-the-hat"},{name:"Pink Panther",file:"pink-panther"},
+  {name:"SpongeBob SquarePants",file:"spongebob-squarepants"},{name:"M&M's",file:"m-m-s"},
+  {name:"Goku",file:"goku"},{name:"Bluey",file:"bluey"},
+  {name:"Stuart the Minion",file:"stuart-the-minion"},{name:"Monkey D. Luffy",file:"monkey-d-luffy"},
+  {name:"Minnie Mouse",file:"minnie-mouse"},{name:"Mario",file:"mario"},
+  {name:"Buzz Lightyear",file:"buzz-lightyear"},{name:"Pac-Man",file:"pac-man"},
+  {name:"Marshall",file:"marshall"},{name:"Dora",file:"dora"},
+  {name:"Pillsbury Doughboy",file:"pillsbury-doughboy"},{name:"Derpy Tiger",file:"derpy-tiger"}
 ];
 const perPage = 10;
 const pageCount = Math.ceil(balloons.length / perPage);
 let page = 0;
+let mode = "color";
 
 function christmasCountdown() {
   const now = new Date();
@@ -90,11 +93,12 @@ function christmasCountdown() {
 
 function render() {
   const visible = balloons.slice(page * perPage, (page + 1) * perPage);
+  document.querySelector(".screen").classList.toggle("dithered", mode === "eink");
   document.querySelector("#gallery").replaceChildren(...visible.map(balloon => {
     const card = document.createElement("div");
     card.className = "balloon";
     const image = document.createElement("img");
-    image.src = `../parade/sprites/${balloon.file}-large.png`;
+    image.src = `sprites/${balloon.file}-${mode === "color" ? "color" : "large"}.png`;
     image.alt = balloon.name || "Special guest balloon";
     const label = document.createElement("div");
     label.className = "name";
@@ -103,13 +107,15 @@ function render() {
     return card;
   }));
   document.querySelector("#countdown").textContent = christmasCountdown();
-  document.querySelector("#footer").textContent = `BALLOON PARADE  ·  PAGE ${page + 1} OF ${pageCount}`;
+  document.querySelector("#footer").textContent = `${mode === "color" ? "FULL COLOR" : "E-INK DITHER"} BALLOON PARADE  ·  PAGE ${page + 1} OF ${pageCount}`;
   document.querySelector("#pageStatus").textContent = `Page ${page + 1} of ${pageCount}`;
 }
 
 function changePage(delta) { page = (page + delta + pageCount) % pageCount; render(); }
 document.querySelector("#previous").addEventListener("click", () => changePage(-1));
 document.querySelector("#next").addEventListener("click", () => changePage(1));
+document.querySelector("#fullColor").addEventListener("click", () => { mode = "color"; render(); });
+document.querySelector("#eInk").addEventListener("click", () => { mode = "eink"; render(); });
 document.addEventListener("keydown", event => {
   if (event.key === "ArrowLeft") changePage(-1);
   if (event.key === "ArrowRight") changePage(1);
