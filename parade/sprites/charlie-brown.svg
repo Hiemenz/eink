@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+<!-- Charlie Brown: round head, three wispy curls, worried face and unmistakable zigzag. -->
+<ellipse cx="150" cy="91" rx="46" ry="48" fill="#F3C9A0"/><path d="M128 49 Q128 40 135 43 Q141 45 137 52 M146 45 Q148 36 155 40 Q161 43 157 50 M165 47 Q167 39 174 43 Q179 46 175 52" fill="none" stroke="#80523A" stroke-width="4.5" stroke-linecap="round"/>
+<ellipse cx="104" cy="98" rx="7" ry="11" fill="#F3C9A0"/><ellipse cx="196" cy="98" rx="7" ry="11" fill="#F3C9A0"/><path d="M130 83 Q138 78 145 82 M157 82 Q164 78 171 83" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/><circle cx="138" cy="91" r="3.3" fill="#1D1D1F"/><circle cx="164" cy="91" r="3.3" fill="#1D1D1F"/><path d="M148 99 Q151 97 154 100 M139 112 Q151 106 164 113" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
+<path d="M111 137 Q150 126 189 137 L185 184 Q151 195 115 184Z" fill="#F2BE35"/><path d="M113 152 L126 160 L139 152 L152 160 L165 152 L178 160 L188 153" fill="none" stroke="#1D1D1F" stroke-width="5" stroke-linejoin="round"/>
+<path d="M114 145 Q99 156 95 171 M186 145 Q201 156 205 170" fill="none" stroke="#F3C9A0" stroke-width="12" stroke-linecap="round"/><circle cx="94" cy="172" r="7" fill="#F3C9A0"/><circle cx="206" cy="171" r="7" fill="#F3C9A0"/>
+<path d="M120 182 L149 182 L145 211 L119 211Z M153 182 L181 182 L184 211 L157 211Z" fill="#1D1D1F"/><path d="M119 207 Q132 204 144 212 L142 225 L107 225 Q108 214 119 207 M158 212 Q169 204 182 208 L194 225 L160 225Z" fill="#80523A"/>
+</svg>

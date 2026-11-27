@@ -1,5 +1,181 @@
 [
  {
+  "file": "felix-the-cat",
+  "name": "Felix the Cat"
+ },
+ {
+  "file": "mickey-mouse",
+  "name": "Mickey Mouse"
+ },
+ {
+  "file": "pinocchio",
+  "name": "Pinocchio"
+ },
+ {
+  "file": "harold-the-fireman",
+  "name": "Harold the Fireman"
+ },
+ {
+  "file": "mighty-mouse",
+  "name": "Mighty Mouse"
+ },
+ {
+  "file": "popeye",
+  "name": "Popeye"
+ },
+ {
+  "file": "aviator-snoopy",
+  "name": "Aviator Snoopy"
+ },
+ {
+  "file": "smokey-bear",
+  "name": "Smokey Bear"
+ },
+ {
+  "file": "linus-the-lion",
+  "name": "Linus the Lion"
+ },
+ {
+  "file": "kermit-the-frog",
+  "name": "Kermit the Frog"
+ },
+ {
+  "file": "superman",
+  "name": "Superman"
+ },
+ {
+  "file": "spider-man",
+  "name": "Spider-Man"
+ },
+ {
+  "file": "sonic-the-hedgehog",
+  "name": "Sonic the Hedgehog"
+ },
+ {
+  "file": "bart-simpson",
+  "name": "Bart Simpson"
+ },
+ {
+  "file": "cat-in-the-hat",
+  "name": "Cat in the Hat"
+ },
+ {
+  "file": "pink-panther",
+  "name": "Pink Panther"
+ },
+ {
+  "file": "spongebob-squarepants",
+  "name": "SpongeBob SquarePants"
+ },
+ {
+  "file": "m-m-s",
+  "name": "M&M's"
+ },
+ {
+  "file": "goku",
+  "name": "Goku"
+ },
+ {
+  "file": "bluey",
+  "name": "Bluey"
+ },
+ {
+  "file": "stuart-the-minion",
+  "name": "Stuart the Minion"
+ },
+ {
+  "file": "monkey-d-luffy",
+  "name": "Monkey D. Luffy"
+ },
+ {
+  "file": "minnie-mouse",
+  "name": "Minnie Mouse"
+ },
+ {
+  "file": "mario",
+  "name": "Mario"
+ },
+ {
+  "file": "buzz-lightyear",
+  "name": "Buzz Lightyear"
+ },
+ {
+  "file": "pac-man",
+  "name": "Pac-Man"
+ },
+ {
+  "file": "marshall",
+  "name": "Marshall"
+ },
+ {
+  "file": "dora",
+  "name": "Dora"
+ },
+ {
+  "file": "pillsbury-doughboy",
+  "name": "Pillsbury Doughboy"
+ },
+ {
+  "file": "derpy-tiger",
+  "name": "Derpy Tiger"
+ },
+ {
+  "name": "Linus Van Pelt",
+  "file": "linus-van-pelt"
+ },
+ {
+  "name": "Schroeder",
+  "file": "schroeder"
+ },
+ {
+  "name": "Franklin Armstrong",
+  "file": "franklin-armstrong"
+ },
+ {
+  "name": "Pig-Pen",
+  "file": "pig-pen"
+ },
+ {
+  "name": "Marcie",
+  "file": "marcie"
+ },
+ {
+  "name": "Sally Brown",
+  "file": "sally-brown"
+ },
+ {
+  "name": "Woodstock",
+  "file": "woodstock"
+ },
+ {
+  "name": "Snoopy",
+  "file": "snoopy"
+ },
+ {
+  "name": "Peppermint Patty",
+  "file": "peppermint-patty"
+ },
+ {
+  "name": "Remy",
+  "file": "remy"
+ },
+ {
+  "name": "Woody",
+  "file": "woody"
+ },
+ {
+  "name": "Lucy Van Pelt",
+  "file": "lucy-van-pelt"
+ },
+ {
+  "name": "Charlie Brown",
+  "file": "charlie-brown"
+ },
+ {
+  "name": "Rerun Van Pelt",
+  "file": "rerun-van-pelt"
+ },
+ {
   "name": "Tom Turkey",
   "file": "tom-turkey"
  },

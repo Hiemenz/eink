@@ -1006,7 +1006,7 @@ congress_bills:
 # ── Holiday Balloon Parade ───────────────────────────────────────────────────
 holiday_parade:
   output_path: images/holiday_parade.bmp
-  mode: snapshot                 # snapshot (three balloons, advances each refresh) or balloon_of_day
+  mode: snapshot                 # snapshot, balloon_of_day, or gallery (ten balloons per page)
   greeting: Happy Holidays Franklin   # words on the theatre sign
   weather: auto                  # auto, snow, rain or none
   night: auto                    # auto, "on" or "off"

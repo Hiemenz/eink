@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+<!-- Schroeder seated at his toy piano: recognizable blond forelock, bent legs and keyboard in front. -->
+<path d="M119 93 Q111 67 124 49 Q139 34 158 40 Q179 39 190 59 L185 98 L174 112 L125 111Z" fill="#F3C9A0"/><path d="M117 71 Q119 40 151 37 Q179 37 191 58 L181 58 Q168 54 160 65 L147 54 L134 68 L124 61Z" fill="#F2BE35"/>
+<circle cx="139" cy="78" r="4" fill="#1D1D1F"/><circle cx="163" cy="78" r="4" fill="#1D1D1F"/><path d="M141 97 Q152 101 164 96" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
+<path d="M128 111 L177 111 L187 151 L121 151Z" fill="#F2BE35"/><path d="M129 126 L103 147 M177 126 L197 145" stroke="#F3C9A0" stroke-width="10" stroke-linecap="round"/><path d="M104 146 L125 153 M196 145 L181 153" stroke="#F3C9A0" stroke-width="9" stroke-linecap="round"/>
+<path d="M119 145 Q148 138 188 148 L198 169 L186 180 L111 174Z" fill="#1D1D1F"/><path d="M80 170 L220 170 L220 209 L80 209Z" fill="#80523A"/><path d="M88 177 L212 177 L212 198 L88 198Z" fill="#1D1D1F"/><path d="M99 178 V197 M111 178 V197 M123 178 V197 M135 178 V197 M147 178 V197 M159 178 V197 M171 178 V197 M183 178 V197 M195 178 V197" stroke="#FBF8F1" stroke-width="2.5"/><path d="M113 208 L145 208 M157 208 L187 208" stroke="#1D1D1F" stroke-width="8" stroke-linecap="round"/>
+</svg>

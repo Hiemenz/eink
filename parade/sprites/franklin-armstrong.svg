@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+<!-- Franklin: dark skin, close-cropped curls, relaxed smile, green collared shirt and dark shorts. -->
+<ellipse cx="151" cy="88" rx="39" ry="42" fill="#80523A"/><path d="M112 71 Q113 48 130 42 Q150 31 170 40 Q188 47 191 68 L184 75 Q173 66 163 74 L151 65 L138 75 L126 67 L117 80Z" fill="#1D1D1F"/>
+<circle cx="138" cy="84" r="3.5" fill="#1D1D1F"/><circle cx="164" cy="84" r="3.5" fill="#1D1D1F"/><path d="M138 102 Q151 112 166 102" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
+<path d="M109 130 Q151 120 193 130 L200 183 Q151 195 101 183Z" fill="#4B9560"/><path d="M129 128 L151 144 L173 128" fill="none" stroke="#FBF8F1" stroke-width="4"/><path d="M110 143 L88 158 M191 143 L213 158" stroke="#80523A" stroke-width="12" stroke-linecap="round"/><circle cx="86" cy="160" r="7" fill="#80523A"/><circle cx="215" cy="160" r="7" fill="#80523A"/>
+<path d="M116 182 L146 182 L142 211 L114 211 M157 182 L185 182 L188 211 L160 211" fill="#1D1D1F"/><path d="M112 213 L145 213 M159 213 L191 213" stroke="#80523A" stroke-width="9" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+<!-- Marcie: neat chestnut bob, round glasses, polite smile and orange blouse. -->
+<path d="M109 99 Q101 62 122 43 Q143 28 167 37 Q192 45 195 77 L188 115 L177 128 L120 124Z" fill="#80523A"/><ellipse cx="151" cy="87" rx="36" ry="40" fill="#D8A56E"/><path d="M112 72 Q119 40 150 37 Q179 37 192 62 L184 78 L174 67 L161 76 L150 65 L138 75 L125 66 L116 82Z" fill="#80523A"/>
+<circle cx="138" cy="84" r="13" fill="none" stroke="#1D1D1F" stroke-width="3.5"/><circle cx="165" cy="84" r="13" fill="none" stroke="#1D1D1F" stroke-width="3.5"/><path d="M151 84 L152 84" stroke="#1D1D1F" stroke-width="3.5"/><circle cx="138" cy="84" r="3" fill="#1D1D1F"/><circle cx="165" cy="84" r="3" fill="#1D1D1F"/><path d="M141 105 Q152 111 164 104" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
+<path d="M109 130 Q151 120 193 130 L199 183 Q151 196 101 183Z" fill="#EC7C30"/><path d="M111 144 L91 160 M191 144 L211 160" stroke="#D8A56E" stroke-width="10" stroke-linecap="round"/><path d="M119 183 L146 183 L142 212 L115 212 M157 183 L184 183 L188 212 L160 212" fill="#2E59C9"/><ellipse cx="127" cy="219" rx="16" ry="7" fill="#1D1D1F"/><ellipse cx="177" cy="219" rx="16" ry="7" fill="#1D1D1F"/>
+</svg>
