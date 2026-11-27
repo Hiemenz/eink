@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+  <!-- Long pink tail curling behind a compact, upright chef rat -->
+  <path d="M126 183 C97 207 65 210 54 185 C43 160 53 131 77 132 C98 133 100 157 89 166" fill="none" stroke="#EC95AE" stroke-width="11" stroke-linecap="round"/>
+  <path d="M110 100 Q89 77 105 62 Q123 46 140 68 M181 67 Q198 48 215 64 Q229 81 205 103" fill="#E48F91" stroke="#30343A" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="116" cy="79" rx="11" ry="17" fill="#E79AA1"/><ellipse cx="204" cy="79" rx="11" ry="17" fill="#E79AA1"/>
+  <!-- dark gray furry silhouette and little feet -->
+  <path d="M119 102 Q127 91 150 92 Q175 92 183 104 Q196 127 190 172 Q186 199 178 213 L124 213 Q113 194 110 171 Q104 128 119 102Z" fill="#3C4850" stroke="#252B31" stroke-width="4"/>
+  <path d="M123 121 Q107 143 112 174 M181 121 Q194 144 187 175" fill="none" stroke="#59646A" stroke-width="5" stroke-linecap="round"/>
+  <path d="M132 205 L126 225 Q126 234 140 234 L153 232 L154 211 M166 211 L168 229 Q176 235 190 231 Q195 228 188 221 L179 204" fill="#303940"/>
+  <path d="M129 227 Q122 229 122 237 Q126 242 147 241 Q155 239 151 232Z M169 229 Q166 237 174 241 Q192 243 197 237 Q196 231 185 229Z" fill="#E79AA1"/>
+  <!-- one paw raised in a friendly wave -->
+  <path d="M116 136 Q101 130 91 118 L77 99 Q74 94 78 90 Q83 87 87 92 L98 104 L88 85 Q86 79 91 77 Q96 76 99 82 L108 98 L103 80 Q102 74 107 73 Q112 73 114 80 L120 101 Q125 112 132 120Z" fill="#46535A" stroke="#252B31" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M78 97 Q74 91 79 88 Q83 87 87 92 M90 84 Q89 78 94 77 Q98 78 100 83 M104 79 Q103 74 108 74 Q112 75 113 81" fill="none" stroke="#E79AA1" stroke-width="3" stroke-linecap="round"/>
+  <!-- head, eyes and muzzle -->
+  <path d="M111 103 Q112 81 132 73 Q152 64 174 74 Q193 84 194 106 Q195 133 177 147 Q162 159 143 152 Q118 145 111 124Z" fill="#303B42" stroke="#252B31" stroke-width="4"/>
+  <ellipse cx="137" cy="104" rx="16" ry="22" fill="#FBF8F1"/><ellipse cx="169" cy="103" rx="16" ry="22" fill="#FBF8F1"/>
+  <ellipse cx="141" cy="107" rx="7" ry="10" fill="#80523A"/><ellipse cx="166" cy="106" rx="7" ry="10" fill="#80523A"/>
+  <ellipse cx="143" cy="108" rx="3.5" ry="5" fill="#1D1D1F"/><ellipse cx="168" cy="107" rx="3.5" ry="5" fill="#1D1D1F"/>
+  <circle cx="144" cy="104" r="2.4" fill="#FFFFFF"/><circle cx="169" cy="103" r="2.4" fill="#FFFFFF"/>
+  <ellipse cx="153" cy="126" rx="27" ry="19" fill="#39454C"/>
+  <ellipse cx="157" cy="124" rx="12" ry="11" fill="#E27678"/>
+  <path d="M144 137 Q156 148 170 136" fill="none" stroke="#171B20" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M132 129 L106 122 M132 136 L104 138 M179 129 L204 121 M179 136 L207 139" fill="none" stroke="#CFD0CA" stroke-width="2" stroke-linecap="round"/>
+  <!-- tall white pleated toque -->
+  <path d="M128 78 Q119 63 124 42 Q128 25 142 20 Q150 12 160 20 Q175 21 181 39 Q186 56 179 78Z" fill="#FBF8F1" stroke="#D6D0C5" stroke-width="3"/>
+  <path d="M139 70 Q135 46 143 24 M157 69 Q161 42 157 18 M171 68 Q178 43 168 25" fill="none" stroke="#E2DCD2" stroke-width="3" stroke-linecap="round"/>
+  <path d="M123 75 Q151 70 184 76 L188 86 Q153 92 119 85Z" fill="#FBF8F1" stroke="#D6D0C5" stroke-width="3"/>
+</svg>

@@ -47,6 +47,7 @@ const SKIN="#F3C9A0",W=1280,STREET=690;
 const mirror=m=>m+`<g transform="scale(-1 1)">${m}</g>`;
 /* Copyrighted character balloons from the user's supplied reference; full-color source art. */
 const referenceBalloon=file=>`<image x="-150" y="-135" width="300" height="270" href="sprites/${file}-color.png" preserveAspectRatio="xMidYMid meet"/>`;
+const newcomer=file=>`<image x="-150" y="-125" width="300" height="250" href="sprites/${file}.svg" preserveAspectRatio="xMidYMid meet"/>`;
 /* Santa as a giant balloon, drawn around (0,0) */
 function santaBalloon(){
   return mirror(E(66,148,48,28,INK,10)+R(24,108,62,38,16,RED)+R(22,130,68,16,8,CREAM))
@@ -272,6 +273,7 @@ const BALLOONS=[
  ["Sonic the Hedgehog",()=>referenceBalloon("sonic-the-hedgehog")],["Bart Simpson",()=>referenceBalloon("bart-simpson")],["Cat in the Hat",()=>referenceBalloon("cat-in-the-hat")],["Pink Panther",()=>referenceBalloon("pink-panther")],["SpongeBob SquarePants",()=>referenceBalloon("spongebob-squarepants")],["M&M's",()=>referenceBalloon("m-m-s")],
  ["Goku",()=>referenceBalloon("goku")],["Bluey",()=>referenceBalloon("bluey")],["Stuart the Minion",()=>referenceBalloon("stuart-the-minion")],["Monkey D. Luffy",()=>referenceBalloon("monkey-d-luffy")],["Minnie Mouse",()=>referenceBalloon("minnie-mouse")],["Mario",()=>referenceBalloon("mario")],
  ["Buzz Lightyear",()=>referenceBalloon("buzz-lightyear")],["Pac-Man",()=>referenceBalloon("pac-man")],["Marshall",()=>referenceBalloon("marshall")],["Dora",()=>referenceBalloon("dora")],["Pillsbury Doughboy",()=>referenceBalloon("pillsbury-doughboy")],["Derpy Tiger",()=>referenceBalloon("derpy-tiger")],
+ ["Remy",()=>newcomer("remy")],["Woody",()=>newcomer("woody")],["Charlie Brown",()=>newcomer("charlie-brown")],["Snoopy",()=>newcomer("snoopy")],["Woodstock",()=>newcomer("woodstock")],["Lucy Van Pelt",()=>newcomer("lucy-van-pelt")],["Linus Van Pelt",()=>newcomer("linus-van-pelt")],["Sally Brown",()=>newcomer("sally-brown")],["Schroeder",()=>newcomer("schroeder")],["Franklin Armstrong",()=>newcomer("franklin-armstrong")],["Peppermint Patty",()=>newcomer("peppermint-patty")],["Marcie",()=>newcomer("marcie")],["Pig-Pen",()=>newcomer("pig-pen")],["Rerun Van Pelt",()=>newcomer("rerun-van-pelt")],
  ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["",steamboat],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
  ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["",sailor],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
  ["",silentCat],["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
