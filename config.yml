@@ -55,8 +55,8 @@ radar_mode: panel # "crop" | "fit" | "panel" | "seven_color" | "full" | "dynamic
 dynamic_radius_km: 100      # dynamic: how close echoes must be to count as "weather in the area"
 dynamic_min_area_km2: 100   # dynamic: how much echo area inside that radius triggers full-screen
 quiet_rain_percent: 3                # rain on more than this % of the radar map redraws every run
-national_radar_when_quiet: true      # quiet (at or under that, no alert): hourly redraws alternate
-                                     # local and full US radar
+national_radar_when_quiet: true      # quiet (at or under that, no alert): once an hour the full US
+                                     # radar shows for one run (12 min), then the local view returns
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_legend: true        # show 7-color dBZ legend strip under the radar in panel mode
 panel_header: "Franklin, TN"   # text shown in the panel header bar
