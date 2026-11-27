@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Franklin Holiday Parade — E-Ink Gallery Preview</title>
+<style>
+  :root { color-scheme: light; font-family: Arial, Helvetica, sans-serif; color: #111; background: #eeeae1; }
+  * { box-sizing: border-box; }
+  body { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 24px; }
+  main { width: min(100%, 800px); }
+  .screen {
+    position: relative; width: 100%; aspect-ratio: 5 / 3; overflow: hidden;
+    background: #fff; box-shadow: 0 12px 38px #302a1d30; container-type: inline-size;
+  }
+  .header {
+    position: absolute; inset: 0 0 auto; height: 4.75cqw; background: #f00; color: #fff;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 1.75cqw;
+    font-weight: 700; font-size: 2.375cqw; white-space: nowrap;
+  }
+  .header .countdown { font-size: 2.125cqw; }
+  .grid {
+    position: absolute; left: 1.75cqw; top: 6.25cqw; width: 96.5cqw;
+    display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(2, 22.625cqw);
+  }
+  .balloon { min-width: 0; height: 22.625cqw; position: relative; display: flex; align-items: flex-start; justify-content: center; }
+  .balloon img {
+    position: absolute; top: .25cqw; max-width: 17.75cqw; max-height: 17.25cqw;
+    object-fit: contain; image-rendering: pixelated;
+  }
+  .balloon .name {
+    position: absolute; top: 18.5cqw; left: .3cqw; right: .3cqw; text-align: center;
+    font-weight: 700; font-size: 1.375cqw; line-height: 1.15; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .footer {
+    position: absolute; top: 54.75cqw; left: 0; width: 100%; text-align: center;
+    font-size: 1.75cqw; font-weight: 700; white-space: nowrap;
+  }
+  .controls { display: flex; align-items: center; justify-content: center; gap: 16px; padding-top: 18px; }
+  button { border: 1px solid #777; border-radius: 6px; background: #fff; padding: 9px 16px; font: inherit; cursor: pointer; }
+  button:hover { background: #f7f3eb; }
+  #pageStatus { min-width: 84px; text-align: center; font-size: 14px; }
+  @media (max-width: 520px) { body { padding: 10px; } .controls { gap: 8px; padding-top: 10px; } button { padding: 8px 11px; } }
+</style>
+</head>
+<body>
+<main aria-label="Holiday parade e-ink gallery preview">
+  <section class="screen" aria-label="800 by 480 e-ink gallery">
+    <header class="header"><span>FRANKLIN HOLIDAY PARADE</span><span class="countdown" id="countdown"></span></header>
+    <div class="grid" id="gallery"></div>
+    <footer class="footer" id="footer"></footer>
+  </section>
+  <nav class="controls" aria-label="Gallery page controls">
+    <button id="previous" type="button" aria-label="Previous page">← Previous</button>
+    <span id="pageStatus" aria-live="polite"></span>
+    <button id="next" type="button" aria-label="Next page">Next →</button>
+  </nav>
+</main>
+<script>
+const balloons = [
+  {name:"Tom Turkey",file:"tom-turkey"},{name:"Melody Melon",file:"melody-melon"},
+  {name:"Twinkle",file:"twinkle"},{name:"",file:"steamboat"},
+  {name:"Snowdrift Sam",file:"snowdrift-sam"},{name:"Maple",file:"maple"},
+  {name:"Major Walnut",file:"major-walnut"},{name:"Mitzi & Pom",file:"mitzi-pom"},
+  {name:"Pip the Woodpecker",file:"pip-the-woodpecker"},{name:"Jingle",file:"jingle"},
+  {name:"",file:"sailor"},{name:"Chef Biscuit",file:"chef-biscuit"},
+  {name:"Bubbles",file:"bubbles"},{name:"Batman Building",file:"batman-building"},
+  {name:"Sprocket",file:"sprocket"},{name:"Juniper",file:"juniper"},
+  {name:"",file:"silentcat"},{name:"Peppermint Pete",file:"peppermint-pete"},
+  {name:"Ginger the Baker",file:"ginger-the-baker"},{name:"Doodle",file:"doodle"},
+  {name:"Nana Fruitcake",file:"nana-fruitcake"},{name:"Waddle",file:"waddle"},
+  {name:"Cozy Cocoa",file:"cozy-cocoa"},{name:"",file:"woodenboy"},
+  {name:"B-2 Spirit",file:"b-2-spirit"},{name:"Plum the Owl",file:"plum-the-owl"},
+  {name:"Sweetie Pie",file:"sweetie-pie"},{name:"Raccoon Band: Drum",file:"raccoon-band-drum"},
+  {name:"Raccoon Band: Horn",file:"raccoon-band-horn"},
+  {name:"Raccoon Band: Cymbals",file:"raccoon-band-cymbals"}
+];
+const perPage = 10;
+const pageCount = Math.ceil(balloons.length / perPage);
+let page = 0;
+
+function christmasCountdown() {
+  const now = new Date();
+  let christmas = new Date(now.getFullYear(), 11, 25);
+  if (now > christmas) christmas = new Date(now.getFullYear() + 1, 11, 25);
+  const days = Math.round((christmas - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+  return days === 0 ? "MERRY CHRISTMAS!" : `${days} ${days === 1 ? "DAY" : "DAYS"} UNTIL CHRISTMAS`;
+}
+
+function render() {
+  const visible = balloons.slice(page * perPage, (page + 1) * perPage);
+  document.querySelector("#gallery").replaceChildren(...visible.map(balloon => {
+    const card = document.createElement("div");
+    card.className = "balloon";
+    const image = document.createElement("img");
+    image.src = `../parade/sprites/${balloon.file}-large.png`;
+    image.alt = balloon.name || "Special guest balloon";
+    const label = document.createElement("div");
+    label.className = "name";
+    label.textContent = balloon.name || "Special guest";
+    card.append(image, label);
+    return card;
+  }));
+  document.querySelector("#countdown").textContent = christmasCountdown();
+  document.querySelector("#footer").textContent = `BALLOON PARADE  ·  PAGE ${page + 1} OF ${pageCount}`;
+  document.querySelector("#pageStatus").textContent = `Page ${page + 1} of ${pageCount}`;
+}
+
+function changePage(delta) { page = (page + delta + pageCount) % pageCount; render(); }
+document.querySelector("#previous").addEventListener("click", () => changePage(-1));
+document.querySelector("#next").addEventListener("click", () => changePage(1));
+document.addEventListener("keydown", event => {
+  if (event.key === "ArrowLeft") changePage(-1);
+  if (event.key === "ArrowRight") changePage(1);
+});
+render();
+</script>
+</body>
+</html>

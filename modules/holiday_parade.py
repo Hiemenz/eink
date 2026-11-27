@@ -356,6 +356,35 @@ def render_balloon_of_day(config, balloons, weather, night, today, greeting) -> 
     return image
 
 
+def render_gallery(config, balloons, page, weather, night, today, greeting) -> Image.Image:
+    """Show ten parade balloons at a time in a captioned, poster-like gallery."""
+    per_page = 10
+    pages = (len(balloons) + per_page - 1) // per_page
+    page %= pages
+    image = Image.new("RGB", (W, H), WHITE)
+    draw = _canvas_draw(image)
+
+    # Two rows of five leave enough room for each character and a readable caption.
+    cell_w, cell_h = 156, 181
+    start_x, start_y = 14, 50
+    for slot, balloon in enumerate(balloons[page * per_page:(page + 1) * per_page]):
+        col, row = slot % 5, slot // 5
+        cx = start_x + col * cell_w + cell_w // 2
+        top = start_y + row * cell_h
+        sprite = Image.open(SPRITES / f"{balloon['file']}-large.png").convert("RGBA")
+        # Keep the sprites on the panel's exact seven-color palette when scaled.
+        sprite.thumbnail((142, 138), Image.Resampling.NEAREST)
+        x, y = cx - sprite.width // 2, top + 2
+        image.paste(sprite.convert("RGB"), (x, y), sprite.getchannel("A"))
+        label = balloon["name"] or "Special guest"
+        _text(draw, (cx, top + 148), label, 11, BLACK, config, max_width=cell_w - 6)
+
+    _text(draw, (W // 2, 438), f"BALLOON PARADE  ·  PAGE {page + 1} OF {pages}",
+          14, BLACK, config, max_width=600)
+    _header(image, christmas_countdown(today), config)
+    return image
+
+
 def _next_step(state_file: str, count: int) -> int:
     try:
         with open(state_file) as f:
@@ -386,8 +415,13 @@ def generate(config: dict) -> str:
         night = night_setting.lower() in ("on", "true", "yes", "night")
 
     balloons = load_balloons()
-    if cfg.get("mode", "snapshot") == "balloon_of_day":
+    mode = cfg.get("mode", "snapshot")
+    if mode == "balloon_of_day":
         image = render_balloon_of_day(config, balloons, weather, night, now.date(), greeting)
+    elif mode == "gallery":
+        page = _next_step(cfg.get("state_file", "data/holiday_parade_state.json"),
+                          (len(balloons) + 9) // 10)
+        image = render_gallery(config, balloons, page, weather, night, now.date(), greeting)
     else:
         step = _next_step(cfg.get("state_file", "data/holiday_parade_state.json"), len(balloons))
         image = render_snapshot(config, balloons, step, weather, night, now.date(), greeting)
