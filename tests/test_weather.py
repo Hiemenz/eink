@@ -1733,11 +1733,11 @@ class TestNationalRadar:
             return True
 
         def fake_local(config, alert=None):
+            config["_rain_percent"] = 0.5
             return config["quantized_path"], True, None
 
         shown, drawn, clock = None, [], 100_000
         with patch.object(W_MOD, "_render_national_radar", side_effect=fake_national), \
-             patch.object(W_MOD, "_precip_nearby", return_value=False), \
              patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
              patch.object(W_MOD, "calculate_non_bw_percentage", return_value=0.0), \
              patch.object(W_MOD, "get_local_alert", return_value=None), \
@@ -1752,14 +1752,40 @@ class TestNationalRadar:
                     drawn.append((run, "us" if view["national"] else "local"))
         assert drawn == [(0, "local"), (5, "us"), (10, "local"), (15, "us"), (20, "local")]
 
+    @pytest.mark.parametrize("rain, alert, quiet", [
+        (0.0, None, True), (3.0, None, True), (3.1, None, False),
+        (0.0, {"level": "warning"}, False), (None, None, False),
+    ])
+    def test_quiet_is_rain_at_or_under_three_percent(self, tmp_path, monkeypatch, rain, alert, quiet):
+        monkeypatch.chdir(tmp_path)
+
+        def fake_local(config, alert=None):
+            if rain is not None:
+                config["_rain_percent"] = rain
+            return config["quantized_path"], True, None
+
+        with patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
+             patch.object(W_MOD, "calculate_non_bw_percentage", return_value=0.0), \
+             patch.object(W_MOD, "get_local_alert", return_value=alert):
+            cfg = {"station": {"name": "KOHX"}}
+            W_MOD.generate(cfg)
+        assert cfg["_view_state"]["quiet"] is quiet
+
     def test_failed_national_render_falls_back_to_local(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        with patch.object(W_MOD, "_render_national_radar", return_value=False), \
-             patch.object(W_MOD, "_precip_nearby", return_value=False), \
-             patch.object(W_MOD, "generate_weather_image", return_value=(None, False, None)) as local, \
+
+        def fake_local(config, alert=None):
+            config["_rain_percent"] = 0.0
+            return config["quantized_path"], True, None
+
+        shown = {"ts": 0, "quiet": True, "national": False}
+        with patch.object(W_MOD, "_render_national_radar", return_value=False) as national, \
+             patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
+             patch.object(W_MOD, "calculate_non_bw_percentage", return_value=0.0), \
              patch.object(W_MOD, "get_local_alert", return_value=None):
-            W_MOD.generate({**self.ON, "station": {"name": "KOHX"}})
-        assert local.called
+            cfg = {**self.ON, "station": {"name": "KOHX"}, "_shown_view": shown}
+            assert W_MOD.generate(cfg)
+        assert national.called and cfg["_view_state"]["national"] is False
 
 
 class TestBottomStripInfo:
