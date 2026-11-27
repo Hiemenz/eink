@@ -1002,3 +1002,12 @@ election:
 congress_bills:
   output_path: images/congress_bills.bmp
   api_key: ""   # free key from api.congress.gov/sign-up; blank = rate-limited DEMO_KEY
+
+# ── Holiday Balloon Parade ───────────────────────────────────────────────────
+holiday_parade:
+  output_path: images/holiday_parade.bmp
+  mode: snapshot                 # snapshot (three balloons, advances each refresh) or balloon_of_day
+  greeting: Happy Holidays Franklin   # words on the theatre sign
+  weather: auto                  # auto, snow, rain or none
+  night: auto                    # auto, "on" or "off"
+  state_file: data/holiday_parade_state.json
