@@ -26,3 +26,8 @@
 
 ## Check origin/main before describing what the project contains
 - Run `git fetch` and compare the checked-out branch with `origin/main` first; a feature branch can be stale right after a merge (a 30-balloon branch was shown when main had 74).
+
+## Judge "is it raining" on what the panel shows
+- RainViewer sends wide faint echo that the seven-color remap turns white. Counting raw alpha > 0
+  read a blank map as rain, and the quiet-time US view never appeared. When a feature depends on a
+  condition, check the live logs that it has actually fired.

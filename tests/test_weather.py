@@ -1693,22 +1693,30 @@ class TestAuditRegressions:
 class TestNationalRadar:
     ON = {"national_radar_when_quiet": True}
 
-    def _due(self, config, last=0, special=None, nearby=False):
-        with patch.object(W_MOD, "_precip_nearby", return_value=nearby):
-            return W_MOD._national_radar_due(
-                config, {"national_radar_ts": last}, 100_000, special)
+    HOUR_AGO = {"ts": 100_000 - 3535, "quiet": True, "national": False}
 
-    def test_due_when_quiet_and_an_hour_has_passed(self):
-        assert self._due(self.ON, last=100_000 - 3600)
+    def _due(self, shown, config=None, quiet=True):
+        config = self.ON if config is None else config
+        return W_MOD._national_radar_due(config, shown, 100_000, quiet)
 
-    def test_not_due_within_the_hour(self):
-        assert not self._due(self.ON, last=100_000 - 3300)
+    def test_due_when_local_has_had_its_hour(self):
+        assert self._due(self.HOUR_AGO)
 
-    def test_not_due_with_rain_unknown_alert_or_disabled(self):
-        assert not self._due(self.ON, nearby=True)
-        assert not self._due(self.ON, nearby=None)
-        assert not self._due(self.ON, special="Tornado Warning")
-        assert not self._due({})
+    def test_not_due_within_the_hour_or_after_the_us_view(self):
+        assert not self._due({**self.HOUR_AGO, "ts": 100_000 - 2900})
+        assert not self._due({**self.HOUR_AGO, "national": True})
+
+    def test_not_due_when_active_just_cleared_unknown_or_disabled(self):
+        assert not self._due(self.HOUR_AGO, quiet=False)
+        assert not self._due({**self.HOUR_AGO, "quiet": False})
+        assert not self._due(None)
+        assert not self._due(self.HOUR_AGO, config={})
+
+    def test_faint_echo_that_shows_white_is_not_rain(self):
+        faint = Image.new("RGBA", (400, 400), (0, 200, 0, 24))
+        assert W_MOD._echo_area_km2(W_MOD._visible_echo(faint), 36.0, 7, 100) == 0
+        solid = Image.new("RGBA", (400, 400), (0, 200, 0, 255))
+        assert W_MOD._echo_area_km2(W_MOD._visible_echo(solid), 36.0, 7, 100) > 1000
 
     def test_albers_inverse_matches_lower_48_extent(self):
         pts = [W_MOD._albers_to_latlon(x, y)
@@ -1718,28 +1726,31 @@ class TestNationalRadar:
         assert (min(lats), max(lats)) == pytest.approx((24.52, 49.38), abs=0.1)
         assert (min(lons), max(lons)) == pytest.approx((-124.73, -66.95), abs=0.1)
 
-    def test_generate_shows_national_once_then_local_again(self, tmp_path, monkeypatch):
+    def test_generate_alternates_local_and_us_each_quiet_hour(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        local_calls = []
 
         def fake_national(config, headers, path):
-            Image.new("RGB", (8, 8), (0, 0, 255)).save(path, format="bmp")
             return True
 
         def fake_local(config, alert=None):
-            local_calls.append(1)
-            Image.new("RGB", (8, 8), (255, 255, 255)).save(config["quantized_path"], format="bmp")
             return config["quantized_path"], True, None
 
+        shown, drawn, clock = None, [], 100_000
         with patch.object(W_MOD, "_render_national_radar", side_effect=fake_national), \
              patch.object(W_MOD, "_precip_nearby", return_value=False), \
              patch.object(W_MOD, "generate_weather_image", side_effect=fake_local), \
-             patch.object(W_MOD, "get_local_alert", return_value=None):
-            cfg = {**self.ON, "station": {"name": "KOHX"}}
-            first = W_MOD.generate(dict(cfg))
-            assert not local_calls
-            second = W_MOD.generate(dict(cfg))
-        assert first == second and local_calls == [1]
+             patch.object(W_MOD, "calculate_non_bw_percentage", return_value=0.0), \
+             patch.object(W_MOD, "get_local_alert", return_value=None), \
+             patch.object(W_MOD.time, "time", side_effect=lambda: clock):
+            for run in range(21):  # four hours of 12-minute runs
+                clock = 100_000 + run * 720
+                cfg = {**self.ON, "station": {"name": "KOHX"}, "_shown_view": shown}
+                W_MOD.generate(cfg)
+                view = cfg["_view_state"]
+                if shown is None or W_MOD.view_change_reason(shown, view, 3600):
+                    shown = view
+                    drawn.append((run, "us" if view["national"] else "local"))
+        assert drawn == [(0, "local"), (5, "us"), (10, "local"), (15, "us"), (20, "local")]
 
     def test_failed_national_render_falls_back_to_local(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

@@ -211,3 +211,14 @@ Original characters only. Preview before any commit.
 - [x] Re-export sprites; unnamed balloons are filed by art function and have no caption
 - [x] Parade tests pass (14); previewed the large sprites and one street snapshot
 - [x] User approved the preview; commit, PR and auto-merge
+
+---
+
+# Less screen flashing (2026-11-27)
+
+- [x] Quiet: redraw hourly, alternating local and US view. Active (visible rain nearby or alert): every run
+- [x] Quiet check counts only echo visible on the panel (faint echo had stopped the US view from ever showing)
+- [x] Compare with what is on the panel, not the previous run
+- [x] Drop the extra white clear before each color redraw; deep clear every 20th redraw against ghosting
+- [x] Tests, plus a replay of the color display's logs to estimate redraw counts
+- [ ] User approval before merge (merging deploys to the color display)

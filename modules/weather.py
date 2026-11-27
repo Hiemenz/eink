@@ -3351,8 +3351,22 @@ def _precip_nearby(config: dict, headers: dict) -> Optional[bool]:
     except Exception as e:
         logger.warning("Dynamic radar probe failed: %s", e)
         return None
-    return _echo_area_km2(frame, lat, zoom, config.get("dynamic_radius_km", 100)) >= \
+    return _echo_area_km2(_visible_echo(frame), lat, zoom, config.get("dynamic_radius_km", 100)) >= \
         config.get("dynamic_min_area_km2", 100)
+
+
+def _visible_echo(frame: Image.Image) -> Image.Image:
+    """Keep only echo that gets ink on the panel.
+
+    RainViewer sends wide areas of faint returns that the seven-color remap turns
+    white; counting them reads a blank screen as rain.
+    """
+    flat = Image.new("RGBA", frame.size, (255, 255, 255, 255))
+    flat.alpha_composite(frame.convert("RGBA"))
+    wet = (np.array(_remap_radar_seven_color(flat.convert("RGB"))) != 255).any(axis=-1)
+    shown = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    shown.putalpha(Image.fromarray(wet.astype(np.uint8) * 255))
+    return shown
 
 
 def _echo_area_km2(frame: Image.Image, lat: float, zoom: int, radius_km: float) -> float:
@@ -3472,16 +3486,38 @@ def _render_national_radar(config: dict, headers: dict, output_path: str) -> boo
     return True
 
 
-def _national_radar_due(config: dict, state: dict, now: float, alert) -> bool:
-    """True when it's quiet around home and the last national view is old enough."""
-    if not config.get("national_radar_when_quiet", False) or alert:
+_VIEW_AGE_SLACK = 120  # s; so a push finishing after its cron tick doesn't slip a whole run
+
+
+def _hour_is_up(shown: dict, now: float, hold_s: float) -> bool:
+    return hold_s > 0 and now - shown.get("ts", 0) >= hold_s - _VIEW_AGE_SLACK
+
+
+def view_change_reason(shown: dict, new: dict, max_age: float = 0) -> Optional[str]:
+    """Why the panel needs redrawing, or None to leave it alone.
+
+    Active weather redraws on every run. Quiet weather redraws once per `max_age`.
+    `shown` describes what is on the panel now.
+    """
+    if not new.get("quiet"):
+        return "active weather"
+    if not shown.get("quiet"):
+        return "weather cleared"
+    if _hour_is_up(shown, new.get("ts", 0), max_age):
+        return "hourly refresh"
+    return None
+
+
+def _national_radar_due(config: dict, shown: Optional[dict], now: float, quiet: bool) -> bool:
+    """True when quiet, and the local view has had its hour on the panel.
+
+    Quiet redraws alternate: local, US, local. `shown` is what is on the panel.
+    """
+    if not config.get("national_radar_when_quiet", False) or not quiet:
         return False
-    interval_s = config.get("national_radar_interval_minutes", 60) * 60
-    # 30s of slack so scheduler jitter doesn't push an hourly view to 65 minutes.
-    if now - state.get("national_radar_ts", 0) < interval_s - 30:
+    if not shown or not shown.get("quiet") or shown.get("national"):
         return False
-    # None means "couldn't tell" — only a definite all-clear counts as quiet.
-    return _precip_nearby(config, _RADAR_HEADERS) is False
+    return _hour_is_up(shown, now, float(config.get("unchanged_refresh_seconds", 3600)))
 
 
 def generate_weather_image(config, alert=None):
@@ -3917,12 +3953,17 @@ def generate(config):
     # Written over the normal render's path on purpose: the next local render then
     # differs from what's there (and from main.py's last-pushed hash), so it
     # always replaces the national view on the panel.
-    if (_national_radar_due(config, state, now, alert)
+    # None means "couldn't tell" — only a definite all-clear counts as quiet.
+    quiet = not alert and _precip_nearby(config, _RADAR_HEADERS) is False
+    config.pop("_view_state", None)
+    if (_national_radar_due(config, config.get("_shown_view"), now, quiet)
             and _render_national_radar(config, _RADAR_HEADERS, config["quantized_path"])):
-        state["national_radar_ts"] = now
+        config["_view_state"] = {"ts": now, "quiet": True, "national": True}
         save_state(STATE_FILE, state)
         return config["quantized_path"]
     default_image_path, default_updated, default_region = generate_weather_image(config, alert=alert)
+    if default_image_path is not None:
+        config["_view_state"] = {"ts": now, "quiet": quiet, "national": False}
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous
         # render if there is one. On a cold start (or after `radar/` is cleaned)

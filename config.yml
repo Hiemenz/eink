@@ -33,10 +33,15 @@ night_sleep:
 # ── Periodic full-clear (7-color ghosting) ────────────────────────────────────
 # Every N display pushes, run an extra clear cycle before rendering.
 # 0 = disabled. Only applies to epd7in3f (7-color). Set 20–50 for daily use.
-full_clear_interval: 0
+full_clear_interval: 20
 
-# Re-push the panel at least this often (seconds) even when the image is
-# identical to the last push, so a static radar frame doesn't sit forever.
+# Wipe to white before every redraw. That is a second full refresh (more flashing,
+# about twice as long). false skips it and relies on full_clear_interval above.
+clear_before_display: false
+
+# Re-push the panel at least this often (seconds), so a static frame doesn't sit
+# forever. For weather this is the quiet-time redraw rate; with visible rain near
+# home or an alert, every run redraws.
 # 0 = only push when the image changes.
 unchanged_refresh_seconds: 3600
 
@@ -49,8 +54,8 @@ radar_mode: panel # "crop" | "fit" | "panel" | "seven_color" | "full" | "dynamic
                   # dynamic = panel normally; full-screen radar while precip is near home
 dynamic_radius_km: 100      # dynamic: how close echoes must be to count as "weather in the area"
 dynamic_min_area_km2: 100   # dynamic: how much echo area inside that radius triggers full-screen
-national_radar_when_quiet: true      # no echoes near home and no alert: periodically show the full US radar
-national_radar_interval_minutes: 60  # how often; it stays up for one refresh cycle (uses the two dynamic_* thresholds)
+national_radar_when_quiet: true      # quiet (no visible echo near home, no alert): hourly redraws alternate
+                                     # local and full US radar (uses the two dynamic_* thresholds)
 panel_width: 280          # width of conditions panel (panel mode only)
 panel_legend: true        # show 7-color dBZ legend strip under the radar in panel mode
 panel_header: "Franklin, TN"   # text shown in the panel header bar

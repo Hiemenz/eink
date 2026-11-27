@@ -109,6 +109,16 @@ class TestFullClearInterval:
         assert mock_epd.Clear.call_count == 1
 
 
+    def test_clear_before_false_draws_without_clearing(self, sample_image):
+        mock_epd = _mock_epd()
+        with patch("waveshare_epd.epd7in3f.EPD", return_value=mock_epd), \
+             patch("waveshare_epd.epd7in5_V2.EPD"):
+            display.display_color_image(sample_image, model="epd7in3f", clear_before=False)
+
+        assert mock_epd.Clear.call_count == 0
+        mock_epd.display.assert_called_once()
+
+
 class TestLocking:
     def test_skips_display_when_lock_already_held(self, sample_image, tmp_path):
         import fcntl
