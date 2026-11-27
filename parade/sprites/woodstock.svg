@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250"><path d="M118 112 Q107 91 105 73 Q123 82 134 99 L139 62 Q153 78 156 100 L179 75 L174 108 L194 92 L187 128Z" fill="#E8B84C" stroke="#D7A53C" stroke-width="2.4" stroke-linejoin="round"/><ellipse cx="151" cy="143" rx="43" ry="37" fill="#E8B84C"/><ellipse cx="137" cy="137" rx="4" ry="6" fill="#27292D"/><ellipse cx="158" cy="136" rx="4" ry="6" fill="#27292D"/><path d="M142 149 L164 153 L151 164Z" fill="#EC7C30"/><path d="M117 140 Q91 126 91 150 Q103 162 124 157 M183 140 Q207 126 210 150 Q199 162 178 157" fill="#E8B84C" stroke="#D7A53C" stroke-width="2.4"/><path d="M99 145 L112 151 M193 145 L182 151" stroke="#D7A53C" stroke-width="2" stroke-linecap="round"/><path d="M141 176 L136 205 M161 176 L167 205" stroke="#EC7C30" stroke-width="2.8"/><path d="M127 205 L141 205 M161 205 L176 205" stroke="#EC7C30" stroke-width="5" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+  <!-- compact, feathered silhouette -->
+  <path d="M112 151 Q97 126 108 101 Q119 75 151 76 Q182 78 193 104 Q204 132 186 164 Q163 185 130 171Z" fill="#F2BE35"/>
+  <path d="M120 91 Q111 69 117 52 Q130 62 138 79 Q139 55 151 42 Q160 58 159 78 Q173 61 185 59 Q184 77 174 91Z" fill="#F2BE35"/>
+  <path d="M177 103 L208 111 L179 121Z" fill="#EC7C30"/>
+  <ellipse cx="156" cy="103" rx="5" ry="7" fill="#1D1D1F"/><circle cx="158" cy="101" r="1.8" fill="#FFFFFF"/>
+  <path d="M121 133 Q101 125 96 140 Q101 153 124 150Z" fill="#E8AD2D"/>
+  <path d="M143 169 L140 205 M166 171 L172 205" fill="none" stroke="#EC7C30" stroke-width="4" stroke-linecap="round"/>
+  <path d="M140 204 L132 209 M140 204 L146 209 M172 204 L165 209 M172 204 L180 209" fill="none" stroke="#EC7C30" stroke-width="3" stroke-linecap="round"/>
+</svg>

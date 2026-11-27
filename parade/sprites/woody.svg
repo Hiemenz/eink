@@ -1,1 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250"><path d="M113 82 Q150 61 187 82 L181 113 Q150 126 119 112Z" fill="#D4A77C"/><path d="M111 90 Q98 73 111 58 Q131 39 151 50 Q176 35 192 56 Q201 70 188 91Z" fill="#765A49"/><path d="M105 70 Q128 44 166 47 Q190 48 201 66 Q169 60 141 70 Q122 77 105 70Z" fill="#765A49" stroke="#27292D" stroke-width="2.8"/><path d="M103 59 Q111 51 125 54 L175 54 Q190 50 202 59 Q186 67 151 65 Q119 67 103 59Z" fill="#765A49" stroke="#27292D" stroke-width="2.8"/><path d="M126 56 L130 35 Q133 27 143 27 L164 27 Q176 30 178 56Z" fill="#765A49" stroke="#27292D" stroke-width="2.8"/><path d="M139 33 Q151 37 164 33" fill="none" stroke="#A97F63" stroke-width="2.4"/><ellipse cx="137" cy="88" rx="7" ry="9" fill="#F7F3EA"/><ellipse cx="163" cy="88" rx="7" ry="9" fill="#F7F3EA"/><ellipse cx="138" cy="89" rx="3.5" ry="5" fill="#426BB3"/><ellipse cx="162" cy="89" rx="3.5" ry="5" fill="#426BB3"/><circle cx="139" cy="89" r="2" fill="#27292D"/><circle cx="163" cy="89" r="2" fill="#27292D"/><path d="M143 105 Q151 112 161 104" fill="none" stroke="#27292D" stroke-width="2.4"/><path d="M117 117 L183 117 L196 178 L104 178Z" fill="#E8B84C" stroke="#27292D" stroke-width="2.4"/><path d="M120 124 L178 167 M145 119 L194 157 M106 151 L178 122 M108 169 L191 142" stroke="#D75E54" stroke-width="2.8"/><path d="M113 118 L143 118 L150 172 L117 174Z M171 118 L189 118 L187 174 L155 173Z" fill="#F7F3EA" stroke="#27292D" stroke-width="2.4"/><circle cx="127" cy="139" r="5" fill="#27292D"/><circle cx="177" cy="151" r="6" fill="#27292D"/><path d="M120 137 L126 126 L132 137 L126 148Z" fill="#E8B84C" stroke="#D7A53C" stroke-width="2"/><path d="M198 124 Q218 143 202 162" fill="none" stroke="#765A49" stroke-width="2.4"/><circle cx="201" cy="164" r="4" fill="#E8B84C"/><path d="M141 116 Q151 135 166 117 L175 133 Q160 149 145 136Z" fill="#D75E54"/><path d="M126 177 L174 177 L179 214 L122 214Z" fill="#426BB3"/><rect x="143" y="180" width="18" height="18" rx="3" fill="#E8B84C" stroke="#27292D" stroke-width="2.4"/><path d="M126 211 L147 211 L145 230 L113 230 Q112 218 126 211 M165 211 L179 211 L193 229 Q185 237 160 228Z" fill="#765A49" stroke="#27292D" stroke-width="2.4"/><path d="M112 133 L94 160 M188 133 L205 158" stroke="#D4A77C" stroke-width="10" stroke-linecap="round"/><circle cx="92" cy="163" r="10" fill="#D4A77C"/><circle cx="207" cy="161" r="10" fill="#D4A77C"/><path d="M101 145 L87 137 L98 130 L89 122 L106 121Z" fill="#BDB8AE"/><path d="M197 145 L212 137 L202 130 L211 122 L195 121Z" fill="#BDB8AE"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+  <!-- hat sits behind the head -->
+  <path d="M72 69 Q99 57 128 61 Q174 55 228 68 Q207 81 151 80 Q102 81 72 69Z" fill="#80523A"/>
+  <path d="M116 66 L122 32 Q126 25 136 25 L165 25 Q175 29 180 66Z" fill="#80523A"/>
+  <path d="M132 34 Q149 40 168 33" fill="none" stroke="#A97F63" stroke-width="4" stroke-linecap="round"/>
+  <!-- lanky cowboy face, hair and bright eyes -->
+  <path d="M104 71 Q104 49 125 45 Q150 34 176 48 Q197 57 196 85 L190 113 Q178 135 150 136 Q121 133 108 113Z" fill="#F3C9A0"/>
+  <path d="M108 79 Q108 61 124 51 Q141 43 158 49 Q177 45 188 59 Q194 67 190 79 L180 72 Q174 68 166 75 Q156 68 147 76 Q137 69 127 79 L116 85Z" fill="#80523A"/>
+  <ellipse cx="135" cy="83" rx="10" ry="12" fill="#FBF8F1"/><ellipse cx="166" cy="83" rx="10" ry="12" fill="#FBF8F1"/>
+  <ellipse cx="138" cy="84" rx="5" ry="7" fill="#2E59C9"/><ellipse cx="164" cy="84" rx="5" ry="7" fill="#2E59C9"/>
+  <circle cx="139" cy="84" r="2.5" fill="#1D1D1F"/><circle cx="165" cy="84" r="2.5" fill="#1D1D1F"/>
+  <path d="M138 111 Q151 122 167 109" fill="none" stroke="#1D1D1F" stroke-width="4" stroke-linecap="round"/>
+  <!-- arms and yellow plaid shirt -->
+  <path d="M113 137 L94 155 L72 161 M187 137 L206 154 L228 157" fill="none" stroke="#D8A56E" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="69" cy="162" r="11" fill="#D8A56E"/><circle cx="231" cy="158" r="11" fill="#D8A56E"/>
+  <path d="M111 128 Q151 137 189 128 L197 198 Q151 205 103 198Z" fill="#F2BE35"/>
+  <path d="M107 153 L193 153 M105 176 L195 176 M128 133 L138 199 M171 133 L178 199" stroke="#E0483B" stroke-width="4"/>
+  <!-- cow-print vest panels and red bandana -->
+  <path d="M114 133 L139 137 L146 196 L120 195Z M163 137 L187 132 L181 195 L155 196Z" fill="#FBF8F1"/>
+  <path d="M121 151 Q128 145 134 152 L131 160 L121 159Z M169 148 Q176 144 181 152 L177 159 L168 158Z M161 174 Q168 170 173 177 L169 184 L160 182Z" fill="#1D1D1F"/>
+  <path d="M141 128 L151 136 L161 128 L168 141 L151 154 L134 141Z" fill="#E0483B"/>
+  <!-- jeans, gold buckle, boots and sheriff star -->
+  <path d="M108 196 Q150 202 194 196 L185 224 L158 224 L151 214 L144 224 L115 224Z" fill="#2E59C9"/>
+  <rect x="142" y="199" width="18" height="16" rx="3" fill="#F2BE35"/>
+  <path d="M115 220 L144 220 L140 235 L99 235 Q98 227 115 220 M158 220 L185 220 L200 235 L159 235Z" fill="#80523A"/>
+  <path d="M117 143 L125 130 L133 143 L129 154 L121 154Z" fill="#F2BE35"/>
+  <path d="M125 136 L127 141 L132 141 L128 145 L129 150 L125 147 L121 150 L122 145 L118 141 L123 141Z" fill="#FBF8F1"/>
+  <path d="M198 139 Q220 148 213 165" fill="none" stroke="#80523A" stroke-width="3"/>
+</svg>
