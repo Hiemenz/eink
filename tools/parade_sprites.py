@@ -67,9 +67,10 @@ def to_panel_inks(image: Image.Image) -> Image.Image:
     return Image.fromarray(np.dstack([out, alpha]).astype(np.uint8))
 
 
-def balloon_names() -> list[str]:
+def balloon_names() -> list[tuple[str, str]]:
+    """(name shown, art function) for each balloon; the name is empty for balloons that fly unnamed."""
     block = re.search(r"const BALLOONS=\[\n(.*?)\]\];", PAGE.read_text(), re.S).group(1)
-    return re.findall(r'\["([^"]+)",', block + "]")
+    return re.findall(r'\["([^"]*)",\s*(\w*)', block + "]")
 
 
 def slug(name: str) -> str:
@@ -98,15 +99,16 @@ def main() -> None:
     names = balloon_names()
     manifest = []
     with tempfile.TemporaryDirectory() as work:
-        for index, name in enumerate(names + ["Santa"]):
+        for index, (name, art) in enumerate(names + [("Santa", "")]):
             sprite = "santa" if name == "Santa" else str(index)
             santa = name == "Santa"
             width, height = (430, 420) if santa else (340, 300)  # Santa is taller than the rest
+            file = slug(name or art)  # unnamed balloons are filed under their art function
             for size, scale in (("small", 0.6 if santa else 0.75), ("large", 0.85 if santa else 1.3)):
                 image = to_panel_inks(render(browser, sprite, width, height, scale, work))
-                image.save(OUT / f"{slug(name)}-{size}.png", optimize=True)
+                image.save(OUT / f"{file}-{size}.png", optimize=True)
             if name != "Santa":
-                manifest.append({"name": name, "file": slug(name)})
+                manifest.append({"name": name, "file": file})
         finale = to_panel_inks(render(browser, "finale", 970, 646, 0.62, work))
         finale.save(OUT / "finale.png", optimize=True)
     (OUT / "balloons.json").write_text(json.dumps(manifest, indent=1) + "\n")

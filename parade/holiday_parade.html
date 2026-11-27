@@ -221,11 +221,54 @@ function watermelon(){
   return P("M0 -112 L108 66 Q0 142 -108 66 Z",PINE)+P("M0 -112 L99 51 Q0 121 -99 51 Z",GRN)+P("M0 -112 L91 38 Q0 103 -91 38 Z",CREAM)
    +P("M0 -112 L83 25 Q0 85 -83 25 Z",RED)+seeds;
 }
+/* Four early characters drawn from their US public-domain first versions. They fly without names. */
+function steamboat(){          /* 1928: black and white, bare hands, pie-cut eyes, long thin tail */
+  const SH="#BDB8AE",limb=d=>edged(L(d,INK,10));
+  return edged(L("M-30 52 Q-104 74 -112 24 Q-116 -2 -138 4",INK,5))
+   +limb("M-28 34 Q-70 52 -96 22")+limb("M28 34 Q74 36 92 -2")+edged(C(-99,17,12,INK)+C(95,-8,12,INK))
+   +limb("M-14 84 L-24 112")+limb("M14 84 L26 112")+edged(E(-36,120,34,17,"#8C8A92",8)+E(40,120,34,17,"#8C8A92",-8))
+   +edged(E(0,44,31,36,INK)+P("M-34 50 H34 L40 92 H7 L0 78 L-7 92 H-40 Z",SH))+E(-11,65,5,9,CREAM)+E(13,65,5,9,CREAM)
+   +edged(C(-60,-88,34,INK)+C(42,-100,34,INK)+C(0,-36,52,INK))
+   +edged(P("M-24 -66 Q-4 -80 9 -54 Q24 -80 44 -62 Q56 -44 42 -22 Q78 -20 68 4 Q48 32 4 24 Q-36 14 -34 -26 Q-40 -54 -24 -66 Z",CREAM))
+   +E(-3,-44,7,17,INK)+E(24,-44,7,17,INK)+P("M-3 -48 L4 -62 L6 -48 Z",CREAM)+P("M24 -48 L31 -62 L33 -48 Z",CREAM)
+   +E(55,-18,19,13,INK,-8)+L("M-14 -4 Q18 22 56 0",INK,5)+P("M2 9 Q20 30 40 8 Q20 17 2 9 Z",INK);
+}
+function sailor(){             /* 1929 comic strip: squint, corncob pipe, jutting chin, anchored forearms */
+  const arm=L("M-30 30 Q-52 42 -62 52",INK,17)+E(-84,48,36,24,SKIN,-28)+C(-108,31,19,SKIN)
+    +L("M-92 38 V58 M-101 50 Q-92 66 -81 52 M-99 44 H-85",INK,3.5)+C(-92,34,4,INK);
+  return L("M-18 90 L-30 120",INK,24)+L("M18 90 L30 120",INK,24)+E(-42,128,30,13,BRN)+E(42,128,30,13,BRN)
+   +edged(arm+`<g transform="scale(-1 1)">${arm}</g>`)
+   +P("M-34 14 H34 L42 96 H-42 Z",INK)+P("M-24 14 L0 48 L24 14 Z",CREAM)+L("M-24 14 L0 48 L24 14",RED,6)+dots([[0,60,5],[0,76,5]],YEL)+R(-42,86,84,11,3,BRN)
+   +C(-4,-36,44,SKIN)+E(14,-6,48,26,SKIN,-8)+C(-47,-34,12,SKIN)
+   +C(-6,-48,6,INK)+L("M14 -50 L36 -46",INK,5)+L("M-18 -62 L4 -60 M14 -64 L36 -62",INK,4)+C(24,-30,17,"#EC9C8C")
+   +L("M-12 -6 Q18 8 50 -8",INK,5)+L("M42 -6 L82 12",BRN,9)+R(74,-6,28,27,6,TAN)+E(88,-6,14,5,BRN)+C(96,-30,9,GRY)+C(112,-54,13,GRY)
+   +edged(P("M-44 -66 Q-46 -108 -2 -108 Q40 -108 38 -68 Z",CREAM))+R(-48,-76,90,13,4,INK)+P("M30 -74 L66 -66 L32 -62 Z",INK)+C(-2,-90,7,YEL);
+}
+function silentCat(){          /* silent-era cartoons: boxy black cat, pointed ears, huge eyes, wide grin */
+  const paw=(x,y,r)=>E(x,y,27,15,INK,r);
+  return edged(L("M-38 70 Q-122 82 -112 12 Q-104 -34 -132 -62",INK,17))
+   +edged(L("M-22 82 L-42 112",INK,20)+L("M22 82 L42 112",INK,20)+paw(-56,120,6)+paw(58,120,-6)
+     +L("M-30 36 Q-66 50 -74 82",INK,15)+L("M30 36 Q70 28 84 -6",INK,15)+C(-76,86,13,INK)+C(87,-12,13,INK)+E(0,56,44,46,INK)
+     +P("M-66 -38 L-60 -126 L-18 -86 Q0 -90 18 -86 L60 -126 L66 -38 Q70 28 0 30 Q-70 28 -66 -38 Z",INK))
+   +E(-23,-49,22,31,CREAM)+E(23,-49,22,31,CREAM)+E(-15,-43,9,15,INK)+E(31,-43,9,15,INK)
+   +P("M-52 -14 Q-24 -30 0 -12 Q24 -30 52 -14 Q40 24 0 24 Q-40 24 -52 -14 Z",CREAM)+E(0,-15,12,8,INK)+L("M-34 -4 Q0 26 34 -4",INK,5)+L("M-10 12 V4 M2 13 V5 M14 11 V4",INK,2);
+}
+function woodenBoy(){          /* from the 1883 book: flowered paper suit, bark shoes, bread-crumb cap */
+  const WOOD="#D8A56E",GRAIN="#A8662F",joint=(x,y)=>C(x,y,8,GRAIN);
+  const flower=(x,y)=>dots([[x-6,y,5],[x+6,y,5],[x,y-6,5],[x,y+6,5]],RED)+C(x,y,3.5,YEL);
+  return L("M-18 78 L-28 98 L-30 118",WOOD,13)+L("M18 78 L28 98 L30 118",WOOD,13)+joint(-28,98)+joint(28,98)+E(-40,126,29,14,BRN,6)+E(40,126,29,14,BRN,-6)+L("M-56 122 l14 6 M-38 118 l10 6 M30 122 l14 -4",INK,2.5)
+   +L("M-30 24 L-64 46 L-90 30",WOOD,12)+L("M30 24 L68 30 L88 2",WOOD,12)+joint(-64,46)+joint(68,30)+C(-94,27,13,WOOD)+C(91,-3,13,WOOD)
+   +edged(P("M-30 10 H30 L50 86 H4 L0 70 L-4 86 H-50 Z",CREAM))+flower(-16,32)+flower(18,50)+flower(-24,68)+flower(26,75)+flower(15,22)+L("M-38 55 H38",GRN,6)
+   +P("M-30 8 L0 24 L30 8 L26 -2 H-26 Z",GRN)
+   +C(0,-38,44,WOOD)+L("M-34 -24 Q-24 -10 -10 -8 M-40 -40 Q-36 -28 -28 -22",GRAIN,2.5)+eyes(-4,-48,34,10)+L("M-24 -63 Q-16 -69 -8 -64 M6 -64 Q15 -69 22 -63",INK,3.5)
+   +L("M-16 -16 Q0 -2 18 -16",INK,4.5)+P("M6 -42 L122 -34 Q130 -30 122 -26 L6 -28 Z",WOOD)+L("M14 -34 H112",GRAIN,2.5)
+   +edged(P("M-44 -62 Q-30 -92 -8 -122 Q4 -138 14 -118 Q34 -88 44 -62 Q0 -80 -44 -62 Z","#F6E3C4"))+dots([[-16,-88,4],[8,-104,3],[18,-84,4],[-2,-94,2.5]],TAN);
+}
 const BALLOONS=[
- ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
- ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
- ["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
- ["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")]];
+ ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["",steamboat],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
+ ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["",sailor],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
+ ["",silentCat],["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
+ ["",woodenBoy],["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")]];
 
 /* ================= Franklin, Tennessee ================= */
 const STRIP=5200,PAN=.3;   /* one strip of downtown, and how fast it scrolls past */

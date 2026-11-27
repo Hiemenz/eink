@@ -202,3 +202,12 @@ Original characters only. Preview before any commit.
 - modules/holiday_parade.py + tools/parade_sprites.py: seven-color stills. active_module is unchanged.
 - Checked with headless Chromium screenshots on Linux. Not tried on a Mac, a phone or the color panel.
 - Fixed while testing: sprites cropped by Chromium's minimum window width.
+
+---
+
+# Holiday parade: four public domain balloons (2026-11-26)
+
+- [x] Draw 1928 black-and-white mouse, 1929 comic sailor, silent-era cat and 1883-book wooden boy, with no names shown
+- [x] Re-export sprites; unnamed balloons are filed by art function and have no caption
+- [x] Parade tests pass (14); previewed the large sprites and one street snapshot
+- [x] User approved the preview; commit, PR and auto-merge

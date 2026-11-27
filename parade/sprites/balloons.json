@@ -12,6 +12,10 @@
   "file": "twinkle"
  },
  {
+  "name": "",
+  "file": "steamboat"
+ },
+ {
   "name": "Snowdrift Sam",
   "file": "snowdrift-sam"
  },
@@ -36,6 +40,10 @@
   "file": "jingle"
  },
  {
+  "name": "",
+  "file": "sailor"
+ },
+ {
   "name": "Chef Biscuit",
   "file": "chef-biscuit"
  },
@@ -54,6 +62,10 @@
  {
   "name": "Juniper",
   "file": "juniper"
+ },
+ {
+  "name": "",
+  "file": "silentcat"
  },
  {
   "name": "Peppermint Pete",
@@ -78,6 +90,10 @@
  {
   "name": "Cozy Cocoa",
   "file": "cozy-cocoa"
+ },
+ {
+  "name": "",
+  "file": "woodenboy"
  },
  {
   "name": "B-2 Spirit",
