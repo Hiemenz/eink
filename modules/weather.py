@@ -2505,6 +2505,10 @@ def _fetch_rainviewer_image(
     if show_boundaries:
         boundary_img = _fetch_admin_boundaries(lat, lon, zoom, _RV_TILE_SIZE, width, height)
 
+    if config is not None:
+        shown_echo = np.array(_visible_echo(curr_radar))[:, :, 3] > 0
+        config["_rain_percent"] = 100.0 * float(shown_echo.mean())
+
     # Layer on white: radar → boundaries → roads → city names. The map goes on top
     # because heavy echo painted over it leaves no way to tell where the rain is;
     # its lines are thin enough to hide very little of it.
@@ -3953,16 +3957,23 @@ def generate(config):
     # Written over the normal render's path on purpose: the next local render then
     # differs from what's there (and from main.py's last-pushed hash), so it
     # always replaces the national view on the panel.
-    # None means "couldn't tell" — only a definite all-clear counts as quiet.
-    quiet = not alert and _precip_nearby(config, _RADAR_HEADERS) is False
     config.pop("_view_state", None)
-    if (_national_radar_due(config, config.get("_shown_view"), now, quiet)
-            and _render_national_radar(config, _RADAR_HEADERS, config["quantized_path"])):
-        config["_view_state"] = {"ts": now, "quiet": True, "national": True}
-        save_state(STATE_FILE, state)
-        return config["quantized_path"]
+    config.pop("_rain_percent", None)
     default_image_path, default_updated, default_region = generate_weather_image(config, alert=alert)
     if default_image_path is not None:
+        # No figure (e.g. the RIDGE fallback) means "couldn't tell", which isn't quiet.
+        rain = config.get("_rain_percent")
+        quiet = (not alert and rain is not None
+                 and rain <= float(config.get("quiet_rain_percent", 3)))
+        if rain is not None:
+            logger.info("Rain covers %.2f%% of the radar map (%s).", rain,
+                        "quiet" if quiet else "active")
+        # Decided after the local render, which is what measures the rain.
+        if (_national_radar_due(config, config.get("_shown_view"), now, quiet)
+                and _render_national_radar(config, _RADAR_HEADERS, config["quantized_path"])):
+            config["_view_state"] = {"ts": now, "quiet": True, "national": True}
+            save_state(STATE_FILE, state)
+            return config["quantized_path"]
         config["_view_state"] = {"ts": now, "quiet": quiet, "national": False}
     if default_image_path is None and not default_updated:
         # Fetch failed or produced an unchanged image: fall back to the previous
