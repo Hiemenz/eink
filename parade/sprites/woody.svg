@@ -1,9 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
-<path d="M89 65 Q112 54 143 59 Q174 54 211 66 Q198 77 151 76 Q110 77 89 65Z" fill="#80523A"/><path d="M119 62 L124 35 Q130 23 149 24 Q168 23 177 35 L182 63Z" fill="#80523A"/><path d="M137 32 Q152 39 169 32" fill="none" stroke="#A97F63" stroke-width="4"/>
+<g transform="translate(18 12) scale(.88)">
+<path d="M119 62 L124 35 Q130 23 149 24 Q168 23 177 35 L182 63Z" fill="#80523A"/><path d="M137 32 Q152 39 169 32" fill="none" stroke="#A97F63" stroke-width="4"/>
 <path d="M105 78 Q106 57 122 49 Q141 39 158 49 Q178 44 190 60 L192 103 Q184 129 151 131 Q116 127 106 105Z" fill="#F3C9A0"/>
 <path d="M111 72 Q112 56 128 49 Q137 46 144 49 L136 59 Q127 62 122 77 L115 91Z M159 50 Q176 47 187 61 L189 87 L181 96 L175 72Z" fill="#80523A"/><path d="M134 51 Q151 44 169 51 L168 58 Q151 54 137 60Z" fill="#80523A"/>
+<path d="M84 62 Q111 54 145 59 Q177 54 216 63 L210 72 Q153 78 91 72Z" fill="#80523A"/><path d="M120 57 Q151 64 181 57 L181 63 Q151 70 119 64Z" fill="#5C3826"/>
 <ellipse cx="136" cy="82" rx="9" ry="11" fill="#FBF8F1"/><ellipse cx="165" cy="82" rx="9" ry="11" fill="#FBF8F1"/><circle cx="138" cy="83" r="4" fill="#2E59C9"/><circle cx="164" cy="83" r="4" fill="#2E59C9"/><circle cx="139" cy="83" r="2" fill="#1D1D1F"/><circle cx="165" cy="83" r="2" fill="#1D1D1F"/>
 <ellipse cx="151" cy="99" rx="5" ry="4" fill="#D8A56E"/><path d="M139 111 Q152 121 166 110" fill="none" stroke="#1D1D1F" stroke-width="3.5" stroke-linecap="round"/>
+</g>
 <path d="M116 130 L184 130 L194 192 L105 192Z" fill="#F2BE35"/><path d="M107 149 L193 149 M104 170 L196 170 M129 132 L139 192 M171 132 L180 192" stroke="#E0483B" stroke-width="3.5"/>
 <path d="M115 134 L139 137 L146 190 L120 190Z M163 137 L187 134 L180 190 L155 190Z" fill="#FBF8F1"/><path d="M120 151 Q129 142 135 151 L131 160 L120 159Z M168 147 Q177 142 182 151 L177 160 L167 158Z M160 171 Q168 166 174 175 L170 183 L159 181Z" fill="#1D1D1F"/>
 <path d="M138 128 L151 137 L164 128 L170 143 L151 158 L132 143Z" fill="#E0483B"/>
