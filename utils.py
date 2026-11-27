@@ -72,6 +72,7 @@ MODULE_INTERVALS: Dict[str, int] = {
     "business_idea":      300,    # 5 min — cycle through the sibling repo's markdown ideas
     "status_tiles":      300,    # 5 min — display only for now
     "system_health":     300,    # 5 min — local psutil/thermal read, cheap
+    "holiday_parade":    720,    # 12 min — the parade moves up one place
 }
 
 
@@ -91,6 +92,7 @@ def get_module_interval(module: str, config: dict) -> int:
 
 MODULE_MAP: Dict[str, str] = {
     "weather":         "modules.weather",
+    "holiday_parade":  "modules.holiday_parade",
     "text":            "modules.text_display",
     "saint_of_day":    "modules.saint_of_day",
     "wiki_image":      "modules.wiki_image",

@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>The Holiday Balloon Parade</title>
+<style>
+  html,body{margin:0;height:100%;background:#F1ECE2;overflow:hidden}
+  svg{display:block;width:100vw;height:100vh;height:100dvh;touch-action:none;user-select:none;-webkit-user-select:none;overflow:visible;font-family:-apple-system,"Helvetica Neue",Helvetica,Arial,sans-serif}
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1280 800" aria-label="A holiday balloon parade down Main Street in Franklin"></svg>
+<script>
+"use strict";
+/* Change the words on the theatre sign here (up to 40 letters). */
+const GREETING="Happy Holidays Franklin";
+
+const INK="#1D1D1F",CREAM="#FBF8F1",RED="#E0483B",BLUE="#2E59C9",YEL="#F2BE35",ORG="#EC7C30",
+      GRN="#4B9560",SKY="#86BEDD",PINK="#EC95AE",TAN="#D8A56E",BRN="#80523A",GRY="#BDB8AE",PUR="#6C55A8";
+
+const C=(x,y,r,f,x2="")=>`<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" ${x2}/>`;
+const E=(x,y,rx,ry,f,rot=0)=>`<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="${f}" transform="rotate(${rot} ${x} ${y})"/>`;
+const R=(x,y,w,h,r,f,rot=0)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${f}" transform="rotate(${rot} ${x+w/2} ${y+h/2})"/>`;
+const P=(d,f)=>`<path d="${d}" fill="${f}"/>`;
+const L=(d,s,w)=>`<path d="${d}" fill="none" stroke="${s}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const edged=m=>`<g stroke="#B9B1A0" stroke-width="5" stroke-linejoin="round">${m}</g><g>${m}</g>`;
+
+const GOLD="#D7A53C",PINE="#2F6B47";
+function reindeer(x,y,coat,nose){
+  const legs=[[-34,-8,-14],[-18,6,16],[20,-4,-12],[36,10,18]].map(([a,b,k])=>L(`M${x+a} ${y+18} L${x+a+b} ${y+46} L${x+a+b+k*.5} ${y+66}`,coat,9)).join("");
+  return legs+E(x,y+6,52,27,coat)+L(`M${x+34} ${y-4} L${x+58} ${y-40}`,coat,22)+E(x+70,y-48,27,19,coat,14)
+   +E(x+46,y-62,7,17,coat,-38)+L(`M${x+60} ${y-64} L${x+50} ${y-98} L${x+30} ${y-108} M${x+50} ${y-92} L${x+64} ${y-112} M${x+70} ${y-64} L${x+82} ${y-100} L${x+104} ${y-108} M${x+81} ${y-95} L${x+72} ${y-114}`,GOLD,5)
+   +C(x+72,y-53,4.5,INK)+C(x+94,y-42,nose?10:7,nose?RED:INK)+E(x-52,y-4,9,13,CREAM,40)+L(`M${x+34} ${y-8} L${x+56} ${y+12}`,RED,7)+C(x+46,y+4,5,YEL);
+}
+function elf(x,coat,hat,wave){
+  return L(`M${x-6} -24 L${x-10} -2 L${x-1} -2 M${x+6} -24 L${x+10} -2 L${x+19} -2`,INK,5)
+   +P(`M${x-17} -22 L${x} -64 L${x+17} -22 Z`,coat)+R(x-12,-37,24,5,2,INK)+C(x,-66,13,TAN)
+   +P(`M${x-24} -70 L${x-11} -66 L${x-12} -58 Z`,TAN)+P(`M${x+24} -70 L${x+11} -66 L${x+12} -58 Z`,TAN)
+   +P(`M${x-16} -73 Q${x-4} -108 ${x+28} -94 Q${x+10} -92 ${x+16} -73 Z`,hat)+C(x+28,-94,5,YEL)+R(x-17,-77,34,7,3,CREAM)
+   +C(x-4,-67,2.2,INK)+C(x+6,-67,2.2,INK)+L(`M${x-4} -61 Q${x+1} -57 ${x+6} -61`,INK,2)
+   +(wave?L(`M${x+10} -46 L${x+26} -66`,coat,7)+C(x+28,-69,5,TAN):L(`M${x+10} -46 L${x+22} -32`,coat,7)+C(x+23,-30,5,TAN));
+}
+
+const SKIN="#F3C9A0",W=1280,STREET=690;
+const mirror=m=>m+`<g transform="scale(-1 1)">${m}</g>`;
+/* Santa as a giant balloon, drawn around (0,0) */
+function santaBalloon(){
+  return mirror(E(66,148,48,28,INK,10)+R(24,108,62,38,16,RED)+R(22,130,68,16,8,CREAM))
+   +L("M-86 6 Q-146 18 -168 -44",RED,50)+C(-172,-62,28,PINE)+C(-148,-54,12,PINE)
+   +L("M86 10 Q142 40 150 78",RED,50)+C(154,94,28,PINE)+C(130,86,12,PINE)
+   +E(0,48,118,92,RED)+R(-13,-6,26,142,10,CREAM)+R(-114,66,228,27,13,INK)+R(-27,60,54,39,7,YEL)+R(-14,71,28,17,3,INK)
+   +C(0,-78,70,SKIN)+mirror(C(66,-76,15,SKIN))
+   +edged(P("M-76 -82 Q-96 -20 -54 -8 Q-50 28 -16 18 Q0 42 16 18 Q50 28 54 -8 Q96 -20 76 -82 Q48 -42 0 -54 Q-48 -42 -76 -82 Z",CREAM))
+   +mirror(C(46,-70,13,"#EC9C8C")+C(24,-92,7,INK)+C(27,-95,2.4,CREAM)+L("M10 -110 Q26 -120 42 -108",CREAM,9))
+   +P("M-18 -34 Q0 -10 18 -34 Z","#7E2226")+edged(E(-24,-50,32,15,CREAM,16)+E(24,-50,32,15,CREAM,-16))+C(0,-68,17,"#D9786A")
+   +P("M-72 -122 Q-52 -220 44 -196 Q110 -182 118 -108 Q86 -150 70 -122 Z",RED)+edged(R(-82,-138,164,30,15,CREAM)+C(120,-102,23,CREAM))
+   +E(-44,28,13,34,"#FFFFFF",32).replace('/>',' opacity=".28"/>');
+}
+const eyes=(x,y,gap,r)=>[-1,1].map(k=>C(x+k*gap/2,y,r,CREAM)+C(x+k*gap/2+r*.25,y+r*.1,r*.5,INK)+C(x+k*gap/2+r*.4,y-r*.15,r*.18,CREAM)).join("");
+const dots=(list,f)=>list.map(a=>C(...a,f)).join("");
+
+function turkey(){
+  const fan=[RED,ORG,YEL,BRN,YEL,ORG,RED].map((f,i)=>`<g transform="rotate(${-90+i*30} 0 24)">`+E(0,-60,27,62,f)+E(0,-84,11,24,CREAM)+`</g>`).join("");
+  return fan+L("M-24 100 L-28 120 L-46 122 M24 100 L28 120 L46 122",ORG,9)+E(0,50,66,60,BRN)+E(-56,54,22,38,"#6A402D",18)+E(56,54,22,38,"#6A402D",-18)
+   +C(0,-14,42,BRN)+eyes(0,-22,32,12)+P("M-15 -6 L15 -6 L0 22 Z",YEL)+E(14,14,7,19,RED,-12)
+   +R(-34,-72,68,34,6,INK)+R(-54,-46,108,13,6,INK)+R(-34,-58,68,12,0,PINE)+R(-10,-61,20,18,3,YEL);
+}
+function snowman(){
+  return L("M-50 22 L-108 -14 M-84 1 L-96 -26 M50 22 L108 -6 M86 3 L106 20",BRN,8)
+   +edged(C(0,70,56,CREAM)+C(0,6,44,CREAM)+C(0,-56,36,CREAM))
+   +eyes(0,-64,28,8)+P("M0 -54 L58 -46 L0 -38 Z",ORG)+L("M-18 -36 Q0 -22 18 -36",INK,5)
+   +R(-48,-30,96,19,9,RED)+R(22,-24,19,56,8,RED,-14)+dots([[0,0,6],[0,22,6],[0,60,6],[0,84,6]],INK)
+   +R(-30,-122,60,38,6,BLUE)+R(-46,-94,92,13,6,BLUE)+R(-30,-104,60,10,0,YEL);
+}
+function nutcracker(){
+  return R(-38,82,30,40,6,INK)+R(8,82,30,40,6,INK)+R(-76,0,26,76,13,RED,12)+R(50,0,26,76,13,RED,-12)+C(-73,78,13,TAN)+C(73,78,13,TAN)
+   +R(-48,-4,96,92,16,RED)+R(-48,62,96,16,0,INK)+R(-11,59,22,22,4,YEL)+dots([[0,10,7],[0,28,7],[0,46,7]],YEL)+R(-70,-6,38,15,7,YEL)+R(32,-6,38,15,7,YEL)
+   +R(-38,-66,76,68,14,SKIN)+eyes(0,-48,32,10)+E(-14,-27,18,7,INK,14)+E(14,-27,18,7,INK,-14)+R(-23,-19,46,13,3,CREAM)+L("M-11 -19 V-6 M0 -19 V-6 M11 -19 V-6",INK,2)
+   +P("M-36 -8 Q-30 32 0 36 Q30 32 36 -8 Q0 10 -36 -8 Z",CREAM)+R(-40,-132,80,66,10,BLUE)+R(-46,-76,92,14,6,INK)+P("M0 -122 L14 -102 L0 -82 L-14 -102 Z",YEL)+C(0,-138,10,RED);
+}
+/* a green woodpecker in a flat cap, perched on a striped post */
+function woodpecker(){
+  return R(34,-100,34,222,12,CREAM)+[-80,-34,12,58].map(y=>P(`M34 ${y+22} L68 ${y} L68 ${y+16} L34 ${y+38} Z`,RED)).join("")
+   +P("M-34 56 L-96 122 L-62 126 L-4 78 Z",PINE)+E(-18,24,50,68,GRN,24)+E(2,40,28,44,"#E9E3B8",24)+E(-42,28,24,52,INK,30)+dots([[-52,6,6],[-40,26,6],[-52,46,6],[-62,66,5],[-32,52,5]],CREAM)
+   +C(6,-52,40,GRN)+P("M36 -66 L112 -48 L36 -34 Z",GRY)+E(8,-40,22,13,CREAM,8)+eyes(14,-62,22,10)
+   +E(-6,-88,38,17,ORG,-12)+R(16,-96,38,10,5,ORG,6)+C(-8,-104,6,YEL)+L("M8 56 L36 52 M4 76 L36 76",INK,7);
+}
+/* Biscuit: caramel-and-cream rat, striped apron, checkered cap, cranberry pot */
+function biscuit(){
+  let check="";for(let i=0;i<6;i++)for(let j=0;j<2;j++)check+=R(-36+i*12,-104+j*12,12,12,0,(i+j)%2?CREAM:BLUE);
+  return L("M30 92 Q112 118 118 52 Q120 22 96 24",PINK,12)+E(-26,112,24,11,PINK)+E(26,112,24,11,PINK)+E(0,54,58,60,"#C98748")+E(0,62,38,46,"#F6E3C4")
+   +P("M-34 38 L34 38 L44 100 Q0 116 -44 100 Z",CREAM)+L("M-20 40 L-26 104 M0 40 V108 M20 40 L26 104",RED,7)
+   +[-1,1].map(k=>C(k*56,-72,31,"#C98748")+C(k*56,-72,19,PINK)).join("")+E(0,-34,52,46,"#C98748")+E(0,-14,32,24,"#F6E3C4")+eyes(0,-44,38,12)+E(0,-22,12,9,BRN)+L("M-14 -7 Q0 6 14 -7",INK,4)
+   +L("M-28 -18 L-70 -26 M-28 -10 L-68 -4 M28 -18 L70 -26 M28 -10 L68 -4",INK,2)+check+R(-40,-84,80,11,5,BLUE)
+   +P("M-48 -48 L-68 -40 L-50 -32 L-66 -20 L-44 -18 Z M48 -48 L68 -40 L50 -32 L66 -20 L44 -18 Z M-54 40 L-72 52 L-54 58 L-68 72 L-48 74 Z",'#C98748')+L("M-31 -63 L-8 -58 M10 -61 L30 -68",BRN,4.5)
+   +L("M-44 34 L-76 50",'#C98748',17)+L("M-80 52 L-104 -2",TAN,9)+E(-108,-12,14,21,TAN,-26)+R(48,40,66,40,12,GRY)+E(81,41,33,9,RED)+R(40,48,12,9,4,INK)+R(110,48,12,9,4,INK)+L("M44 36 L66 60",'#C98748',15);
+}
+/* Sprocket: copper gardening robot, lantern head, one wheel */
+function sprocket(){
+  const CU="#C4703F",CU2="#9E5530";
+  return C(0,98,28,INK)+C(0,98,12,GRY)+R(-9,58,18,38,5,CU2)+L("M-30 -8 Q-90 4 -72 46 Q-58 70 -86 82",CU2,11)+L("M30 -8 Q86 -2 74 34",CU2,11)
+   +P("M-34 -18 L34 -18 L48 62 L-48 62 Z",CU)+C(0,20,20,CREAM)+L("M0 20 L10 8",RED,5)+dots([[-24,48,5],[0,48,5],[24,48,5]],YEL)+R(-10,-34,20,18,3,CU2)
+   +R(-42,-102,84,70,26,YEL)+L("M-22 -100 V-34 M22 -100 V-34",CU2,5)+eyes(0,-70,30,11)+L("M-14 -48 Q0 -38 14 -48",INK,4)+P("M-48 -96 L0 -130 L48 -96 Z",CU2)+C(0,-130,8,CU)
+   +P("M54 34 L100 34 L92 74 L62 74 Z",BRN)+R(50,28,54,12,4,BRN)+L("M77 28 V-20",PINE,6)+E(63,4,15,7,GRN,28)+[0,1,2,3,4,5,6,7].map(i=>E(77,-46,8,17,ORG).replace('rotate(0 77 -46)',`rotate(${i*45} 77 -26)`)).join("")+C(77,-26,13,BRN);
+}
+/* Juniper: mint teapot delivery robot, three legs, propeller hat */
+function juniper(){
+  const MINT="#8FD0B8",DEEP="#4E9C86";
+  return L("M-36 78 L-52 112 M0 86 V116 M36 78 L52 112",DEEP,12)+E(-56,116,17,9,INK)+E(0,121,17,9,INK)+E(56,116,17,9,INK)
+   +L("M-62 6 Q-126 0 -104 56 Q-92 72 -62 58",DEEP,15)+P("M56 26 Q96 18 106 -30 L128 -26 Q120 52 60 66 Z",MINT)+E(0,28,76,66,MINT)+E(0,-34,46,13,DEEP)
+   +R(-48,-4,96,48,22,INK)+C(-20,18,10,SKY)+C(20,18,10,SKY)+L("M-10 32 Q0 39 10 32",SKY,4)+L("M-58 -22 L52 80",BRN,8)+R(28,60,56,40,7,TAN)+P("M28 62 L56 84 L84 62",CREAM)+C(56,82,6,RED)
+   +E(0,-52,30,19,RED)+R(-4,-92,8,28,3,INK)+E(-27,-94,28,9,YEL,-8)+E(27,-94,28,9,BLUE,8)+C(0,-94,8,INK);
+}
+function baker(){
+  return [["M-34 14 L-86 -6"],["M34 14 L86 -6"],["M-20 56 L-44 102"],["M20 56 L44 102"]].map(a=>L(a[0],"#BC7A3E",36)).join("")+E(0,28,46,48,"#BC7A3E")+C(0,-42,44,"#BC7A3E")
+   +L("M-92 -14 L-82 6 M92 -14 L82 6 M-58 90 L-34 104 M58 90 L34 104",CREAM,5)+P("M-30 12 L30 12 L38 66 Q0 80 -38 66 Z",CREAM)+C(0,44,10,RED)
+   +eyes(0,-48,34,10)+L("M-20 -24 Q0 -6 20 -24",CREAM,5)+C(-28,-28,8,"#E8857A")+C(28,-28,8,"#E8857A")
+   +edged(C(-26,-108,23,CREAM)+C(26,-108,23,CREAM)+C(0,-118,27,CREAM)+R(-36,-108,72,34,6,CREAM))+R(72,-30,58,13,6,TAN,-40);
+}
+function penguin(){
+  return E(-28,112,30,12,ORG)+E(28,112,30,12,ORG)+E(-62,34,18,50,INK,26)+E(70,2,18,50,INK,-52)+E(0,20,68,92,INK)+E(0,40,46,68,CREAM)
+   +eyes(0,-30,40,14)+P("M-17 -10 L17 -10 L0 14 Z",ORG)+R(-50,18,100,22,11,BLUE)+R(18,26,22,56,9,BLUE,-10)
+   +P("M-46 -52 Q-30 -122 44 -112 Q80 -104 82 -70 Q58 -90 46 -56 Z",GRN)+R(-52,-64,104,18,9,CREAM)+C(84,-68,13,CREAM);
+}
+function cocoa(){
+  return L("M62 2 Q122 0 112 52 Q104 86 58 76",RED,22)+P("M-72 -28 L72 -28 L60 92 Q0 118 -60 92 Z",RED)+E(0,-28,72,17,BRN)
+   +edged(R(-44,-62,36,32,11,CREAM,-12)+R(0,-72,36,32,11,CREAM,10)+R(30,-50,32,28,10,CREAM,-6))
+   +L("M-34 -78 Q-54 -96 -34 -108 Q-18 -118 -30 -132 M22 -88 Q4 -102 22 -114 Q38 -124 28 -136","#CBC3B2",8)
+   +eyes(0,24,44,14)+L("M-24 52 Q0 74 24 52",INK,6)+C(-42,52,10,PINK)+C(42,52,10,PINK)+R(-58,80,116,10,5,CREAM);
+}
+function owl(){
+  return P("M-62 -54 L-62 -112 L-20 -76 Z",PUR)+P("M62 -54 L62 -112 L20 -76 Z",PUR)+E(0,16,76,94,PUR)+E(0,52,46,52,"#D9CDEE")+L("M-22 38 l8 9 l8 -9 M8 38 l8 9 l8 -9 M-7 62 l8 9 l8 -9",PUR,5)
+   +E(-72,34,20,52,"#523F86",18)+E(72,34,20,52,"#523F86",-18)+C(-31,-34,32,CREAM)+C(31,-34,32,CREAM)+eyes(0,-34,56,18)+P("M-13 -12 L13 -12 L0 14 Z",YEL)+E(-24,110,22,10,YEL)+E(24,110,22,10,YEL);
+}
+function pie(){
+  return P("M-104 4 L104 4 L78 82 Q0 104 -78 82 Z",TAN)+L("M-86 30 L-70 76 M-44 32 L-36 88 M0 34 V92 M44 32 L36 88 M86 30 L70 76",BRN,5)+E(0,2,108,30,"#D9792E")
+   +[...Array(13)].map((_,i)=>{const a=i/13*Math.PI*2;return C((Math.cos(a)*108).toFixed(1),(2+Math.sin(a)*30).toFixed(1),12,TAN)}).join("")
+   +edged(C(-24,-20,26,CREAM)+C(24,-20,26,CREAM)+C(0,-42,28,CREAM)+C(6,-70,15,CREAM))+C(12,-86,11,RED)+eyes(0,48,48,13)+L("M-20 68 Q0 84 20 68",INK,5);
+}
+
+/* ---- more holiday friends ---- */
+function twinkle(){
+  return R(-15,92,30,30,6,BRN)+P("M0 -34 L88 98 L-88 98 Z",PINE)+P("M0 -70 L72 46 L-72 46 Z",GRN)+P("M0 -104 L54 -6 L-54 -6 Z",PINE)
+   +L("M-34 -24 Q0 -6 36 -30 M-52 30 Q0 58 56 22",YEL,4)+dots([[-26,-19,7],[20,-19,7]],RED)+dots([[-30,43,7],[30,39,7]],SKY)+dots([[0,-12,6],[2,46,7]],ORG)
+   +eyes(0,60,40,13)+L("M-26 40 L-8 46 M26 40 L8 46",INK,4)+L("M-14 82 Q-7 76 0 82 Q7 88 14 82",INK,4)
+   +`<g transform="rotate(28 20 -86)">`+P("M22 -122 L32 -96 L60 -94 L38 -77 L46 -50 L22 -66 L-2 -50 L6 -77 L-16 -94 L12 -96 Z",YEL)+`</g>`;
+}
+function mitzi(){
+  return E(-70,10,30,48,RED,-38)+P("M-54 66 L-54 -40 Q-54 -112 8 -112 Q70 -112 70 -40 L70 66 Z",RED)+R(-66,58,148,46,14,CREAM)+[0,1,2,3,4,5,6].map(i=>L(`M${-48+i*20} 64 V98`,"#D9D2C2",5)).join("")
+   +[-1,0,1].map(i=>L(`M${8+i*36} -88 v22 M${-3+i*36} -77 h22`,CREAM,4)).join("")+eyes(8,-30,48,16)+L("M-16 6 Q8 32 32 6",INK,6)+dots([[-30,6,10],[46,6,10]],PINK)
+   +L("M74 70 Q100 74 106 88",CREAM,4)+edged(C(112,98,25,SKY))+eyes(112,94,18,6)+L("M104 108 Q112 114 120 108",INK,3);
+}
+function jingle(){
+  return C(0,20,90,YEL)+L("M-87 26 Q0 54 87 26",GOLD,13)+C(-34,66,13,INK)+C(34,66,13,INK)+L("M-34 66 L34 66",INK,10)+E(-46,-24,13,28,CREAM,36)
+   +eyes(0,-16,50,17)+L("M-24 12 Q0 36 24 12",INK,6)+P("M0 -78 Q-92 -142 -86 -78 Q-90 -34 0 -66 Z",RED)+P("M0 -78 Q92 -142 86 -78 Q90 -34 0 -66 Z",RED)
+   +P("M-6 -68 L-46 -24 L-22 -28 L-16 -8 L8 -62 Z",RED)+C(0,-74,19,"#B9352C");
+}
+function pete(){
+  const swirl=Array.from({length:70},(_,i)=>{const a=i*.27,r=3+i*.98;return `${(-26+Math.cos(a)*r).toFixed(1)} ${(-8+Math.sin(a)*r).toFixed(1)}`});
+  return P("M-92 64 Q-100 94 -60 94 L84 94 Q112 90 108 50 L104 -6 Q98 -34 74 -24 Q58 -14 66 20 L62 60 Z",TAN)+L("M80 -20 L70 -70 M96 -20 L114 -66",TAN,9)+eyes(70,-78,0,13)+eyes(114,-74,0,13)+L("M76 44 Q90 58 102 40",INK,5)
+   +C(-26,-6,76,CREAM)+L("M"+swirl.join(" L"),RED,13)+L("M-96 90 Q-118 90 -126 104",BRN,3)+R(-146,92,42,16,5,RED)+R(-138,72,26,22,4,BLUE)+R(-128,72,6,22,0,YEL)+L("M-148 118 H-100 Q-92 118 -94 110",GOLD,5);
+}
+function fruitcake(){
+  return P("M-92 -30 Q-92 -76 0 -76 Q92 -76 92 -30 L80 86 Q0 108 -80 86 Z","#A8662F")+P("M-92 -32 Q-96 -80 0 -80 Q96 -80 92 -32 Q76 -2 62 -34 Q46 6 26 -32 Q8 -6 -10 -34 Q-28 4 -46 -32 Q-70 -6 -92 -32 Z",CREAM)
+   +dots([[-50,-84,14],[4,-94,15],[52,-82,13]],RED)+dots([[-24,-82,10],[30,-86,10]],GRN)+dots([[-58,16,7],[52,2,6],[60,52,7]],YEL)+dots([[-62,52,6],[30,10,5]],GRN)
+   +eyes(0,16,48,13)+`<g fill="none" stroke="${INK}" stroke-width="4"><circle cx="-24" cy="20" r="21"/><circle cx="24" cy="20" r="21"/><path d="M-3 18 h6"/></g>`+L("M-18 52 Q0 64 18 52",INK,5)+dots([[-44,48,9],[44,48,9]],PINK)
+   +P("M-92 50 Q-40 78 0 74 Q40 78 92 50 L74 100 L0 122 L-74 100 Z",PUR)+L("M-66 76 L0 110 L66 76","#9C86D6",4)+C(0,78,10,YEL);
+}
+function maple(){
+  return P("M-20 96 C-150 108 -150 -64 -62 -96 C-4 -112 -2 -48 -44 -42 C-86 -30 -70 40 -10 52 Z","#B9652C")+L("M-34 76 C-108 72 -112 -40 -58 -70",ORG,17)
+   +E(12,48,50,60,"#C97A38")+E(-8,112,30,13,"#C97A38")+E(48,112,30,13,"#C97A38")+P("M0 -78 L6 -120 L34 -82 Z","#C97A38")+P("M44 -84 L72 -116 L74 -70 Z","#C97A38")+C(38,-46,45,"#C97A38")+E(52,-28,28,21,"#F6E3C4")
+   +eyes(42,-58,32,11)+C(72,-34,8,INK)+L("M44 -18 Q56 -8 68 -18",INK,4)+E(56,54,38,42,TAN)+P("M14 38 Q18 8 56 8 Q94 8 98 38 Z",BRN)+L("M56 8 Q58 -4 68 -8",BRN,8)+L("M10 28 Q24 70 54 66 M92 22 Q104 60 78 74","#C97A38",18);
+}
+function bubbles(){
+  const flake=(x,y,r)=>[0,60,120].map(a=>`<path d="M${x-r} ${y}H${x+r}" stroke="${SKY}" stroke-width="4" stroke-linecap="round" transform="rotate(${a} ${x} ${y})"/>`).join("");
+  return P("M-82 26 Q-112 2 -136 -34 Q-100 -32 -98 -10 Q-94 -44 -64 -48 Q-70 -4 -56 22 Z",BLUE)+P("M-90 36 Q-80 -50 24 -50 Q128 -46 124 40 Q116 108 14 108 Q-70 104 -90 36 Z",BLUE)
+   +P("M-62 70 Q20 54 116 62 Q92 108 14 108 Q-38 106 -62 70 Z","#CFE5EE")+L("M-34 84 Q30 76 96 84 M-18 97 Q30 92 72 98",SKY,3)+E(0,62,34,17,SKY,28)+eyes(72,6,40,13)+L("M60 34 Q86 52 112 30",INK,5)+C(46,34,9,PINK)
+   +P("M-34 -46 Q-20 -100 30 -96 Q70 -90 70 -48 Z",RED)+R(-42,-56,120,18,9,CREAM)+edged(C(16,-102,16,CREAM))+flake(-66,-88,13)+flake(-40,-114,9)+flake(-94,-112,8)+L("M-40 -54 Q-48 -74 -60 -80",SKY,5);
+}
+function doodle(){
+  const stripes=[0,1,2,3,4].map(i=>R(-82+i*32,-4,17,78,0,i%2?YEL:CREAM)).join("");
+  return L("M-100 18 Q-140 4 -138 -34",BRN,17)+[-92,-58,42,74].map(x=>R(x,58,24,48,12,BRN)+E(x+16,106,20,10,BRN)).join("")+R(-112,2,212,72,36,BRN)+R(-86,-2,152,80,24,RED)+stripes
+   +L("M70 22 L88 -20",BRN,40)+E(100,-38,40,34,BRN)+E(126,-24,30,19,TAN)+C(152,-32,12,INK)+eyes(108,-52,24,9)+E(72,-24,17,44,"#5C3826",20)+L("M112 -12 Q128 -2 142 -14",INK,4)+L("M64 6 Q84 20 104 8",GRN,13)+C(86,26,8,YEL);
+}
+/* the raccoon marching band */
+function raccoon(play){
+  const FUR="#8C8A92",DARK="#45424C";
+  const body=L("M-36 76 Q-118 96 -108 22",FUR,34)+L("M-100 70 l-26 6 M-112 46 l-24 -4 M-62 88 l-8 24",DARK,13)+E(-22,112,24,11,DARK)+E(26,112,24,11,DARK)+E(0,56,48,56,FUR)+E(0,66,28,38,CREAM)
+   +[-1,1].map(k=>P(`M${k*22} -76 L${k*58} -108 L${k*56} -52 Z`,FUR)+P(`M${k*34} -79 L${k*50} -93 L${k*49} -68 Z`,PINK)).join("")+E(0,-40,60,48,FUR)+E(-25,-44,25,17,DARK,22)+E(25,-44,25,17,DARK,-22)+eyes(0,-44,44,10)+E(0,-18,28,21,CREAM)+E(0,-27,11,8,INK)+L("M-12 -12 Q0 -2 12 -12",INK,4)
+   +R(-30,-122,60,38,8,RED)+R(-38,-90,76,10,5,INK)+C(0,-104,8,YEL)+L("M0 -122 Q18 -140 30 -128",YEL,8);
+  const gear={
+    drum:()=>R(-52,30,104,62,10,CREAM)+R(-56,26,112,14,7,RED)+R(-56,82,112,14,7,RED)+L("M-52 40 L-26 82 L0 40 L26 82 L52 40",GOLD,4)+L("M-70 34 L-24 22 M70 34 L24 22",TAN,8)+dots([[-70,34,13],[70,34,13]],DARK)+dots([[-22,21,8],[22,21,8]],CREAM),
+    horn:()=>L("M0 -8 L60 14 Q96 28 78 54 Q56 78 30 54 Q18 34 46 30 L92 34",GOLD,13)+P("M88 24 L136 2 L136 70 L88 44 Z",YEL)+E(136,36,11,34,GOLD)+dots([[28,34,14],[58,58,14]],DARK)+L("M120 -22 v-22 l16 6 M120 -22 a7 5 0 1 1 -1 0",INK,4),
+    cymbals:()=>L("M-34 32 L-76 22 M34 32 L76 22",FUR,18)+E(-88,22,17,48,YEL,16)+E(88,22,17,48,YEL,-16)+E(-88,22,6,20,GOLD,16)+E(88,22,6,20,GOLD,-16)+L("M-118 -34 l-14 -10 M-124 -10 h-18 M118 -34 l14 -10 M124 -10 h18",ORG,5)
+  };
+  return body+gear[play]();
+}
+/* B-2 flying wing: straight swept leading edges, zigzag trailing edge */
+function b2(){
+  const HULL="#4E5560",LIGHT="#666E7A",DARK="#2F343D";
+  return P("M0 -86 L140 24 L116 44 L72 16 L40 52 L0 22 L-40 52 L-72 16 L-116 44 L-140 24 Z",HULL)+P("M0 -86 L34 -34 Q38 4 0 12 Q-38 4 -34 -34 Z",LIGHT)
+   +mirror(P("M30 -34 Q48 -46 62 -26 L60 -4 Q46 -14 32 -10 Z",LIGHT)+P("M33 -33 Q47 -42 59 -27 L55 -22 Q45 -31 35 -27 Z",DARK)+L("M64 -16 L122 28",DARK,2.5)+L("M72 16 L92 4 M40 52 L50 14",DARK,2.5))
+   +P("M-23 -47 Q0 -63 23 -47 L17 -35 Q0 -45 -17 -35 Z",SKY)+L("M0 -54 V-40",DARK,3)
+   +C(-96,13,13,BLUE)+`<path d="M-96 3 l2.6 7.2 h7.6 l-6 4.8 l2.2 7.4 l-6.4 -4.4 l-6.4 4.4 l2.2 -7.4 l-6 -4.8 h7.6 Z" fill="${CREAM}"/>`+L("M0 -86 L140 24 M0 -86 L-140 24",LIGHT,3);
+}
+/* Nashville's "Batman Building": the AT&T tower and its two tall spires */
+function batmanBuilding(){
+  const GLASS="#3E5568",EDGE="#5E7A90",STONE="#B9AE9C";
+  let floors="";for(let y=-22;y<100;y+=11)floors+=L(`M-46 ${y}H46`,EDGE,2.5);
+  let lit="";[[-34,-12],[-12,10],[22,-1],[34,32],[-23,43],[10,54],[-34,76],[22,76],[-1,87]].forEach(([x,y])=>lit+=R(x-5,y-4,10,7,1,YEL));
+  return R(-80,100,160,22,4,STONE)+R(-62,48,22,54,3,GLASS)+R(40,48,22,54,3,GLASS)+R(-50,-34,100,136,4,GLASS)+floors+lit+R(-10,-34,20,136,0,EDGE)+L("M0 -34V102",GLASS,3)
+   +P("M-52 -30 L-52 -70 L-40 -98 L-24 -70 Q0 -46 24 -70 L40 -98 L52 -70 L52 -30 Z",GLASS)+L("M-52 -70 L-40 -98 L-24 -70 Q0 -46 24 -70 L40 -98 L52 -70",EDGE,6)
+   +mirror(L("M40 -96 V-138",INK,5)+L("M40 -138 V-150",INK,2.5)+C(40,-152,4,RED))+L("M-52 -32 H52",STONE,6)+[-30,-15,0,15,30].map(x=>L(`M${x} -42V-34`,EDGE,3)).join("")+[-60,-40,-20,0,20,40,60].map(x=>R(x-5,108,10,14,1,GLASS)).join("");
+}
+/* a smiling watermelon slice */
+function watermelon(){
+  const seeds=[[-70,-30,24],[-34,-34,8],[36,-34,-8],[72,-30,-24],[-46,52,16],[46,52,-16],[0,66,0],[-22,-4,6],[22,-4,-6]]
+    .map(([x,y,a])=>`<path d="M${x} ${y-9}q9 11 0 17q-9 -6 0 -17Z" fill="${INK}" transform="rotate(${a} ${x} ${y})"/>`).join("");
+  return P("M-128 -58 H128 C124 50 66 112 0 112 C-66 112 -124 50 -128 -58 Z",PINE)+P("M-116 -58 H116 C112 40 60 98 0 98 C-60 98 -112 40 -116 -58 Z",GRN)
+   +P("M-104 -58 H104 C100 32 54 86 0 86 C-54 86 -100 32 -104 -58 Z",CREAM)+P("M-93 -58 H93 C89 24 48 74 0 74 C-48 74 -89 24 -93 -58 Z",RED)+seeds
+   +eyes(0,6,52,16)+L("M-24 32 Q0 56 24 32",INK,6)+C(-48,30,10,PINK)+C(48,30,10,PINK)
+   +L("M0 -58 Q-2 -84 18 -92",PINE,8)+E(34,-94,24,12,GRN,-14)+L("M18 -92 L48 -97",PINE,3);
+}
+const BALLOONS=[
+ ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
+ ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
+ ["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
+ ["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")]];
+
+/* ================= Franklin, Tennessee ================= */
+const STRIP=5200,PAN=.3;   /* one strip of downtown, and how fast it scrolls past */
+const THEME={
+  day:  {sky:"#F1ECE2",orb:"#EBD9B8",far:"#E4DDCF",walls:["#D9BFB0","#E3D3B8","#C9CDC0","#D6C6BE","#C7BFB4"],trim:"#F7F2E8",win:"#A9B6BC",door:"#8C7A6B",snow:"#FFFFFF",ground:"#F1ECE2",line:INK,text:INK,sub:"#7C766A",tree:"#5E8A66",wire:"#9A917F"},
+  night:{sky:"#141C33",orb:"#F3EBCB",far:"#202A46",walls:["#4A3A45","#4C4650","#34445A","#443B55","#3A4152"],trim:"#7D7A8C",win:"#FFD579",door:"#2B2433",snow:"#C9D3EA",ground:"#1B2440",line:"#8E9ABD",text:"#F7F2E8",sub:"#9AA6C6",tree:"#2F5A46",wire:"#6C7699"}
+};
+function rng(a){return()=>(a=(a*16807)%2147483647)/2147483647}
+const T=(x,y,str,size,f,extra="")=>`<text x="${x}" y="${y}" text-anchor="middle" font-size="${size}" fill="${f}" ${extra}>${str}</text>`;
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;");
+function bulbs(x0,x1,y,night,sag=12){
+  let s=`<path d="M${x0} ${y} Q${(x0+x1)/2} ${y+sag*2} ${x1} ${y}" fill="none" stroke="#7A715F" stroke-width="1"/>`;
+  const n=Math.max(3,Math.floor((x1-x0)/24));
+  for(let i=1;i<n;i++){const u=i/n,x=x0+(x1-x0)*u,by=y+4*sag*u*(1-u)+3,c=[RED,YEL,GRN,SKY][i%4];
+    if(night)s+=C(x.toFixed(1),by.toFixed(1),9,c,'opacity=".25"');
+    s+=`<circle class="bulb" cx="${x.toFixed(1)}" cy="${by.toFixed(1)}" r="3.4" fill="${c}"/>`;}
+  return s;
+}
+function shop(x,w,h,k,night,r){
+  const t=THEME[night?"night":"day"],base=STREET,top=base-h,wall=t.walls[k%t.walls.length];
+  let s=R(x,top,w,h,0,wall)+R(x-3,top-4,w+6,12,3,t.trim);
+  s+=`<path d="M${x-5} ${top-3} Q${x+w*.12} ${top-17} ${x+w*.3} ${top-9} Q${x+w*.5} ${top-20} ${x+w*.7} ${top-9} Q${x+w*.88} ${top-16} ${x+w+5} ${top-3} Z" fill="${t.snow}"/>`;
+  const cols=Math.max(2,Math.floor(w/42)),cw=(w-16)/cols;
+  for(let row=top+24;row<base-92;row+=44)for(let i=0;i<cols;i++){const wx=x+8+i*cw+(cw-18)/2,lit=!night||r()>.2;
+    s+=`<path d="M${wx} ${row+28}V${row+8}a9 9 0 0 1 18 0v20Z" fill="${lit?t.win:"#27304A"}"/>`+R(wx-2,row+28,22,4,1,t.trim);}
+  const ay=base-68;
+  s+=R(x+8,ay+14,w-16,54,2,t.win)+R(x+w/2-12,ay+22,24,46,10,t.door);
+  const sc=["#B4574C","#4F7A5B","#4D6491","#A97F3E"][k%4],n=Math.ceil(w/20),sw=w/n;
+  for(let i=0;i<n;i++)s+=`<path d="M${x+i*sw} ${ay}h${sw}v14a${sw/2} 7 0 0 1 ${-sw} 0Z" fill="${i%2?t.trim:sc}"/>`;
+  s+=R(x,ay-6,w,7,2,sc)+C(x+w/2,ay+40,9,"none",`stroke="${PINE}" stroke-width="6"`)+C(x+w/2,ay+31,3.5,RED);
+  return s+bulbs(x,x+w,top+8,night);
+}
+function courthouse(x,night){
+  const t=THEME[night?"night":"day"],b=STREET,stone=night?"#77758A":"#EFE6D6",brick=night?"#54404A":"#CFA999";
+  let s=R(x,b-176,300,176,0,brick)+R(x+46,b-188,208,16,2,stone)+P(`M${x+52} ${b-188} L${x+150} ${b-246} L${x+248} ${b-188} Z`,stone)+C(x+150,b-208,13,night?t.win:brick);
+  for(let i=0;i<5;i++)s+=R(x+62+i*43,b-172,15,148,4,stone);
+  for(const wx of [10,268])for(const wy of [-150,-92])s+=R(x+wx,b+wy,22,36,3,t.win);
+  for(let i=0;i<4;i++)s+=R(x+90+i*34,b-128,17,34,8,t.win);
+  s+=R(x+130,b-74,40,52,18,t.door)+R(x+34,b-24,232,8,1,stone)+R(x+20,b-16,260,8,1,stone)+R(x+8,b-8,284,8,1,stone);
+  s+=`<path d="M${x+48} ${b-188} L${x+150} ${b-252} L${x+252} ${b-188} L${x+150} ${b-238} Z" fill="${t.snow}"/>`+bulbs(x,x+300,b-174,night,16);
+  return s+T(x+150,b-193,"PUBLIC SQUARE",11,night?INK:"#6F6350",'letter-spacing="3" font-weight="600"');
+}
+function squareTree(x,night){
+  const b=STREET,t=THEME[night?"night":"day"];
+  let s=R(x-9,b-22,18,22,3,BRN);
+  [[-262,40,-176],[-218,58,-118],[-166,74,-64],[-112,90,-14]].forEach(([top,half,bot])=>s+=P(`M${x} ${b+top} L${x+half} ${b+bot} Q${x} ${b+bot+14} ${x-half} ${b+bot} Z`,t.tree));
+  [[-208,-12],[-180,22],[-150,-30],[-132,18],[-100,-46],[-92,40],[-62,-8],[-44,-58],[-38,52],[-30,14],[-74,66],[-122,-8]].forEach(([y,dx],i)=>{const c=[RED,YEL,SKY,CREAM][i%4];
+    if(night)s+=C(x+dx,b+y,13,c,'opacity=".28"');s+=`<circle class="bulb" cx="${x+dx}" cy="${b+y}" r="5.5" fill="${c}"/>`;});
+  if(night)s+=C(x,b-270,28,YEL,'opacity=".25"');
+  return s+P(`M${x} ${b-292} l7 15 l16 2 l-12 11 l3 16 l-14 -8 l-14 8 l3 -16 l-12 -11 l16 -2 Z`,YEL);
+}
+function theatre(x,night,greeting){
+  const b=STREET,wall=night?"#3E3350":"#D8C3A8",t=THEME[night?"night":"day"];
+  let s=R(x,b-232,300,232,0,wall)+R(x-4,b-238,308,12,3,t.trim)+R(x+40,b-208,220,64,6,night?"#2C2440":"#C4AD91");
+  /* blade sign */
+  s+=R(x-6,b-318,44,170,8,"#7E2B33")+[..."FRANKLIN"].map((ch,i)=>T(x+16,b-297+i*20,ch,17,"#FFE9AE",'font-weight="800"')).join("");
+  /* marquee with the greeting; long greetings are squeezed to fit */
+  const msg=esc(greeting.toUpperCase().slice(0,40));
+  if(night)s+=R(x+2,b-152,296,70,12,YEL,0).replace('/>',' opacity=".22"/>');
+  s+=R(x+12,b-144,276,56,8,"#7E2B33")+R(x+22,b-136,256,40,4,CREAM)+`<text x="${x+150}" y="${b-110}" text-anchor="middle" font-size="19" font-weight="800" fill="${INK}" ${msg.length>20?'textLength="238" lengthAdjust="spacingAndGlyphs"':""}>${msg}</text>`;
+  for(let i=0;i<18;i++){s+=`<circle class="bulb" cx="${x+20+i*15.3}" cy="${b-140}" r="3" fill="${YEL}"/><circle class="bulb" cx="${x+20+i*15.3}" cy="${b-92}" r="3" fill="${YEL}"/>`;}
+  s+=R(x+58,b-78,70,78,3,t.win)+R(x+172,b-78,70,78,3,t.win)+R(x+136,b-78,28,78,3,t.door);
+  return s+T(x+168,b-170,"THEATRE",20,night?"#FFE9AE":"#6F4A3A",'letter-spacing="8" font-weight="700"');
+}
+function lamp(x,night){
+  return R(x-3,STREET-112,6,112,2,"#4C463E")+(night?C(x,STREET-120,34,"#FFD579",'opacity=".22"'):"")+C(x,STREET-120,10,night?"#FFE3A0":"#CFC7B6")+P(`M${x-13} ${STREET-130} L${x} ${STREET-143} L${x+13} ${STREET-130} Z`,"#4C463E")+L(`M${x-8} ${STREET-86} q8 8 16 0`,RED,6);
+}
+/* a Main Street shop with its name on the sign band */
+function namedShop(x,w,h,k,night,r,name,band){
+  const sy=STREET-96;
+  return shop(x,w,h,k,night,r)+R(x+6,sy-13,w-12,25,4,band,0)+R(x+9,sy-10,w-18,19,2,"none").replace('/>',` stroke="${CREAM}" stroke-width="1.2"/>`)
+    +`<text x="${x+w/2}" y="${sy+5}" text-anchor="middle" font-size="12.5" font-weight="700" letter-spacing=".5" fill="${CREAM}" textLength="${Math.min(w-26,name.length*9.6)}" lengthAdjust="spacingAndGlyphs">${esc(name)}</text>`;
+}
+/* Gray's on Main: tall Victorian brick front with the neon pharmacy sign */
+function grays(x,night){
+  const b=STREET,t=THEME[night?"night":"day"],brick=night?"#5A3438":"#B97B66",stone=night?"#8A8698":"#F1E7D6",neon=night?"#FF7A6B":"#C73A30";
+  let s=R(x,b-262,190,262,0,brick)+R(x-6,b-276,202,18,3,stone)+R(x+40,b-296,110,22,4,brick)+R(x+36,b-300,118,8,2,stone);
+  for(let i=0;i<9;i++)s+=R(x+6+i*21,b-258,9,9,1,stone);
+  for(const wy of [-232,-166])for(let i=0;i<3;i++){const wx=x+22+i*58;s+=`<path d="M${wx} ${b+wy+48}V${b+wy+10}q15 -20 30 0v38Z" fill="${t.win}"/>`+L(`M${wx-4} ${b+wy+10}q19 -26 38 0`,stone,5)+L(`M${wx+15} ${b+wy}v48M${wx} ${b+wy+26}h30`,stone,2);}
+  s+=R(x+10,b-70,170,70,2,t.win)+R(x+80,b-66,30,66,3,t.door)+R(x+6,b-84,178,16,3,"#2F4A3C")+T(x+95,b-72,"GRAY'S ON MAIN",11,CREAM,'font-weight="700" letter-spacing="1.5"');
+  if(night)s+=R(x+158,b-228,72,128,20,neon).replace('/>',' opacity=".2"/>');
+  s+=L(`M${x+158} ${b-206}h14M${x+158} ${b-122}h14`,"#3B3630",4)+R(x+170,b-220,48,112,10,"#24433A")+`<rect x="${x+174}" y="${b-216}" width="40" height="104" rx="8" fill="none" stroke="${neon}" stroke-width="2.5"/>`;
+  [..."GRAY'S"].forEach((ch,i)=>s+=T(x+194,b-198+i*15,ch,15,"#FFF1C9",'font-weight="800"'));
+  s+=T(x+194,b-117,"DRUGS",10,neon,'font-weight="800"');
+  return s+bulbs(x,x+190,b-258,night,8);
+}
+/* "Chip", the soldier monument that stands on the Public Square */
+function chip(x,night){
+  const b=STREET,stone=night?"#9A99AC":"#E9E2D3",shade=night?"#77768B":"#CFC6B3";
+  return R(x-38,b-14,76,14,2,shade)+R(x-29,b-30,58,18,2,stone)+R(x-20,b-72,40,44,3,shade)+R(x-25,b-80,50,10,2,stone)
+    +P(`M${x-13} ${b-80}L${x-8} ${b-196}H${x+8}L${x+13} ${b-80}Z`,stone)+R(x-16,b-204,32,10,2,shade)
+    +P(`M${x-9} ${b-204}L${x-7} ${b-236}Q${x} ${b-242} ${x+7} ${b-236}L${x+9} ${b-204}Z`,shade)+C(x,b-245,6,shade)+R(x-10,b-251,19,4,1,shade)+L(`M${x+11} ${b-204}V${b-246}`,shade,3)
+    +T(x,b-45,"CHIP",11,night?INK:"#6F6350",'font-weight="700" letter-spacing="2"');
+}
+/* The Factory at Franklin: the old stove works, with its riveted water tower */
+function factory(x,night){
+  const b=STREET,t=THEME[night?"night":"day"],brick=night?"#59363A":"#B7705A",trim=night?"#8A8698":"#EFE3D0",rust=night?"#7A3B35":"#A8483A",steel=night?"#6C7699":"#6E625A";
+  let s=L(`M${x+372} ${b-200}L${x+352} ${b}M${x+470} ${b-200}L${x+490} ${b}M${x+404} ${b-200}L${x+398} ${b}M${x+438} ${b-200}L${x+444} ${b}`,steel,6)+L(`M${x+366} ${b-140}L${x+480} ${b-176}M${x+362} ${b-176}L${x+478} ${b-140}`,steel,2.5);
+  s+=R(x+358,b-288,126,92,12,rust)+P(`M${x+356} ${b-284}L${x+421} ${b-326}L${x+486} ${b-284}Z`,rust)+R(x+350,b-204,142,8,2,steel)+L(`M${x+362} ${b-264}h118M${x+362} ${b-222}h118`,trim,1.2)
+    +T(x+421,b-248,"THE",14,CREAM,'font-weight="800" letter-spacing="3"')+T(x+421,b-228,"FACTORY",19,CREAM,'font-weight="800" letter-spacing="1"');
+  s+=P(`M${x} ${b}V${b-126}`+Array.from({length:5},(_,i)=>`L${x+i*68+34} ${b-154}L${x+i*68+68} ${b-126}`).join("")+`V${b}Z`,brick)+R(x-4,b-128,348,7,2,trim);
+  for(let i=0;i<6;i++){const wx=x+16+i*54;s+=R(wx,b-84,38,56,3,t.win)+L(`M${wx+13} ${b-84}v56M${wx+25} ${b-84}v56M${wx} ${b-66}h38M${wx} ${b-47}h38`,brick,2);}
+  s+=T(x+170,b-102,"DORTCH STOVE WORKS",19,trim,'font-weight="800" letter-spacing="1.5" opacity=".8"')+R(x+152,b-34,36,34,3,t.door);
+  return s+`<path d="M${x+352} ${b-286} Q${x+390} ${b-312} ${x+421} ${b-329} Q${x+452} ${b-312} ${x+490} ${b-286} L${x+421} ${b-318}Z" fill="${t.snow}"/>`+bulbs(x,x+340,b-124,night,2);
+}
+/* one Main Street block: shops, theatre, shops, courthouse square */
+function mainStreet(night,greeting){
+  const r=rng(41);let s="",x=0,k=0;
+  const row=until=>{while(x<until){let w=Math.min(until-x,112+Math.floor(r()*56));if(until-x-w<90)w=until-x;s+=shop(x,w,150+Math.floor(r()*74),k++,night,r);x+=w;}};
+  const named=(name,w,h,band)=>{s+=namedShop(x,w,h,k++,night,r,name,band);x+=w;};
+  row(260);
+  s+=grays(x+10,night);x+=240;
+  named("WHITE'S MERCANTILE",196,178,"#33383D");
+  s+=theatre(x,night,greeting);x+=300;
+  named("LANDMARK BOOKSELLERS",210,196,"#27465A");
+  named("SOUTHERN COTTAGE",184,166,"#8D5A6E");
+  named("THE PAINT STORE",170,188,"#3E6B54");
+  row(2020);
+  s+=lamp(2050,night)+courthouse(2090,night)+chip(2448,night)+squareTree(2570,night)+lamp(2690,night);x=2730;
+  row(3500);
+  s+=factory(3524,night);x=4040;
+  row(STRIP);
+  return s;
+}
+function skyline(night){
+  const t=THEME[night?"night":"day"],r=rng(7);let s="",x=0;
+  while(x<STRIP){const w=Math.min(STRIP-x,90+Math.floor(r()*110)),h=190+r()*90;s+=`<path d="M${x} ${STREET}V${STREET-h}l${w/2} ${-18-r()*34}l${w/2} ${18+r()*20}V${STREET}Z" fill="${t.far}"/>`;x+=w;}
+  [520,2060,3300].forEach(cx=>s+=R(cx-24,STREET-350,48,350,0,t.far)+P(`M${cx-30} ${STREET-350} L${cx} ${STREET-452} L${cx+30} ${STREET-350} Z`,t.far));
+  return s;
+}
+const tiled=s=>[-1,0,1,2].map(k=>`<g transform="translate(${k*STRIP} 0)">${s}</g>`).join("");
+function backdrop(night,greeting){
+  const t=THEME[night?"night":"day"],r=rng(99);
+  let stars="";if(night)for(let i=0;i<110;i++)stars+=C((r()*2400-560).toFixed(0),(r()*420-60).toFixed(0),(r()*1.5+.5).toFixed(1),CREAM,`opacity="${(.3+r()*.6).toFixed(2)}"`);
+  const orb=night?C(1100,176,52,t.orb)+C(1124,162,46,t.sky):C(1090,176,86,t.orb);
+  return `<rect x="-1280" y="-800" width="3840" height="2400" fill="${t.sky}"/>${stars}${orb}<g id="far">${tiled(skyline(night))}</g><g id="near">${tiled(mainStreet(night,greeting))}</g>
+  <rect x="-1280" y="${STREET}" width="3840" height="900" fill="${t.ground}"/><line x1="-1280" y1="${STREET}" x2="2560" y2="${STREET}" stroke="${t.line}" stroke-width="2"/>`;
+}
+
+/* ================= people ================= */
+function spectator(x,i){
+  const coat=["#B9483F","#3F5F9E","#4F7A5B","#8A6BA8","#B9843A"][i%5],kid=i%3===0,s=kid?.78:1;
+  const flag=i%2===0?L(`M${10} -34 L${20} -64`,"#6B5B48",2.5)+P(`M20 -64 L44 -57 L22 -48 Z`,[RED,GRN,YEL,BLUE][i%4]):C(13,-40,4,SKIN);
+  return `<g class="fan" data-i="${i}" transform="translate(${x} ${STREET})"><g transform="scale(${s})"><g class="hop">${R(-10,-38,20,38,8,coat)}${C(0,-47,9,["#F3C9A0","#C68F63","#8E5E3F"][i%3])}${P("M-10 -50 Q0 -68 10 -50 Z",["#B9483F","#4F7A5B","#3F5F9E"][i%3])}${C(0,-62,3.5,CREAM)}${C(-3,-47,1.4,INK)}${C(4,-47,1.4,INK)}${L("M7 -28 L12 -37",coat,5)}${flag}</g></g></g>`;
+}
+const crowd=()=>{const r=rng(5);let s="";for(let x=14,i=0;x<STRIP;x+=34+Math.floor(r()*30),i++)s+=spectator(x,i);return tiled(s)};
+/* Dickens-style carolers: top hats, bonnets and song sheets */
+function carolers(){
+  return [[-62,"#5B2F4E",true],[-21,"#2F5A6B",false],[21,"#6B3B2F",true],[62,"#3F5B3A",false]].map(([x,c,hat],i)=>`<g class="singer">`+
+    (hat?L(`M${x-6} -26 L${x-8} -2 M${x+6} -26 L${x+8} -2`,INK,7)+R(x-15,-66,30,46,9,c):P(`M${x-24} 0 Q${x-20} -44 ${x-10} -66 L${x+10} -66 Q${x+20} -44 ${x+24} 0 Z`,c))
+    +C(x,-79,13,SKIN)+(hat?R(x-17,-94,34,7,3,INK)+R(x-11,-116,22,24,3,INK)+R(x-11,-100,22,5,0,RED):P(`M${x-18} -74 Q${x-20} -104 ${x+4} -99 Q${x+20} -94 ${x+15} -82 Q${x} -96 ${x-12} -72 Z`,"#C9546A")+C(x-12,-70,4,"#C9546A"))
+    +C(x-4,-81,2,INK)+C(x+5,-81,2,INK)+E(x+1,-73,3.5,4.5,"#7E2226")+R(x-12,-54,24,17,2,CREAM,i%2?6:-6)+L(`M${x-8} -49h16 M${x-8} -44h16`,GRY,1.6)+L(`M${x-14} -52 L${x-6} -42 M${x+14} -52 L${x+6} -42`,c,6)+`</g>`).join("")
+    +`<g class="notes">${[[-44,-134],[8,-146],[52,-128]].map(([x,y])=>`<path d="M${x} ${y}v-20l12 5" fill="none" stroke="${RED}" stroke-width="3"/><circle cx="${x-4}" cy="${y}" r="5" fill="${RED}"/>`).join("")}</g>`;
+}
+function daysToChristmas(now){
+  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  let xmas=new Date(now.getFullYear(),11,25); if(today>xmas)xmas=new Date(now.getFullYear()+1,11,25);
+  return Math.round((xmas-today)/864e5);
+}
+const countdownText=n=>n===0?"MERRY CHRISTMAS!":n===1?"1 DAY UNTIL CHRISTMAS":`${n} DAYS UNTIL CHRISTMAS`;
+
+/* ================= the show ================= */
+const q=new URLSearchParams(location.search);
+const greeting=q.get("greeting")||GREETING;
+const N=BALLOONS.length,GAP=430,SANTA_AT=GAP*N+520,LOOP=SANTA_AT+1500,MARGIN=900,SPEED=46;
+const coats=[RED,BLUE,YEL,GRN];
+const stage=document.getElementById("stage"),NS="http://www.w3.org/2000/svg";
+const hourNow=new Date().getHours();
+const touch=q.has("touch")||matchMedia("(pointer: coarse)").matches;
+let portrait=innerHeight>innerWidth*1.1;
+let night=q.has("night")?q.get("night")!=="0":(hourNow>=17||hourNow<7);
+let snowing=q.get("snow")!=="0";
+const place=(dist,at)=>((dist-at+860+MARGIN)%LOOP+LOOP)%LOOP-MARGIN;
+const santaGroup=()=>`<g id="group"><ellipse cx="0" cy="${STREET+1}" rx="190" ry="8" fill="#000" opacity=".07"/><path id="strings" fill="none" stroke="#6F695E" stroke-width="1.4"/>
+<g id="santa">${santaBalloon()}</g>
+${[-250,-150,150,250].map((x,i)=>`<g class="elf" data-x="${x}">${elf(x,i%2?RED:GRN,i%2?GRN:RED,false)}</g>`).join("")}
+${[-70,0,70].map((x,i)=>`<g class="elf" data-x="${x}">${elf(x,i%2?GRN:RED,i%2?RED:GRN,true)}</g>`).join("")}
+<path d="M250 -0" id="reins" fill="none" stroke="${INK}" stroke-width="2"/>
+<g transform="translate(0 ${STREET})">${[390,530].map((x,i)=>`<g class="deer"><g opacity=".92">${reindeer(x+24,-88,"#A97F63",false)}</g>${reindeer(x,-68,BRN,i===1)}</g>`).join("")}</g></g>
+`;
+let items,singers,elves,deer,fans,bulbEls,flakes,confetti,piles,els={};
+const CAROL_AT=[2,7,12,17,21].map(i=>i*GAP+GAP/2);
+
+function build(){
+  const t=THEME[night?"night":"day"];
+  const fr=rng(3);
+  stage.innerHTML=`<defs><radialGradient id="glow"><stop offset="0" stop-color="#FFE7A8" stop-opacity=".55"/><stop offset=".6" stop-color="#FFE7A8" stop-opacity=".18"/><stop offset="1" stop-color="#FFE7A8" stop-opacity="0"/></radialGradient></defs>
+  ${backdrop(night,greeting)}<g id="crowd" opacity="${night?.5:.62}">${crowd()}</g>
+  ${CAROL_AT.map(()=>`<g class="choir">${carolers()}</g>`).join("")}
+  ${BALLOONS.map(([name,art,handlers=4],i)=>{const xs=handlers===6?[-130,-84,-34,34,84,130]:[-96,-34,34,96];
+    return `<g class="item" data-xs="${xs}"><ellipse cx="0" cy="${STREET+1}" rx="104" ry="7" fill="#000" opacity=".1"/>${night?'<ellipse class="halo" rx="190" ry="175" fill="url(#glow)"/>':""}<path class="line" fill="none" stroke="${t.wire}" stroke-width="1.3"/>
+    ${xs.map((x,k)=>`<g transform="translate(${x} ${STREET})"><rect x="-6" y="-26" width="12" height="26" rx="6" fill="${coats[(i+k)%4]}"/><circle cy="-33" r="6" fill="${SKIN}"/><path d="M-7 -35 Q0 -48 7 -35 Z" fill="${coats[(i+k+1)%4]}"/></g>`).join("")}
+    <g class="body">${art()}</g>${T(0,STREET+40,esc(name),20,t.text,'font-weight="600"')}</g>`}).join("")}
+  ${santaGroup()}
+  <g id="gustlines" fill="none" stroke="${night?"#9FB0DA":"#B7AD99"}" stroke-width="3" stroke-linecap="round" opacity="0">${[0,1,2,3].map(i=>`<path d="M${i*70} ${i*52}q70 -16 150 0t120 -6q26 -8 12 -22"/>`).join("")}</g>
+  <g id="runaway" display="none"><g id="chaser">${elf(0,GRN,RED,true)}</g><g id="hat"><g transform="scale(1.7)">${edged(R(-22,-8,44,9,4,INK)+R(-14,-36,28,30,4,INK))+R(-14,-16,28,7,0,RED)}</g></g></g>
+  <path id="pile" fill="${t.snow}" opacity="${night?.75:1}"/>
+  <g id="confetti">${Array.from({length:150},(_,i)=>`<rect width="7" height="12" rx="1.5" fill="${[RED,YEL,GRN,SKY,PINK,PUR,GOLD][i%7]}"/>`).join("")}</g>
+  <g id="snow">${Array.from({length:190},()=>`<circle r="${(fr()*2.6+1.2).toFixed(1)}" fill="#FFFFFF" opacity="${(.55+fr()*.45).toFixed(2)}" ${night?"":'stroke="#B8C3CE" stroke-width=".6"'}/>`).join("")}</g>
+  ${T(portrait?640:250,portrait?-96:66,"THE HOLIDAY BALLOON PARADE",portrait?24:16,t.text,'letter-spacing="2" font-weight="700"')}${T(portrait?640:250,portrait?-60:92,"FRANKLIN, TENNESSEE",portrait?18:13,t.sub,'letter-spacing="5"')}
+  ${T(portrait?640:1050,portrait?-18:66,countdownText(daysToChristmas(q.has("date")?new Date(q.get("date")+"T12:00"):new Date())),portrait?20:16,t.text,'letter-spacing="2" font-weight="700" id="count"')}
+  ${T(640,portrait?840:778,touch?"TAP pause · SWIPE skip · buttons below":"SPACE pause · ← → skip · F full screen · N night · S snow · W wind · H hat",portrait?18:12,t.sub,'letter-spacing="1" id="help"')}
+  ${touch?[["night","NIGHT"],["snow","SNOW"],["wind","WIND"],["hat","HAT"]].map(([k,label],i)=>{const bx=(portrait?418:454)+i*114,by=portrait?880:736;
+    return `<g data-act="${k}"><rect x="${bx}" y="${by}" width="102" height="${portrait?56:40}" rx="20" fill="none" stroke="${t.sub}" stroke-width="2"/>${T(bx+51,by+(portrait?35:26),label,16,t.text,'font-weight="700"')}</g>`}).join(""):""}`;
+  stage.setAttribute("viewBox",portrait?"390 -140 500 1100":"0 0 1280 800");
+  const $=id=>document.getElementById(id),all=s=>[...stage.querySelectorAll(s)];
+  items=all(".item");singers=all(".choir");elves=all(".elf");deer=all(".deer");fans=all(".fan .hop");bulbEls=all(".bulb");
+  flakes=all("#snow circle");confetti=all("#confetti rect");
+  els={far:$("far"),near:$("near"),crowd:$("crowd"),group:$("group"),santa:$("santa"),strings:$("strings"),gust:$("gustlines"),run:$("runaway"),hat:$("hat"),chaser:$("chaser"),pile:$("pile"),snow:$("snow"),conf:$("confetti"),help:$("help")};
+  $("group").insertAdjacentHTML("beforeend",T(0,STREET+40,"Santa, his reindeer and elves",20,t.text,'font-weight="600"'));
+  if(night)$("strings").setAttribute("stroke",t.wire);
+}
+
+const state={dist:0,t:0,snowDepth:0,gust:-99,hat:-99,nextGust:14,nextHat:24,santaConf:0};
+function draw(){
+  const {dist,t}=state;
+  const g=t-state.gust,gustPow=g>=0&&g<5?Math.sin(g/5*Math.PI):0;
+  items.forEach((el,i)=>{
+    const x=place(dist,i*GAP),on=x>-700&&x<W+700;el.style.display=on?"":"none";if(!on)return;
+    const push=gustPow*(26+(i%3)*9),y=[306,276,330][i%3]+Math.sin(t*1.1+i*1.7)*9-gustPow*14;
+    const tilt=Math.sin(t*.7+i)*2.2+gustPow*(11+Math.sin(t*7+i)*4);
+    el.setAttribute("transform",`translate(${x.toFixed(2)} 0)`);
+    el.querySelector(".body").setAttribute("transform",`translate(${push.toFixed(1)} ${y.toFixed(1)}) rotate(${tilt.toFixed(2)}) scale(1.08)`);
+    const halo=el.querySelector(".halo");if(halo){halo.setAttribute("cx",push);halo.setAttribute("cy",y);}
+    const xs=el.dataset.xs.split(",").map(Number);
+    el.querySelector(".line").setAttribute("d",xs.map(a=>`M${(a*.34+push).toFixed(1)} ${(y+34).toFixed(1)}L${a} ${STREET-34}`).join(""));
+  });
+  singers.forEach((el,i)=>{const x=place(dist,CAROL_AT[i]),on=x>-300&&x<W+300;el.style.display=on?"":"none";if(!on)return;
+    el.setAttribute("transform",`translate(${x.toFixed(1)} ${STREET})`);
+    [...el.querySelectorAll(".singer")].forEach((s,k)=>s.setAttribute("transform",`translate(0 ${(-Math.abs(Math.sin(t*3+k*1.3))*4).toFixed(1)})`));
+    const n=el.querySelector(".notes");n.setAttribute("transform",`translate(0 ${(Math.sin(t*2+i)*7).toFixed(1)})`);});
+  const sx=place(dist,SANTA_AT),sy=296+Math.sin(t*1.1)*9-gustPow*10,santaOn=sx>-850&&sx<W+600;
+  els.group.style.display=santaOn?"":"none";
+  els.group.setAttribute("transform",`translate(${sx.toFixed(2)} 0)`);
+  els.santa.setAttribute("transform",`translate(${(gustPow*18).toFixed(1)} ${sy.toFixed(1)}) rotate(${(Math.sin(t*.7)*2+gustPow*7).toFixed(2)}) scale(1.12)`);
+  els.strings.setAttribute("d",[[-90,-250],[-60,-150],[60,150],[90,250]].map(([a,b])=>`M${a} ${(sy+80).toFixed(1)}L${b+22} ${STREET-30}`).join(""));
+  elves.forEach((el,i)=>el.setAttribute("transform",`translate(0 ${(STREET-Math.abs(Math.sin(t*4+i*1.9))*5).toFixed(2)})`));
+  deer.forEach((el,i)=>el.setAttribute("transform",`translate(0 ${(-Math.abs(Math.sin(t*4+i*2.2))*5).toFixed(2)})`));
+  fans.forEach((el,i)=>el.setAttribute("transform",`translate(0 ${(-Math.max(0,Math.sin(t*3.4+(i%61)*1.7))*(santaOn?9:4)).toFixed(1)})`));
+  bulbEls.forEach((el,i)=>el.setAttribute("opacity",(Math.floor(t*1.6+i*.37)%5===0)?".45":"1"));
+  const wrap=v=>(v%STRIP+STRIP)%STRIP;
+  els.far.setAttribute("transform",`translate(${wrap(dist*.07+300).toFixed(1)} 0)`);
+  const pan=q.has("pan")?-Number(q.get("pan")):wrap(dist*PAN+90);
+  els.near.setAttribute("transform",`translate(${pan.toFixed(1)} 0)`);
+  els.crowd.setAttribute("transform",`translate(${pan.toFixed(1)} 0)`);
+  /* snow falls and slowly collects on the street */
+  els.snow.style.display=snowing?"":"none";
+  flakes.forEach((f,i)=>{const speed=24+(i*37%40),y=((i*131+t*speed)%860)-30,x=((i*211+Math.sin(t*.8+i)*22+gustPow*g*130+t*6)%1760)-240;
+    f.setAttribute("cx",x.toFixed(1));f.setAttribute("cy",y.toFixed(1));});
+  const d=state.snowDepth;
+  els.pile.setAttribute("d",d<.2?"":`M-1280 ${STREET+d*.7}`+Array.from({length:97},(_,i)=>`Q${-1280+i*40+20} ${(STREET-d*(.7+((i*29)%13)/20)).toFixed(1)} ${-1280+i*40+40} ${STREET}`).join("")+`V${STREET+d*.7}Z`);
+  /* confetti when Santa is in view */
+  const party=santaOn&&sx>-100&&sx<1250;
+  state.santaConf=party?Math.min(1,state.santaConf+.02):Math.max(0,state.santaConf-.01);
+  els.conf.setAttribute("opacity",state.santaConf.toFixed(2));
+  if(state.santaConf>0)confetti.forEach((c,i)=>{const y=((i*97+t*(60+i%50))%780)-40,x=(i*149%1320)-20+Math.sin(t*2+i)*26;
+    c.setAttribute("transform",`translate(${x.toFixed(1)} ${y.toFixed(1)}) rotate(${((t*140+i*40)%360).toFixed(0)})`);});
+  /* surprises */
+  els.gust.setAttribute("opacity",(gustPow*.9).toFixed(2));
+  els.gust.setAttribute("transform",`translate(${(-200+g*260).toFixed(0)} 150)`);
+  const h=t-state.hat;
+  if(h>=0&&h<11){els.run.removeAttribute("display");const hx=-80+h*160,hop=24+Math.abs(Math.sin(h*4.2))*56;
+    els.hat.setAttribute("transform",`translate(${hx.toFixed(1)} ${(STREET-14-hop).toFixed(1)}) rotate(${(h*260%360).toFixed(0)})`);
+    els.chaser.setAttribute("transform",`translate(${(hx-120).toFixed(1)} ${(STREET-Math.abs(Math.sin(h*9))*10).toFixed(1)}) rotate(9)`);}
+  else els.run.setAttribute("display","none");
+  els.help.setAttribute("opacity",t<12?"1":"0");
+}
+
+if(q.has("sprite")){            /* one piece of art on a clear background, for the color-display export */
+  const name=q.get("sprite");document.documentElement.style.background=document.body.style.background="transparent";
+  stage.style.overflow="hidden";
+  if(name.startsWith("bg-")){
+    stage.setAttribute("viewBox","0 0 800 480");stage.setAttribute("preserveAspectRatio","none");
+    const [,when,pan]=name.split("-");
+    stage.innerHTML=`<g transform="scale(.625) translate(0 ${768-808})"><g transform="translate(0 40)">${backdrop(when==="night",greeting)}<g id="crowd2">${crowd()}</g></g></g>`;
+    stage.querySelector("#near").setAttribute("transform",`translate(${-Number(pan)} 0)`);
+  }else if(name==="finale"){
+    stage.setAttribute("viewBox","-330 60 970 646");
+    stage.innerHTML=`<g id="group"><ellipse cx="0" cy="${STREET+1}" rx="190" ry="8" fill="#000" opacity=".07"/><path id="strings" fill="none" stroke="#6F695E" stroke-width="1.4"/>
+<g id="santa">${santaBalloon()}</g>
+${[-250,-150,150,250].map((x,i)=>`<g class="elf" data-x="${x}">${elf(x,i%2?RED:GRN,i%2?GRN:RED,false)}</g>`).join("")}
+${[-70,0,70].map((x,i)=>`<g class="elf" data-x="${x}">${elf(x,i%2?GRN:RED,i%2?RED:GRN,true)}</g>`).join("")}
+<path d="M250 -0" id="reins" fill="none" stroke="${INK}" stroke-width="2"/>
+<g transform="translate(0 ${STREET})">${[390,530].map((x,i)=>`<g class="deer"><g opacity=".92">${reindeer(x+24,-88,"#A97F63",false)}</g>${reindeer(x,-68,BRN,i===1)}</g>`).join("")}</g></g>
+`;
+    stage.querySelector("#santa").setAttribute("transform","translate(0 300) scale(1.12)");
+    stage.querySelector("#strings").setAttribute("d",[[-90,-250],[-60,-150],[60,150],[90,250]].map(([a,b])=>`M${a} 380L${b+22} ${STREET-30}`).join(""));
+    [...stage.querySelectorAll(".elf")].forEach(el=>el.setAttribute("transform",`translate(0 ${STREET})`));
+    stage.querySelector("#strings").setAttribute("stroke",INK);
+  }else{
+    stage.setAttribute("viewBox",name==="santa"?"-215 -232 430 420":"-170 -150 340 300");
+    stage.innerHTML=name==="santa"?santaBalloon():BALLOONS[Number(name)][1]();
+  }
+  window.parade={names:BALLOONS.map(b=>b[0])};
+}else if(q.has("sheet")){
+  const cols=6,rows=Math.ceil(N/cols);
+  stage.setAttribute("viewBox",`0 0 ${cols*330} ${rows*340}`);
+  stage.innerHTML=`<rect width="${cols*330}" height="${rows*340}" fill="#F1ECE2"/>`+BALLOONS.map(([name,art],i)=>`<g transform="translate(${165+(i%cols)*330} ${164+Math.floor(i/cols)*340})">${art()}${T(0,162,esc(name),20,INK,'font-weight="600"')}</g>`).join("");
+}else{
+  build();
+  if(q.has("at")){                       /* frozen moment for screenshots */
+    state.dist=+q.get("at")*GAP;state.t=+(q.get("t")||3);state.snowDepth=+(q.get("depth")||7);
+    if(q.get("demo")==="gust")state.gust=state.t-2.2;
+    if(q.get("demo")==="hat")state.hat=state.t-4.5;
+    if(q.has("party"))state.santaConf=1;
+    draw();
+  }else{
+    let paused=false,last=null,down=null;
+    const act={
+      pause:()=>paused=!paused,next:()=>state.dist+=GAP,back:()=>state.dist-=GAP,
+      night:()=>{night=!night;document.documentElement.style.background=document.body.style.background=THEME[night?"night":"day"].sky;build()},
+      snow:()=>snowing=!snowing,wind:()=>state.gust=state.t,hat:()=>state.hat=state.t
+    };
+    const keys={" ":"pause",arrowright:"next",arrowleft:"back",n:"night",s:"snow",w:"wind",h:"hat"};
+    addEventListener("keydown",e=>{
+      const k=e.key.toLowerCase();
+      if(k==="f")document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen?.();
+      if(keys[k]){e.preventDefault();act[keys[k]]();draw()}
+    });
+    stage.addEventListener("pointerdown",e=>down={x:e.clientX,button:e.target.closest("[data-act]")?.dataset.act});
+    stage.addEventListener("pointerup",e=>{
+      if(!down)return;const dx=e.clientX-down.x;
+      act[down.button||(Math.abs(dx)>40?(dx>0?"next":"back"):"pause")]();down=null;draw();
+    });
+    addEventListener("resize",()=>{const now=innerHeight>innerWidth*1.1;if(now!==portrait){portrait=now;build();draw()}});
+    (function tick(now){
+      if(last!==null&&!paused){const dt=Math.min(.05,(now-last)/1000);state.dist+=dt*SPEED;state.t+=dt;
+        state.snowDepth=snowing?Math.min(13,state.snowDepth+dt*.1):Math.max(0,state.snowDepth-dt*.4);
+        if(state.t>state.nextGust){state.gust=state.t;state.nextGust=state.t+24+Math.random()*20}
+        if(state.t>state.nextHat){state.hat=state.t;state.nextHat=state.t+32+Math.random()*24}}
+      last=now===undefined?null:now;draw();requestAnimationFrame(tick);
+    })();
+  }
+  document.documentElement.style.background=document.body.style.background=THEME[night?"night":"day"].sky;
+}
+</script>
+</body>
+</html>

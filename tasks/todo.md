@@ -183,3 +183,22 @@ Franklin/Skaneateles names to invented ones; day cycle follows the real clock.
 ## Review
 - User approved the preview of advisory, watch and warning. The alert-screen moon no longer shows
   the phase shape; the phase name and percentage beside it still do.
+
+---
+
+# Holiday balloon parade (2026-11-26)
+
+Original characters only. Preview before any commit.
+
+- [x] Mac page: 11 more balloons (Twinkle, Mitzi, Jingle, Peppermint Pete, Nana Fruitcake, Maple, Bubbles, Doodle, raccoon band x3)
+- [x] Franklin backdrop: Main Street, courthouse square + tree, theatre sign with editable greeting, carolers
+- [x] Alive: snow + buildup, night mode, crowd with flags, Santa confetti, Christmas countdown, wind gust + runaway hat
+- [x] Color display module: balloon of the day, parade snapshots, snow/rain from weather data
+- [x] Verify with screenshots + tests; no change to what the display currently shows
+
+## Review (preview stage, not committed)
+- parade/holiday_parade.html: animated Franklin parade (25 original/local balloons + Santa finale), night,
+  snow, crowd, carolers, confetti, countdown, wind, runaway hat, touch controls and an upright phone layout.
+- modules/holiday_parade.py + tools/parade_sprites.py: seven-color stills. active_module is unchanged.
+- Checked with headless Chromium screenshots on Linux. Not tried on a Mac, a phone or the color panel.
+- Fixed while testing: sprites cropped by Chromium's minimum window width.
