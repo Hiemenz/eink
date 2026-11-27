@@ -1693,24 +1693,24 @@ class TestAuditRegressions:
 class TestNationalRadar:
     ON = {"national_radar_when_quiet": True}
 
-    HOUR_AGO = {"ts": 100_000 - 3535, "quiet": True, "national": False}
+    TURN = {"ts": 100_000 - 2880, "quiet": True, "national": False}  # local up 48 min
 
     def _due(self, shown, config=None, quiet=True):
         config = self.ON if config is None else config
         return W_MOD._national_radar_due(config, shown, 100_000, quiet)
 
-    def test_due_when_local_has_had_its_hour(self):
-        assert self._due(self.HOUR_AGO)
+    def test_due_when_local_has_had_48_minutes(self):
+        assert self._due(self.TURN)
 
-    def test_not_due_within_the_hour_or_after_the_us_view(self):
-        assert not self._due({**self.HOUR_AGO, "ts": 100_000 - 2900})
-        assert not self._due({**self.HOUR_AGO, "national": True})
+    def test_not_due_earlier_or_right_after_the_us_view(self):
+        assert not self._due({**self.TURN, "ts": 100_000 - 2160})
+        assert not self._due({**self.TURN, "national": True})
 
     def test_not_due_when_active_just_cleared_unknown_or_disabled(self):
-        assert not self._due(self.HOUR_AGO, quiet=False)
-        assert not self._due({**self.HOUR_AGO, "quiet": False})
+        assert not self._due(self.TURN, quiet=False)
+        assert not self._due({**self.TURN, "quiet": False})
         assert not self._due(None)
-        assert not self._due(self.HOUR_AGO, config={})
+        assert not self._due(self.TURN, config={})
 
     def test_faint_echo_that_shows_white_is_not_rain(self):
         faint = Image.new("RGBA", (400, 400), (0, 200, 0, 24))
@@ -1726,7 +1726,7 @@ class TestNationalRadar:
         assert (min(lats), max(lats)) == pytest.approx((24.52, 49.38), abs=0.1)
         assert (min(lons), max(lons)) == pytest.approx((-124.73, -66.95), abs=0.1)
 
-    def test_generate_alternates_local_and_us_each_quiet_hour(self, tmp_path, monkeypatch):
+    def test_generate_gives_the_us_view_one_run_each_quiet_hour(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
         def fake_national(config, headers, path):
@@ -1750,7 +1750,8 @@ class TestNationalRadar:
                 if shown is None or W_MOD.view_change_reason(shown, view, 3600):
                     shown = view
                     drawn.append((run, "us" if view["national"] else "local"))
-        assert drawn == [(0, "local"), (5, "us"), (10, "local"), (15, "us"), (20, "local")]
+        assert drawn == [(0, "local"), (4, "us"), (5, "local"), (9, "us"), (10, "local"),
+                         (14, "us"), (15, "local"), (19, "us"), (20, "local")]
 
     @pytest.mark.parametrize("rain, alert, quiet", [
         (0.0, None, True), (3.0, None, True), (3.1, None, False),

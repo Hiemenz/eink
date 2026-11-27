@@ -59,6 +59,8 @@ def _view(ts=1000.0, quiet=True):
     (_view(), _view(ts=1720.0, quiet=False), "active weather"),
     (_view(quiet=False), _view(ts=1720.0, quiet=False), "active weather"),
     (_view(quiet=False), _view(ts=1720.0), "weather cleared"),
+    (_view(), {**_view(ts=3880.0), "national": True}, "US view's turn"),
+    ({**_view(), "national": True}, _view(ts=1720.0), "back to the local view"),
 ])
 def test_view_change_reason(shown, new, expected):
     assert weather.view_change_reason(shown, new, max_age=3600) == expected

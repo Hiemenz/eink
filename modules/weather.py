@@ -3491,6 +3491,7 @@ def _render_national_radar(config: dict, headers: dict, output_path: str) -> boo
 
 
 _VIEW_AGE_SLACK = 120  # s; so a push finishing after its cron tick doesn't slip a whole run
+_US_TURN_S = 720       # the US view lasts one scheduled run (cron: every 12 minutes)
 
 
 def _hour_is_up(shown: dict, now: float, hold_s: float) -> bool:
@@ -3500,28 +3501,35 @@ def _hour_is_up(shown: dict, now: float, hold_s: float) -> bool:
 def view_change_reason(shown: dict, new: dict, max_age: float = 0) -> Optional[str]:
     """Why the panel needs redrawing, or None to leave it alone.
 
-    Active weather redraws on every run. Quiet weather redraws once per `max_age`.
+    Active weather redraws on every run. Quiet weather redraws to start and end the
+    US view's turn, and otherwise once per `max_age`.
     `shown` describes what is on the panel now.
     """
     if not new.get("quiet"):
         return "active weather"
     if not shown.get("quiet"):
         return "weather cleared"
+    if new.get("national"):
+        return "US view's turn"
+    if shown.get("national"):
+        return "back to the local view"
     if _hour_is_up(shown, new.get("ts", 0), max_age):
         return "hourly refresh"
     return None
 
 
 def _national_radar_due(config: dict, shown: Optional[dict], now: float, quiet: bool) -> bool:
-    """True when quiet, and the local view has had its hour on the panel.
+    """True when quiet, and the local view has had its share of the hour.
 
-    Quiet redraws alternate: local, US, local. `shown` is what is on the panel.
+    Each quiet hour is the local view, then one run of the US view. `shown` is
+    what is on the panel.
     """
     if not config.get("national_radar_when_quiet", False) or not quiet:
         return False
     if not shown or not shown.get("quiet") or shown.get("national"):
         return False
-    return _hour_is_up(shown, now, float(config.get("unchanged_refresh_seconds", 3600)))
+    hold_s = float(config.get("unchanged_refresh_seconds", 3600))
+    return _hour_is_up(shown, now, hold_s - _US_TURN_S)
 
 
 def generate_weather_image(config, alert=None):
