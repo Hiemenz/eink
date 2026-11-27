@@ -10,6 +10,7 @@ Usage:
 
 import hashlib
 import importlib
+import json
 import platform
 import sys
 import time
@@ -83,6 +84,56 @@ def _save_hash(output_path: str, new_hash: str) -> None:
         f.write(new_hash)
 
 
+_VIEW_FILE = os.path.join("radar", "last_pushed_view.json")
+
+
+def _read_shown_view() -> dict:
+    """The saved {"output_path", "view"} record of the last push, or {}."""
+    try:
+        with open(_VIEW_FILE) as f:
+            saved = json.load(f)
+        return saved if isinstance(saved.get("view"), dict) else {}
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
+def _load_shown_view(output_path: str) -> dict | None:
+    """The view on the panel, if the last push was this image and described itself."""
+    saved = _read_shown_view()
+    return saved.get("view") if saved.get("output_path") == output_path else None
+
+
+def _save_shown_view(output_path: str, view: dict | None) -> None:
+    """Record what was just pushed. A push without a view forgets the old one."""
+    try:
+        if view is None:
+            if os.path.exists(_VIEW_FILE):
+                os.remove(_VIEW_FILE)
+            return
+        os.makedirs(os.path.dirname(_VIEW_FILE) or ".", exist_ok=True)
+        with open(_VIEW_FILE, "w") as f:
+            json.dump({"output_path": output_path, "view": view}, f)
+    except OSError:
+        logger.warning("Could not record the displayed view.", exc_info=True)
+
+
+def _skip_reason(mod, config: dict, output_path: str, new_hash: str | None) -> str | None:
+    """Why this image doesn't need pushing, or None to push it."""
+    max_age = float(config.get("unchanged_refresh_seconds", 3600))
+    if new_hash and _is_unchanged(output_path, new_hash, max_age):
+        return "Image unchanged"
+    view = config.get("_view_state")
+    judge = getattr(mod, "view_change_reason", None)
+    shown = _load_shown_view(output_path)
+    if view is None or judge is None or shown is None:
+        return None
+    reason = judge(shown, view, max_age)
+    if reason is None:
+        return "Nothing noticeable changed"
+    logger.info("Redrawing: %s.", reason)
+    return None
+
+
 def _in_sleep_window(config: dict) -> bool:
     """Return True if the current time falls in the configured night sleep window."""
     sleep_cfg = config.get("night_sleep", {})
@@ -145,14 +196,15 @@ def main() -> None:
     refresh_ok = True
     refresh_error = None
     try:
+        config["_shown_view"] = _read_shown_view().get("view")
         output_path = mod.generate(config)
 
         if output_path:
             logger.info("Generated image: %s", output_path)
             new_hash = _compute_hash(output_path)
-            max_age = float(config.get("unchanged_refresh_seconds", 3600))
-            if new_hash and _is_unchanged(output_path, new_hash, max_age):
-                logger.info("Image unchanged — skipping display push.")
+            skip = _skip_reason(mod, config, output_path, new_hash)
+            if skip:
+                logger.info("%s — skipping display push.", skip)
             else:
                 if platform.system() == "Linux":
                     from display import display_color_image
@@ -160,9 +212,11 @@ def main() -> None:
                         output_path,
                         model=config.get("display_model", "epd7in5_V2"),
                         full_clear_interval=int(config.get("full_clear_interval", 0)),
+                        clear_before=bool(config.get("clear_before_display", True)),
                     )
                     if pushed:
                         logger.info("Displayed on e-ink hardware.")
+                        _save_shown_view(output_path, config.get("_view_state"))
                         if new_hash:
                             _save_hash(output_path, new_hash)
                     else:

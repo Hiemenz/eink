@@ -79,11 +79,15 @@ def _write_refresh_count(n: int) -> None:
         pass
 
 
-def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int = 0) -> bool:
+def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int = 0,
+                        clear_before: bool = True) -> bool:
     """Display an image on the e-ink screen using the configured driver model.
 
     full_clear_interval: if > 0, run an extra deep-clear cycle every N refreshes
     to reduce ACeP 7-color ghosting. Has no effect on the B/W V2 driver.
+
+    clear_before: wipe to white before drawing. That is a second full refresh;
+    False skips it on the 7-color panel (the B/W driver always clears).
 
     Never raises — hardware errors are caught and logged so a flaky panel can't
     crash the caller. Returns True if the image actually reached the panel,
@@ -120,7 +124,8 @@ def display_color_image(image_file, model='epd7in5_V2', full_clear_interval: int
                 epd.Clear()   # second pass drives pigments fully to one extreme
                 _write_refresh_count(0)
 
-        epd.Clear()
+        if clear_before or model != 'epd7in3f':
+            epd.Clear()
         image = Image.open(image_file)
         epd.display(epd.getbuffer(image))
         epd.sleep()
