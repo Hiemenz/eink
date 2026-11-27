@@ -1,9 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
-<path d="M109 142 Q96 117 106 89 Q117 60 151 62 Q183 62 193 91 Q200 111 188 135 Q206 158 189 194 Q164 215 132 199 Q116 187 119 164Z" fill="#FBF8F1"/>
-<path d="M142 68 Q108 53 105 87 Q103 121 130 139 Q148 131 142 68Z" fill="#1D1D1F"/>
-<ellipse cx="162" cy="103" rx="6" ry="8" fill="#1D1D1F"/><path d="M171 105 Q192 93 207 104 Q216 111 205 119 Q190 126 174 120Z" fill="#FBF8F1"/><ellipse cx="208" cy="101" rx="11" ry="8" fill="#1D1D1F"/>
-<path d="M176 126 Q190 137 204 125" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
-<path d="M127 143 Q153 155 183 142 L188 157 Q156 171 124 158Z" fill="#E0483B"/>
-<path d="M138 191 L135 221 M172 191 L176 221" stroke="#1D1D1F" stroke-width="7" stroke-linecap="round"/><ellipse cx="127" cy="225" rx="17" ry="7" fill="#1D1D1F"/><ellipse cx="183" cy="225" rx="17" ry="7" fill="#1D1D1F"/>
-<path d="M122 150 Q107 151 99 165 M185 150 Q198 151 205 163" fill="none" stroke="#FBF8F1" stroke-width="10" stroke-linecap="round"/><circle cx="97" cy="167" r="8" fill="#FBF8F1"/><circle cx="207" cy="165" r="8" fill="#FBF8F1"/>
-</svg>
+<!-- Seated Snoopy in profile, with the reference's oversized left-facing muzzle and single dark ear. -->
+<g stroke="#1D1D1F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+ <!-- black ear sits behind the head -->
+ <path d="M194 66 Q222 61 232 86 Q242 116 218 137 Q201 147 187 128 Q181 103 194 66Z" fill="#1D1D1F" stroke="none"/>
+ <!-- small seated body, broad haunches and two flat paws -->
+ <path d="M145 124 Q127 134 124 159 Q119 183 136 198 Q151 210 177 198 Q192 190 185 165 L177 139Z" fill="#FBF8F1"/>
+ <path d="M148 187 Q137 205 119 211 L92 213 Q83 218 94 225 L129 227 Q148 222 159 203Z" fill="#FBF8F1"/>
+ <path d="M168 188 Q184 197 193 211 L220 214 Q231 218 221 225 L190 227 Q174 220 162 202Z" fill="#FBF8F1"/>
+ <!-- one continuous head and muzzle silhouette -->
+ <path d="M202 104 Q205 78 186 58 Q164 38 137 43 Q111 45 98 65 Q88 68 75 72 Q52 81 51 100 Q51 120 72 127 Q93 135 116 126 Q134 127 148 121 Q177 132 195 117Z" fill="#FBF8F1"/>
+ <!-- oval nose at the end of his muzzle -->
+ <ellipse cx="61" cy="97" rx="11" ry="8" fill="#1D1D1F" stroke="none"/>
+ <!-- two simple expressive eye marks and a relaxed smile -->
+ <path d="M126 67 Q121 75 123 84 M147 65 Q143 73 145 81" fill="none" stroke-width="5"/>
+ <path d="M76 115 Q91 130 112 117" fill="none" stroke-width="3.5"/>
+ <!-- red collar, one small bent arm and curled tail -->
+ <path d="M140 125 Q158 133 178 125 L181 134 Q160 142 138 134Z" fill="#E0483B" stroke="none"/>
+ <path d="M164 147 Q172 158 166 173 Q162 181 151 180 L151 168" fill="none" stroke-width="6"/>
+ <path d="M183 174 Q201 164 214 175 Q222 183 236 179" fill="none" stroke-width="4"/>
+</g></svg>

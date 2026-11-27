@@ -1,6 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
-<g fill="#F2BE35"><circle cx="114" cy="65" r="13"/><circle cx="132" cy="50" r="14"/><circle cx="153" cy="46" r="14"/><circle cx="175" cy="53" r="14"/><circle cx="190" cy="70" r="13"/><circle cx="108" cy="87" r="13"/><circle cx="194" cy="91" r="12"/></g>
-<ellipse cx="151" cy="91" rx="39" ry="43" fill="#F3C9A0"/><circle cx="137" cy="88" r="4" fill="#1D1D1F"/><circle cx="164" cy="88" r="4" fill="#1D1D1F"/><path d="M138 108 Q151 117 165 107" fill="none" stroke="#1D1D1F" stroke-width="3" stroke-linecap="round"/>
-<path d="M111 137 Q151 126 191 137 L200 192 Q151 205 101 192Z" fill="#2E59C9"/><path d="M112 145 L92 163 M190 145 L210 162" stroke="#F3C9A0" stroke-width="10" stroke-linecap="round"/><circle cx="90" cy="165" r="8" fill="#F3C9A0"/><circle cx="212" cy="164" r="8" fill="#F3C9A0"/>
-<path d="M119 191 L143 191 L140 219 L114 219Z M159 191 L184 191 L188 219 L162 219Z" fill="#2E59C9"/><ellipse cx="127" cy="224" rx="17" ry="7" fill="#2E59C9"/><ellipse cx="177" cy="224" rx="17" ry="7" fill="#2E59C9"/>
-</svg>
+<!-- Sally's halo of round blonde curls is the main silhouette cue. -->
+<g stroke="#1D1D1F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+ <g fill="#F2BE35" stroke="none"><circle cx="113" cy="74" r="13"/><circle cx="125" cy="55" r="14"/><circle cx="145" cy="45" r="14"/><circle cx="166" cy="49" r="14"/><circle cx="185" cy="63" r="14"/><circle cx="194" cy="83" r="13"/><circle cx="111" cy="94" r="13"/><circle cx="119" cy="110" r="12"/><circle cx="183" cy="108" r="12"/></g>
+ <ellipse cx="151" cy="88" rx="36" ry="41" fill="#F3C9A0"/>
+ <circle cx="138" cy="86" r="3.6" fill="#1D1D1F" stroke="none"/><circle cx="164" cy="86" r="3.6" fill="#1D1D1F" stroke="none"/>
+ <path d="M140 106 Q151 114 164 105" fill="none" stroke-width="3"/>
+ <path d="M112 133 Q151 123 190 133 L201 190 Q151 204 100 190Z" fill="#2E59C9"/>
+ <path d="M110 145 L91 162 M192 145 L211 161" fill="none"/>
+ <path d="M118 190 L145 190 L141 216 L114 216 M158 190 L184 190 L188 216 L161 216" fill="#2E59C9"/>
+ <path d="M113 217 L143 217 M160 217 L190 217" fill="none" stroke-width="5"/>
+</g></svg>

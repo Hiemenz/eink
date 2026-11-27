@@ -1,7 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
-<path d="M113 159 Q96 137 107 108 Q119 77 154 78 Q185 79 196 108 Q206 137 185 163 Q153 181 124 166Z" fill="#F2BE35"/>
-<path d="M120 93 Q111 71 119 52 Q134 63 140 80 Q142 56 153 42 Q163 60 160 79 Q177 62 189 63 Q185 81 174 95Z" fill="#F2BE35"/>
-<path d="M178 103 L210 112 L179 121Z" fill="#EC7C30"/><ellipse cx="158" cy="102" rx="5" ry="7" fill="#1D1D1F"/><circle cx="159" cy="100" r="1.8" fill="#FFFFFF"/>
-<path d="M128 133 Q109 120 102 136 Q109 151 130 151Z" fill="#E8B72F"/><path d="M130 139 L117 143 M132 145 L120 149" stroke="#D7A53C" stroke-width="2.5" stroke-linecap="round"/>
-<path d="M143 164 L141 204 M166 164 L171 204" stroke="#EC7C30" stroke-width="4" stroke-linecap="round"/><path d="M141 203 L133 209 M141 203 L148 209 M171 203 L164 209 M171 203 L180 209" stroke="#EC7C30" stroke-width="3" stroke-linecap="round"/>
-</svg>
+<!-- Woodstock, simplified from the supplied profile reference: large left-facing head, tiny body, swept rear crest. -->
+<g stroke="#1D1D1F" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+ <!-- rear feather spikes, visible behind the skull -->
+ <path d="M155 73 Q143 46 151 26 Q163 36 168 61 L178 15 Q189 37 183 62 L204 27 Q211 48 196 69 L219 49 Q220 66 204 81Z" fill="#F2BE35"/>
+ <!-- small tail feathers -->
+ <path d="M171 152 Q198 144 224 157 Q205 167 182 164Z" fill="#F2BE35"/>
+ <!-- narrow tucked body -->
+ <path d="M142 121 Q132 133 133 155 Q132 174 151 179 Q169 180 178 163 Q183 142 169 123Z" fill="#F2BE35"/>
+ <!-- one tiny folded wing -->
+ <path d="M144 139 Q131 134 130 144 Q132 153 147 154" fill="#F2BE35" stroke-width="3"/>
+ <!-- oversized, soft profile head with a short beak-like forehead -->
+ <path d="M109 104 Q99 98 101 87 Q103 72 120 66 Q137 57 158 62 Q178 57 194 67 Q209 76 208 91 Q218 98 212 109 Q206 120 186 117 Q176 129 159 132 Q140 134 129 126 Q115 129 106 120 Q100 114 109 104Z" fill="#F2BE35"/>
+ <!-- closed, expressive eyes and a cheerful cheek smile -->
+ <path d="M128 82 Q138 78 146 81 M158 81 Q167 78 176 82" fill="none" stroke-width="4.5"/>
+ <path d="M108 101 Q123 111 141 100 Q145 97 146 93" fill="none" stroke-width="3.5"/>
+ <!-- thin orange legs and tiny feet -->
+ <path d="M145 175 L143 196 M164 175 L167 196 M143 196 L136 201 M143 196 L150 201 M167 196 L160 201 M167 196 L175 201" fill="none" stroke="#EC7C30" stroke-width="3"/>
+</g></svg>
