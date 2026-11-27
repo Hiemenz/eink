@@ -1,39 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="25 0 250 250">
-  <!-- Long pink tail curling behind a compact, upright chef rat -->
-  <path d="M126 183 C97 207 65 210 54 185 C43 160 53 131 77 132 C98 133 100 157 89 166" fill="none" stroke="#EC95AE" stroke-width="11" stroke-linecap="round"/>
-  <path d="M110 100 Q89 77 105 62 Q123 46 140 68 M181 67 Q198 48 215 64 Q229 81 205 103" fill="#E48F91" stroke-linejoin="round"/>
-  <ellipse cx="116" cy="79" rx="11" ry="17" fill="#E79AA1"/><ellipse cx="204" cy="79" rx="11" ry="17" fill="#E79AA1"/>
-  <!-- dark gray furry silhouette and little feet -->
-  <path d="M128 102 Q138 92 150 92 Q166 92 174 104 Q184 127 178 172 Q176 197 170 213 L130 213 Q124 194 121 171 Q116 128 128 102Z" fill="#3C4850"/>
-  <path d="M131 124 Q120 147 124 174 M169 124 Q180 147 176 174" fill="none" stroke="#59646A" stroke-width="2.8" stroke-linecap="round"/>
-  <path d="M138 205 L135 225 Q135 234 145 234 L153 232 L154 211 M166 211 L168 229 Q175 235 185 231 Q190 228 184 221 L172 204" fill="#303940"/>
-  <path d="M138 227 Q131 229 131 237 Q135 242 149 241 Q156 239 152 232Z M169 229 Q166 237 174 241 Q188 243 193 237 Q192 231 183 229Z" fill="#E79AA1"/>
-  <!-- arms: a furry raised forearm with a pink waving paw, and a relaxed second paw -->
-  <path d="M130 130 Q117 132 107 119 L96 104 L108 94 L128 108 L140 119Z" fill="#3C4850" stroke-linejoin="round"/>
-  <g transform="translate(15 15) scale(.85)">
-    <path d="M102 105 Q96 101 92 96 L74 77 Q70 72 74 68 Q78 64 83 69 L96 82 L83 62 Q80 57 85 54 Q90 52 94 58 L107 75 L98 54 Q96 48 101 46 Q107 45 110 51 L122 73 L117 54 Q116 48 121 47 Q127 47 129 54 L137 82 Q142 96 132 108 Q119 116 102 105Z" fill="#E79AA1" stroke-linejoin="round"/>
-    <path d="M88 75 L99 87 M100 64 L111 81 M119 63 L126 81" fill="none" stroke="#CF777F" stroke-width="2.5" stroke-linecap="round"/>
-  </g>
-  <!-- head, eyes and muzzle -->
-  <path d="M111 103 Q112 81 132 73 Q152 64 174 74 Q193 84 194 106 Q195 133 177 147 Q162 159 143 152 Q118 145 111 124Z" fill="#303B42"/>
-  <ellipse cx="137" cy="104" rx="16" ry="22" fill="#FBF8F1"/><ellipse cx="169" cy="103" rx="16" ry="22" fill="#FBF8F1"/>
-  <ellipse cx="141" cy="107" rx="7" ry="10" fill="#80523A"/><ellipse cx="166" cy="106" rx="7" ry="10" fill="#80523A"/>
-  <ellipse cx="143" cy="108" rx="3.5" ry="5" fill="#1D1D1F"/><ellipse cx="168" cy="107" rx="3.5" ry="5" fill="#1D1D1F"/>
-  <circle cx="144" cy="104" r="2.4" fill="#FFFFFF"/><circle cx="169" cy="103" r="2.4" fill="#FFFFFF"/>
-  <ellipse cx="153" cy="126" rx="27" ry="19" fill="#39454C"/>
-  <ellipse cx="157" cy="124" rx="12" ry="11" fill="#E27678"/>
-  <path d="M144 137 Q156 148 170 136" fill="none" stroke="#171B20" stroke-width="2.6" stroke-linecap="round"/>
-  <path d="M132 129 L106 122 M132 136 L104 138 M179 129 L204 121 M179 136 L207 139" fill="none" stroke="#CFD0CA" stroke-width="2" stroke-linecap="round"/>
-  <!-- second arm bends out from the shoulder and rests against the belly -->
-  <path d="M177 145 Q188 148 187 158 L181 174" fill="none" stroke="#303B42" stroke-width="13" stroke-linecap="round"/>
-  <!-- a small golden cheese wedge rests in the open pink paw -->
-  <path d="M177 177 L221 180 L204 207Z" fill="#F2BE35" stroke="#A76D28" stroke-width="2.4" stroke-linejoin="round"/>
-  <path d="M177 177 L221 180" fill="none" stroke="#D7A53C" stroke-width="5" stroke-linecap="round"/>
-  <circle cx="197" cy="184" r="3.2" fill="#FBF8F1"/><circle cx="207" cy="191" r="2.4" fill="#FBF8F1"/><circle cx="198" cy="198" r="2.2" fill="#FBF8F1"/>
-  <path d="M181 167 Q190 169 187 178 L183 188 Q181 193 175 191 L170 188 Q167 185 170 179 L174 171Z" fill="#E79AA1"/>
-  <path d="M176 180 Q180 183 184 181 M175 185 L180 187" fill="none" stroke="#CF777F" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- tall white pleated toque -->
-  <path d="M128 78 Q119 63 124 42 Q128 25 142 20 Q150 12 160 20 Q175 21 181 39 Q186 56 179 78Z" fill="#FBF8F1" stroke="#D6D0C5" stroke-width="2.4"/>
-  <path d="M139 70 Q135 46 143 24 M157 69 Q161 42 157 18 M171 68 Q178 43 168 25" fill="none" stroke="#E2DCD2" stroke-width="2.4" stroke-linecap="round"/>
-  <path d="M123 75 Q151 70 184 76 L188 86 Q153 92 119 85Z" fill="#FBF8F1" stroke="#D6D0C5" stroke-width="2.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="250" viewBox="0 0 300 250">
+<path d="M124 177 C88 204 48 195 51 162 C54 134 87 127 96 151" fill="none" stroke="#EC95AE" stroke-width="12" stroke-linecap="round"/>
+<path d="M117 70 Q93 42 104 30 Q121 22 138 59 M181 61 Q197 27 216 36 Q231 49 200 77" fill="#EC95AE"/>
+<ellipse cx="119" cy="58" rx="13" ry="19" fill="#D97888"/><ellipse cx="201" cy="55" rx="12" ry="18" fill="#D97888"/>
+<path d="M118 105 Q116 85 128 80 Q151 67 174 81 Q188 91 187 112 L181 191 Q176 214 150 218 Q124 214 118 193Z" fill="#45424C"/>
+<path d="M131 105 Q135 94 151 93 Q167 93 173 105 Q180 123 173 141 Q164 157 146 153 Q128 149 126 130Z" fill="#34333B"/>
+<ellipse cx="139" cy="105" rx="12" ry="17" fill="#FBF8F1"/><ellipse cx="165" cy="104" rx="12" ry="17" fill="#FBF8F1"/>
+<ellipse cx="141" cy="108" rx="5" ry="8" fill="#80523A"/><ellipse cx="163" cy="107" rx="5" ry="8" fill="#80523A"/><circle cx="142" cy="109" r="2.5" fill="#1D1D1F"/><circle cx="164" cy="108" r="2.5" fill="#1D1D1F"/>
+<ellipse cx="153" cy="127" rx="23" ry="16" fill="#3B3941"/><ellipse cx="160" cy="125" rx="10" ry="9" fill="#E8737A"/>
+<path d="M149 138 Q160 145 169 136 M128 128 L105 122 M127 135 L103 139 M179 128 L200 122 M179 135 L201 139" fill="none" stroke="#1D1D1F" stroke-width="2.5" stroke-linecap="round"/>
+<path d="M127 111 Q111 97 105 88 L94 70 M126 109 L112 79 M130 112 L121 76" fill="none" stroke="#45424C" stroke-width="10" stroke-linecap="round"/>
+<path d="M93 77 Q83 66 79 58 Q77 52 82 49 Q87 48 91 55 L94 60 L92 48 Q92 42 97 41 Q103 41 104 48 L106 59 L109 48 Q111 43 116 45 Q121 48 119 54 L115 68 Q111 83 101 86Z" fill="#EC95AE"/>
+<path d="M175 148 Q190 148 194 161 L198 174" fill="none" stroke="#45424C" stroke-width="10" stroke-linecap="round"/>
+<path d="M191 168 L222 173 L207 198Z" fill="#F2BE35"/><path d="M191 168 L222 173" stroke="#D7A53C" stroke-width="4"/>
+<circle cx="204" cy="177" r="3" fill="#FBF8F1"/><circle cx="211" cy="185" r="2.5" fill="#FBF8F1"/>
+<path d="M193 165 Q202 164 205 171 L203 181 Q200 186 194 182 L189 177Z" fill="#EC95AE"/>
+<path d="M137 210 L133 230 M163 210 L167 230" stroke="#34333B" stroke-width="8" stroke-linecap="round"/><ellipse cx="130" cy="232" rx="16" ry="6" fill="#1D1D1F"/><ellipse cx="171" cy="232" rx="16" ry="6" fill="#1D1D1F"/>
+<path d="M126 77 Q121 60 127 45 Q131 30 146 26 Q151 18 162 26 Q177 28 181 46 Q185 60 180 77Z" fill="#FBF8F1"/><path d="M138 68 Q134 48 142 31 M157 67 Q162 43 157 26 M171 67 Q177 44 168 33" fill="none" stroke="#D9D2C2" stroke-width="3" stroke-linecap="round"/><path d="M123 73 Q151 68 184 74 L188 84 Q153 91 120 83Z" fill="#FBF8F1"/>
 </svg>
