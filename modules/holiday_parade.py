@@ -349,7 +349,8 @@ def render_balloon_of_day(config, balloons, weather, night, today, greeting) -> 
     for k, offset in enumerate((-150, -60, 60, 150)):
         _handler(draw, 400 + offset, COATS[k])
     paste_sprite(image, f"{pick['file']}-large", 400, 224, night)
-    _footer(draw, 400, f"Balloon of the day: {pick['name']}", 760, config, size=24)
+    if pick["name"]:
+        _footer(draw, 400, f"Balloon of the day: {pick['name']}", 760, config, size=24)
     draw_weather(image, weather, night, seed=today.toordinal())
     _header(image, christmas_countdown(today), config)
     return image
