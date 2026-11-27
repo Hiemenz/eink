@@ -8,9 +8,12 @@
   <path d="M131 124 Q120 147 124 174 M169 124 Q180 147 176 174" fill="none" stroke="#59646A" stroke-width="4" stroke-linecap="round"/>
   <path d="M138 205 L135 225 Q135 234 145 234 L153 232 L154 211 M166 211 L168 229 Q175 235 185 231 Q190 228 184 221 L172 204" fill="#303940"/>
   <path d="M138 227 Q131 229 131 237 Q135 242 149 241 Q156 239 152 232Z M169 229 Q166 237 174 241 Q188 243 193 237 Q192 231 183 229Z" fill="#E79AA1"/>
-  <!-- one paw raised in a friendly wave -->
-  <path d="M116 136 Q101 130 91 118 L77 99 Q74 94 78 90 Q83 87 87 92 L98 104 L88 85 Q86 79 91 77 Q96 76 99 82 L108 98 L103 80 Q102 74 107 73 Q112 73 114 80 L120 101 Q125 112 132 120Z" fill="#46535A" stroke="#252B31" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M78 97 Q74 91 79 88 Q83 87 87 92 M90 84 Q89 78 94 77 Q98 78 100 83 M104 79 Q103 74 108 74 Q112 75 113 81" fill="none" stroke="#E79AA1" stroke-width="3" stroke-linecap="round"/>
+  <!-- arms: a furry raised forearm with a pink waving paw, and a relaxed second paw -->
+  <path d="M130 130 Q117 132 107 119 L96 104 L108 94 L128 108 L140 119Z" fill="#3C4850" stroke="#252B31" stroke-width="4" stroke-linejoin="round"/>
+  <g transform="translate(15 15) scale(.85)">
+    <path d="M102 105 Q96 101 92 96 L74 77 Q70 72 74 68 Q78 64 83 69 L96 82 L83 62 Q80 57 85 54 Q90 52 94 58 L107 75 L98 54 Q96 48 101 46 Q107 45 110 51 L122 73 L117 54 Q116 48 121 47 Q127 47 129 54 L137 82 Q142 96 132 108 Q119 116 102 105Z" fill="#E79AA1" stroke="#30343A" stroke-width="3.5" stroke-linejoin="round"/>
+    <path d="M88 75 L99 87 M100 64 L111 81 M119 63 L126 81" fill="none" stroke="#CF777F" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
   <!-- head, eyes and muzzle -->
   <path d="M111 103 Q112 81 132 73 Q152 64 174 74 Q193 84 194 106 Q195 133 177 147 Q162 159 143 152 Q118 145 111 124Z" fill="#303B42" stroke="#252B31" stroke-width="4"/>
   <ellipse cx="137" cy="104" rx="16" ry="22" fill="#FBF8F1"/><ellipse cx="169" cy="103" rx="16" ry="22" fill="#FBF8F1"/>
@@ -21,6 +24,10 @@
   <ellipse cx="157" cy="124" rx="12" ry="11" fill="#E27678"/>
   <path d="M144 137 Q156 148 170 136" fill="none" stroke="#171B20" stroke-width="3.5" stroke-linecap="round"/>
   <path d="M132 129 L106 122 M132 136 L104 138 M179 129 L204 121 M179 136 L207 139" fill="none" stroke="#CFD0CA" stroke-width="2" stroke-linecap="round"/>
+  <!-- second arm bends out from the shoulder and rests against the belly -->
+  <path d="M177 145 Q188 148 187 158 L181 174" fill="none" stroke="#303B42" stroke-width="13" stroke-linecap="round"/>
+  <path d="M181 166 Q190 169 187 178 L182 189 Q180 194 174 191 L170 188 Q167 185 170 179 L174 171Z" fill="#E79AA1" stroke="#30343A" stroke-width="3"/>
+  <path d="M175 181 L181 183" fill="none" stroke="#CF777F" stroke-width="2.5" stroke-linecap="round"/>
   <!-- tall white pleated toque -->
   <path d="M128 78 Q119 63 124 42 Q128 25 142 20 Q150 12 160 20 Q175 21 181 39 Q186 56 179 78Z" fill="#FBF8F1" stroke="#D6D0C5" stroke-width="3"/>
   <path d="M139 70 Q135 46 143 24 M157 69 Q161 42 157 18 M171 68 Q178 43 168 25" fill="none" stroke="#E2DCD2" stroke-width="3" stroke-linecap="round"/>
