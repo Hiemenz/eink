@@ -23,3 +23,6 @@
   or black echo; use white there.
 - **A panel-wide color swap hits icons too.** Turning white into the alert color hollowed the moon to a
   thin ring. After recoloring, check every drawn icon, not just the text.
+
+## Check origin/main before describing what the project contains
+- Run `git fetch` and compare the checked-out branch with `origin/main` first; a feature branch can be stale right after a merge (a 30-balloon branch was shown when main had 74).

@@ -267,6 +267,36 @@ function woodenBoy(){          /* from the 1883 book: flowered paper suit, bark 
    +L("M-16 -16 Q0 -2 18 -16",INK,4.5)+P("M6 -42 L122 -34 Q130 -30 122 -26 L6 -28 Z",WOOD)+L("M14 -34 H112",GRAIN,2.5)
    +edged(P("M-44 -62 Q-30 -92 -8 -122 Q4 -138 14 -118 Q34 -88 44 -62 Q0 -80 -44 -62 Z","#F6E3C4"))+dots([[-16,-88,4],[8,-104,3],[18,-84,4],[-2,-94,2.5]],TAN);
 }
+/* a green farm tractor with yellow wheels, facing right */
+function tractor(){
+  const wheel=(x,y,r)=>C(x,y,r,INK)+C(x,y,r*.62,YEL)+C(x,y,r*.2,PINE)+[0,60,120,180,240,300].map(a=>C((x+Math.cos(a*Math.PI/180)*r*.4).toFixed(1),(y+Math.sin(a*Math.PI/180)*r*.4).toFixed(1),r*.07,INK)).join("");
+  return R(-98,-100,100,106,8,PINE)+R(-86,-86,76,58,4,SKY)+R(-52,-86,8,58,0,PINE)+R(-108,-114,122,18,8,GRN)
+   +R(66,-82,12,62,3,INK)+R(62,-90,20,12,4,INK)
+   +P("M-24 -22 H112 Q128 -22 128 -6 V56 H-24 Z",GRN)+R(-24,6,152,13,0,YEL)+L("M74 28 V48 M88 28 V48 M102 28 V48",PINE,6)+R(116,-14,13,14,3,YEL)
+   +R(-104,18,190,48,10,PINE)+P("M-134 52 Q-130 -14 -64 -14 Q2 -14 6 52 L-12 52 Q-18 4 -64 4 Q-112 4 -116 52 Z",GRN)
+   +wheel(-64,60,62)+wheel(90,84,38)+eyes(62,-8,34,11)+L("M50 36 Q63 46 76 36",INK,5);
+}
+/* a red toadstool with white spots and a friendly face on the stem */
+function mushroom(){
+  return P("M-50 4 Q-68 82 -54 106 Q-40 124 0 124 Q40 124 54 106 Q68 82 50 4 Z","#F6E3C4")
+   +E(0,12,104,22,"#D9D2C2")+L("M-72 14 L-46 24 M-30 20 L-18 30 M30 20 L18 30 M72 14 L46 24",TAN,4)
+   +P("M-128 6 Q-122 -116 0 -118 Q122 -116 128 6 Q66 26 0 16 Q-66 26 -128 6 Z",RED)
+   +edged(E(-72,-44,23,19,CREAM,-24)+E(6,-82,30,20,CREAM)+E(70,-36,22,24,CREAM,18)+E(-16,-26,18,14,CREAM)+E(-108,-6,12,11,CREAM)+E(108,-8,11,11,CREAM))
+   +eyes(0,62,42,13)+L("M-18 90 Q0 106 18 90",INK,5)+dots([[-38,86,9],[38,86,9]],PINK)
+   +E(-62,114,22,12,GRN,24)+E(62,114,22,12,GRN,-24);
+}
+/* a scuba diver: yellow tank, round mask, snorkel, blue flippers and rising bubbles */
+function scubaDiver(){
+  const SUIT="#2F343D";
+  const bubble=(x,y,r)=>C(x,y,r,SKY)+C(x-r*.3,y-r*.3,r*.34,CREAM);
+  return R(38,-22,38,92,18,YEL)+R(47,-36,20,18,4,GRY)+R(38,6,38,10,0,ORG)
+   +L("M-24 62 L-52 100",SUIT,28)+L("M24 62 L52 100",SUIT,28)+P("M-50 92 L-112 116 Q-108 138 -78 132 L-38 112 Z",BLUE)+P("M50 92 L112 116 Q108 138 78 132 L38 112 Z",BLUE)
+   +L("M-34 14 L-76 42 L-96 10",SUIT,23)+L("M34 14 L78 34 L108 6",SUIT,23)+C(-98,4,15,SKIN)+C(111,1,15,SKIN)
+   +R(-46,-6,92,80,32,SUIT)+L("M-30 6 L-22 62 M30 6 L22 62",YEL,8)+R(-44,54,88,13,5,INK)+R(-12,51,24,19,4,GRY)
+   +C(0,-52,56,SUIT)+E(0,-40,40,38,SKIN)+R(-48,-78,96,46,22,YEL)+R(-39,-70,78,30,14,SKY)+eyes(0,-55,34,10)
+   +L("M-16 -20 Q0 -6 16 -20",INK,5)+L("M24 -14 Q64 -8 62 -52 L62 -112",ORG,11)+R(55,-124,14,18,4,RED)
+   +bubble(-82,-62,13)+bubble(-100,-96,9)+bubble(-76,-120,6);
+}
 const BALLOONS=[
  ["Felix the Cat",()=>referenceBalloon("felix-the-cat")],["Mickey Mouse",()=>referenceBalloon("mickey-mouse")],["Pinocchio",()=>referenceBalloon("pinocchio")],["Harold the Fireman",()=>referenceBalloon("harold-the-fireman")],["Mighty Mouse",()=>referenceBalloon("mighty-mouse")],["Popeye",()=>referenceBalloon("popeye")],
  ["Aviator Snoopy",()=>referenceBalloon("aviator-snoopy")],["Smokey Bear",()=>referenceBalloon("smokey-bear")],["Linus the Lion",()=>referenceBalloon("linus-the-lion")],["Kermit the Frog",()=>referenceBalloon("kermit-the-frog")],["Superman",()=>referenceBalloon("superman")],["Spider-Man",()=>referenceBalloon("spider-man")],
@@ -277,7 +307,8 @@ const BALLOONS=[
  ["Tom Turkey",turkey],["Melody Melon",watermelon],["Twinkle",twinkle],["",steamboat],["Snowdrift Sam",snowman],["Maple",maple],["Major Walnut",nutcracker],["Mitzi & Pom",mitzi],
  ["Pip the Woodpecker",woodpecker],["Jingle",jingle],["",sailor],["Chef Biscuit",biscuit],["Bubbles",bubbles],["Batman Building",()=>`<g transform="scale(.9)">${batmanBuilding()}</g>`],["Sprocket",sprocket],["Juniper",juniper],
  ["",silentCat],["Peppermint Pete",pete],["Ginger the Baker",baker],["Doodle",doodle,6],["Nana Fruitcake",fruitcake],["Waddle",penguin],["Cozy Cocoa",cocoa],
- ["",woodenBoy],["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")]];
+ ["",woodenBoy],["B-2 Spirit",b2],["Plum the Owl",owl],["Sweetie Pie",pie],["Raccoon Band: Drum",()=>raccoon("drum")],["Raccoon Band: Horn",()=>raccoon("horn")],["Raccoon Band: Cymbals",()=>raccoon("cymbals")],
+ ["John Deere Tractor",tractor],["Mushroom",mushroom],["Scuba Diver",scubaDiver]];
 
 /* ================= Franklin, Tennessee ================= */
 const STRIP=5200,PAN=.3;   /* one strip of downtown, and how fast it scrolls past */

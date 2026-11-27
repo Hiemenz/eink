@@ -294,5 +294,17 @@
  {
   "name": "Raccoon Band: Cymbals",
   "file": "raccoon-band-cymbals"
+ },
+ {
+  "name": "John Deere Tractor",
+  "file": "john-deere-tractor"
+ },
+ {
+  "name": "Mushroom",
+  "file": "mushroom"
+ },
+ {
+  "name": "Scuba Diver",
+  "file": "scuba-diver"
  }
 ]
