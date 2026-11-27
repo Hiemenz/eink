@@ -1823,6 +1823,15 @@ class TestRoadsOverRadar:
         alpha = np.array(W_MOD._fetch_osm_roads(35.0, -86.0, 7, 512, 520, 480))[:, :, 3]
         assert (alpha[:, 260] > 0).sum() == 1
 
+    def test_roads_are_wider_only_where_there_is_no_echo(self):
+        under = Image.new("RGBA", (20, 11), (255, 255, 255, 255))
+        ImageDraw.Draw(under).rectangle([10, 0, 19, 10], fill=(255, 255, 0, 255))
+        roads = Image.new("RGBA", (20, 11), (0, 0, 0, 0))
+        ImageDraw.Draw(roads).line([(0, 5), (19, 5)], fill=(0, 0, 0, 255), width=1)
+        alpha = np.array(W_MOD._widen_roads_where_clear(roads, under))[:, :, 3]
+        assert (alpha[:, 4] > 0).sum() == 2    # blank map
+        assert (alpha[:, 15] > 0).sum() == 1   # over rain
+
     def test_lines_turn_white_over_blue_and_stay_black_elsewhere(self):
         under = Image.new("RGBA", (30, 10), (255, 255, 0, 255))
         ImageDraw.Draw(under).rectangle([10, 0, 19, 9], fill=(0, 0, 255, 255))

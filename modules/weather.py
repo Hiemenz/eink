@@ -1316,6 +1316,7 @@ def _fetch_osm_roads(
 
     Drawn NWS-style, to sit on top of the radar: interstates only, as 1px black
     lines, thin enough to orient by without covering the precipitation.
+    `_widen_roads_where_clear` makes them 2px where the map is blank.
     """
     import json, time
 
@@ -1424,6 +1425,24 @@ def _fetch_osm_roads(
         if len(pts) >= 2:
             draw.line(pts, fill=(0, 0, 0, 255), width=1)
     return img
+
+
+def _widen_roads_where_clear(roads: Image.Image, under: Image.Image) -> Image.Image:
+    """Thicken the 1px road layer to 2px wherever there's no echo.
+
+    Over echo the roads stay thin so the rain shows. "No echo" is judged on the
+    colors the radar will have after the e-ink remap.
+    """
+    inked = np.array(_remap_radar_seven_color(under.convert("RGB")))
+    clear = (inked == (255, 255, 255)).all(axis=-1)
+    out = np.array(roads)
+    road = out[:, :, 3] > 0
+    grown = road.copy()
+    grown[1:, :] |= road[:-1, :]  # one pixel down
+    grown[:, 1:] |= road[:, :-1]  # and one right
+    extra = clear & grown & ~road
+    out[extra] = (0, 0, 0, 255)
+    return Image.fromarray(out, "RGBA")
 
 
 def _contrast_lines(lines: Image.Image, under: Image.Image) -> Image.Image:
@@ -2473,7 +2492,7 @@ def _fetch_rainviewer_image(
             return None, None
         km_per_px = (40075.016686 * math.cos(math.radians(lat))) / (2 ** zoom) / _RV_TILE_SIZE
 
-    # Road overlay — OSM interstate geometry as thin black lines
+    # Road overlay — OSM interstate geometry as black lines
     show_map = cfg.get("rainviewer_map_overlay", True)
     road_img = None
     if show_map:
@@ -2498,7 +2517,7 @@ def _fetch_rainviewer_image(
     if show_map:
         _draw_state_borders(lines, lat, lon, zoom)
     if road_img is not None:
-        lines.alpha_composite(road_img)
+        lines.alpha_composite(_widen_roads_where_clear(road_img, canvas))
     canvas.alpha_composite(_contrast_lines(lines, canvas))
     if show_map:
         _draw_city_labels(canvas, lat, lon, zoom, cfg.get("radar_cities") or [])
